@@ -21,8 +21,8 @@ from sqlalchemy.pool import NullPool
 from agent_server.infra.db.engine import resolve_db_url
 
 BASELINE_V2_REVISION = "v2_0"
-CURRENT_SCHEMA_REVISION = "v2_53"
-CURRENT_SCHEMA_VERSION = "2.53"
+CURRENT_SCHEMA_REVISION = "v2_54"
+CURRENT_SCHEMA_VERSION = "2.54"
 POSTGRES_MIGRATION_LOCK_ID = 0x414147454E545332
 DEFAULT_MIGRATION_LOCK_TIMEOUT_SECONDS = 120.0
 
@@ -571,6 +571,17 @@ def _classify_sync(connection) -> UnversionedDatabase:
                 if revision != "v2_52" or not hourly_tables.issubset(tables):
                     return UnversionedDatabase("unknown")
                 revision = "v2_53"
+            deletion_columns = {
+                "history_deletions": {"session_id", "user_id", "source_key", "deletion_id", "deleted_at"},
+                "history_deletion_audit": {"id", "user_id", "object_type", "object_id", "session_count", "cleanup_pending", "deleted_at"},
+            }
+            if set(deletion_columns) & tables:
+                if revision != "v2_53" or not all(
+                    required.issubset(_column_names(inspector, table))
+                    for table, required in deletion_columns.items()
+                ):
+                    return UnversionedDatabase("unknown")
+                revision = "v2_54"
             return UnversionedDatabase("v2", revision)
         if "approvals" in tables:
             if {"presence_instance_id", "presence_connection_id"}.issubset(

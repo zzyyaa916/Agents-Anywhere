@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Archive, ArchiveRestore, Copy, FolderOpen, Pencil, Pin, PinOff } from "lucide-react"
+import { Archive, ArchiveRestore, Copy, FolderOpen, Pencil, Pin, PinOff, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import {
   ContextMenu,
@@ -35,6 +35,7 @@ import {
 import { copyText } from "@/lib/clipboard"
 import { cn } from "@/lib/utils"
 import { useTranslations } from "next-intl"
+import { HistoryDeleteDialog } from "@/components/sidebar/history-delete-dialog"
 import { useWorkspace } from "@/components/workspace-context"
 
 
@@ -71,6 +72,7 @@ export function SessionSidebarItem({
   const deviceLabel = previousConnectorId === item.connectorId ? "^" : deviceName
   const contextLabel = [projectName, deviceLabel].filter(Boolean).join(" · ")
   const showContext = sidebarShowsSessions && !sidebarCompactSessions && !inset && Boolean(contextLabel)
+  const [deleteOpen, setDeleteOpen] = React.useState(false)
   const [renameOpen, setRenameOpen] = React.useState(false)
   const [titleDraft, setTitleDraft] = React.useState(item.title ?? "")
   const [renaming, setRenaming] = React.useState(false)
@@ -260,8 +262,15 @@ export function SessionSidebarItem({
             <Copy className="size-4" />
             {t("actions.copySessionId")}
           </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem variant="destructive" onSelect={() => setDeleteOpen(true)}>
+            <Trash2 className="size-4" />
+            {t("historyDelete.confirm")}
+          </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
+
+      <HistoryDeleteDialog open={deleteOpen} onOpenChange={setDeleteOpen} id={item.id} name={item.title || item.id} />
 
       <Dialog open={renameOpen} onOpenChange={(open: boolean) => {
         if (open) {

@@ -1379,6 +1379,21 @@
       "hiddenToast": "Tokens Anywhere hidden. Show it again in Settings → Appearance.",
       "shownToast": "Tokens Anywhere is now shown in the sidebar.",
       "unavailable": "Tokens Anywhere is not configured yet."
+    },
+    "historyDelete": {
+      "projectTitle": "Delete project",
+      "sessionTitle": "Delete session",
+      "projectDescription": "Permanently delete “{name}” and all {count} sessions, messages and attachments. This cannot be undone. Type the project name to confirm.",
+      "sessionDescription": "Permanently delete “{name}” and its messages, timeline and attachments. This cannot be undone.",
+      "confirmName": "Type the project name to confirm deletion",
+      "confirm": "Delete",
+      "deleting": "Deleting…",
+      "loading": "Checking the total session count…",
+      "previewFailed": "Could not check the session count. Please retry.",
+      "running": "A session is running. Stop it first.",
+      "countChanged": "The session count changed. Check again and confirm.",
+      "failed": "Deletion did not finish. Please retry.",
+      "reload": "Check again"
     }
   },
   "desktopConnector": {

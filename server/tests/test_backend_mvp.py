@@ -12119,10 +12119,10 @@ def test_project_crud_adopts_the_workspace_project_and_enforces_ownership(
         ).status_code
         == 404
     )
-    assert client.delete(f"/projects/{project_id}", headers=other_headers).status_code == 404
+    assert client.delete(f"/projects/{project_id}", headers=other_headers).status_code == 403
 
 
-def test_project_delete_is_refused_while_sessions_still_resolve_to_it(tmp_path):
+def test_project_delete_cascades_bound_sessions(tmp_path):
     client = make_client(tmp_path)
     connector_id, _, session_id, headers = create_connector_and_session(client)
     created = client.post(
@@ -12143,25 +12143,11 @@ def test_project_delete_is_refused_while_sessions_still_resolve_to_it(tmp_path):
         project_id=project_id,
     )
 
-    # sessions.project_id is ON DELETE RESTRICT, so the delete is refused while
-    # any session still points at the project; nothing is unbound implicitly.
     deleted = client.delete(f"/projects/{project_id}", headers=headers)
-    assert deleted.status_code == 409, deleted.text
-    assert "archive or move them" in deleted.json()["detail"]
-
-    projects = client.get("/projects", headers=headers).json()["projects"]
-    assert [item["id"] for item in projects] == [project_id]
-    bound_session = client.get(
-        f"/sessions/{bound_session_id}/meta",
-        headers=headers,
-    )
-    assert bound_session.status_code == 200
-    assert bound_session.json()["session"]["projectId"] == project_id
-    standalone_session = client.get(
-        f"/sessions/{session_id}/meta",
-        headers=headers,
-    )
-    assert standalone_session.status_code == 200
+    assert deleted.status_code == 200, deleted.text
+    assert deleted.json()["deletedSessions"] >= 1
+    assert client.get(f"/sessions/{bound_session_id}/meta", headers=headers).status_code == 404
+    assert client.get("/projects", headers=headers).json()["projects"] == []
 
 
 def test_project_sessions_list_and_archive_all_are_scoped_to_project(tmp_path):

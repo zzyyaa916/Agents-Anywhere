@@ -203,6 +203,7 @@ class ProjectListResponse(BaseModel):
 class ProjectDeleteResponse(BaseModel):
     projectId: str
     detachedSessions: int
+    deletedSessions: int = 0
     serverTime: str
 
 

@@ -75,6 +75,9 @@ from agent_server.core.runtime_identity import (
     resolve_session_runtime_binding,
 )
 from agent_server.core.utc import utc_now
+from agent_server.core.history_deletion import HistoryDeletionConflict
+from agent_server.services.history_deletion import delete_history_data
+from agent_server.infra.terminal_broker import TerminalBroker
 from agent_server.deps import (
     current_user_id,
     get_catalog_service,
@@ -85,6 +88,7 @@ from agent_server.deps import (
     get_session_run_service,
     get_session_runtime_state_cache,
     get_store,
+    get_terminal_broker,
     get_timeline_broker,
     get_timeline_write_buffer,
     get_usage_recorder,
@@ -1979,3 +1983,27 @@ def session_with_runtime_state(
             "status": state.status,
         }
     )
+
+
+@router.delete("/{session_id}", status_code=204)
+async def delete_session_history(
+    session_id: str,
+    user_id: str = Depends(current_user_id),
+    store: Store = Depends(get_store),
+    broker: TimelineBroker = Depends(get_timeline_broker),
+    timeline_buffer: TimelineWriteBuffer = Depends(get_timeline_write_buffer),
+    runtime_state_cache: SessionRuntimeStateCache = Depends(get_session_runtime_state_cache),
+    terminals: TerminalBroker = Depends(get_terminal_broker),
+) -> None:
+    try:
+        await delete_history_data(session_id, user_id=user_id, project=False, store=store,
+            runtime_state_cache=runtime_state_cache, timeline_buffer=timeline_buffer, terminals=terminals)
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="forbidden") from None
+    except KeyError:
+        raise HTTPException(status_code=404, detail="session not found") from None
+    except HistoryDeletionConflict as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
+    except Exception:
+        raise HTTPException(status_code=503, detail={"code": "deletion_cleanup_failed", "message": "删除清理未完成，请重试"}) from None
+    await publish_dashboard_changed(store, broker, user_id=user_id, reason="session.deleted")

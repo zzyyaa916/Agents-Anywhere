@@ -1020,9 +1020,9 @@ def test_unversioned_runtime_schema_is_classified_by_actual_columns(tmp_path,
     )
 
 
-def test_current_schema_version_is_v2_53() -> None:
-    assert CURRENT_SCHEMA_REVISION == "v2_53"
-    assert CURRENT_SCHEMA_VERSION == "2.53"
+def test_current_schema_version_is_v2_54() -> None:
+    assert CURRENT_SCHEMA_REVISION == "v2_54"
+    assert CURRENT_SCHEMA_VERSION == "2.54"
 
 
 def test_v2_49_tracks_inventory_scans_without_rewriting_sessions(
@@ -2549,5 +2549,29 @@ def test_v2_35_replaces_the_session_item_time_index(fresh_database_url) -> None:
         assert "COALESCE(item_time, ''::text) DESC" in definition
         assert "order_seq DESC" in definition
         assert "updated_seq DESC" in definition
+    finally:
+        engine.dispose()
+
+
+
+def test_v2_54_history_deletion_metadata_upgrade_and_downgrade(fresh_database_url):
+    url = fresh_database_url
+    upgrade_database(db_url=url, revision="v2_53")
+    upgrade_database(db_url=url)
+    engine = create_engine(_sync_url(url))
+    try:
+        inspector = inspect(engine)
+        assert {"history_deletions", "history_deletion_audit"} <= set(inspector.get_table_names())
+        columns = {item["name"] for item in inspector.get_columns("history_deletions")}
+        assert columns == {"session_id", "user_id", "source_key", "deletion_id", "deleted_at"}
+        assert not any("token" in column or "content" in column for column in columns)
+        assert not inspector.get_unique_constraints("history_deletions")
+    finally:
+        engine.dispose()
+    command.downgrade(_alembic_config(url), "v2_53")
+    engine = create_engine(_sync_url(url))
+    try:
+        assert "history_deletions" not in inspect(engine).get_table_names()
+        assert "history_deletion_audit" not in inspect(engine).get_table_names()
     finally:
         engine.dispose()

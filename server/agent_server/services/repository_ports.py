@@ -697,3 +697,23 @@ class ConnectorTerminalRepository(Protocol):
 
 TerminalRepository = SessionLookupRepository
 WorkspaceRepository = SessionLookupRepository
+
+
+class HistoryDeletionFiles(Protocol):
+    async def delete_session(self, session_id: str) -> None: ...
+
+
+class HistoryDeletionRepository(Protocol):
+    files: HistoryDeletionFiles
+
+    def connector_lifecycle(self, connector_id: str) -> AbstractAsyncContextManager[None]: ...
+
+    async def history_deletion_target(self, object_id: str, *, user_id: str, project: bool) -> tuple[str, list[str]]: ...
+
+    async def delete_history(self, object_id: str, *, user_id: str, project: bool,
+                             expected_count: int | None = None, cached_busy: set[str] | None = None) -> list[str]: ...
+
+    async def pending_history_cleanup(self, *, object_id: str | None = None, project: bool | None = None,
+                                      user_id: str | None = None) -> list[dict[str, Any]]: ...
+
+    async def finish_history_cleanup(self, deletion_id: str) -> None: ...

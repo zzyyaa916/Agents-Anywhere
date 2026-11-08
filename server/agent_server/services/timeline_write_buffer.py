@@ -313,6 +313,7 @@ class TimelineWriteBuffer:
             raise RuntimeError("timeline write buffer is closing")
         lane = await self._lane(session_id)
         async with lane.lock, self._sequences.session_fence(session_id):
+            await self._store.get_session_seq(session_id)
             probe.mark("lock")
             server_epoch, epoch_changed = await self._sequences.observe_server_epoch(
                 session_id

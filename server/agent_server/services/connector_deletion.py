@@ -74,6 +74,15 @@ class ConnectorDeletionRecovery:
         self._broker = broker
 
     async def run_once(self) -> None:
+        from agent_server.services.history_deletion import cleanup_deleted_history
+
+        pending = getattr(self._store, "pending_history_cleanup", None)
+        if callable(pending):
+            for audit in await pending():
+                try:
+                    await cleanup_deleted_history(self._store, self._timeline_buffer, self._runtime_state_cache, [audit], self._terminals)
+                except Exception:
+                    logger.warning("history deletion cleanup deferred object_id={}", audit["object_id"])
         # Only explicit pending deletions (2), never legacy revoked credentials (1).
         for connector_id, user_id in await self._store.pending_connector_deletions():
             try:

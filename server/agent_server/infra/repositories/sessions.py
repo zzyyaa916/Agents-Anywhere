@@ -318,9 +318,11 @@ class SessionRepositoryMixin:
             )
             if user_id is not None:
                 connector_q = connector_q.where(connectors_t.c.user_id == user_id)
-            connector = (await conn.execute(connector_q)).first()
+            connector = (await conn.execute(connector_q.with_for_update(read=True))).first()
             if connector is None:
                 raise KeyError(connector_id)
+            await self.require_history_source_available(conn, session_id=session_id, connector_id=connector_id,
+                runtime_id=str(identity.runtime_id), external_session_id=external_session_id)
             if not project_id:
                 raise ValueError("project_id is required for every session")
             project_q = select(
@@ -490,11 +492,13 @@ class SessionRepositoryMixin:
                         connectors_t.c.status,
                         connectors_t.c.user_id,
                         connectors_t.c.device_os,
-                    ).where(connectors_t.c.id == connector_id, connectors_t.c.revoked == 0)
+                    ).where(connectors_t.c.id == connector_id, connectors_t.c.revoked == 0).with_for_update(read=True)
                 )
             ).first()
             if connector is None:
                 raise KeyError(connector_id)
+            await self.require_history_source_available(conn, session_id=session_id, connector_id=connector_id,
+                runtime_id=runtime_id, external_session_id=external_session_id)
             existing = (
                 await conn.execute(
                     select(sessions_t.c.id).where(sessions_t.c.id == session_id)

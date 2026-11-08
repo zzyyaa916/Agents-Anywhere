@@ -21,6 +21,7 @@ from agent_server.core.capabilities import (
     SESSION_SEND_MESSAGE,
     SESSION_STEER,
 )
+from agent_server.core.history_deletion import SessionDeletedError
 from agent_server.core.models import (
     InlineAttachmentRef,
     MessageCreateRequest,
@@ -162,16 +163,19 @@ class SessionRunService:
 
         connector_result = None
         if payload.externalSessionId is not None:
-            session = await self._store.create_session(
-                connector_id=payload.connectorId,
-                project_id=project_id,
-                user_id=user_id,
-                runtime=payload.runtime,
-                runtime_id=runtime_id,
-                external_session_id=payload.externalSessionId,
-                title=payload.title,
-                cwd=payload.cwd,
-            )
+            try:
+                session = await self._store.create_session(
+                    connector_id=payload.connectorId,
+                    project_id=project_id,
+                    user_id=user_id,
+                    runtime=payload.runtime,
+                    runtime_id=runtime_id,
+                    external_session_id=payload.externalSessionId,
+                    title=payload.title,
+                    cwd=payload.cwd,
+                )
+            except SessionDeletedError:
+                raise SessionRunConflictError({"code": "session_deleted", "message": "session was deleted"}) from None
             return {"session": session, "connectorResult": connector_result}
 
         raise SessionRunInvalidConfigError(
@@ -687,13 +691,17 @@ class SessionRunService:
             params["attachments"] = attachment_payloads
             params["timelineAttachments"] = [_timeline_attachment_payload(item) for item in attachment_payloads]
 
-        await self._store.start_active_run(
-            session_id=session_id,
-            runtime=session.runtime,
-            runtime_id=_session_runtime_id(session),
-            external_session_id=session.externalSessionId,
-            params=params,
-        )
+        try:
+            await self._store.start_active_run(
+                session_id=session_id,
+                runtime=session.runtime,
+                runtime_id=_session_runtime_id(session),
+                external_session_id=session.externalSessionId,
+                params=params,
+            )
+        except KeyError:
+            raise SessionRunNotFoundError("session not found") from None
+
         try:
             result = await self._manager.request(
                 session.connectorId,

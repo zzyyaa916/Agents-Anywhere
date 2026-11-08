@@ -12,6 +12,7 @@ from agent_server.core.catalogs import (
     validate_model_catalog,
     validate_permission_catalog,
 )
+from agent_server.core.history_deletion import SessionDeletedError
 from agent_server.core.models import (
     NoticeIn,
     SessionStatus,
@@ -86,6 +87,7 @@ class ConnectorNotificationService:
         *,
         usage_recorder: UsageRecorder | NullUsageRecorder | None = None,
     ) -> None:
+        self._store = store
         self._realtime = realtime
         usage = usage_recorder or NullUsageRecorder()
         self._handlers = (
@@ -111,6 +113,12 @@ class ConnectorNotificationService:
         method: str,
         params: dict[str, Any],
     ) -> IngestEffect:
+        deleted = getattr(self._store, "history_source_deleted", None)
+        if callable(deleted) and isinstance(params.get("sessionId"), str):
+            if await deleted(session_id=params["sessionId"], connector_id=connector_id,
+                             runtime_id=params.get("runtimeId") or params.get("runtime"),
+                             external_session_id=params.get("externalSessionId")):
+                return IngestEffect()
         if method != "session.turnEnded":
             params = _without_runtime_turn_ids(params)
         if method == "approval.requested":
@@ -375,7 +383,7 @@ class SessionNotificationHandler:
                     last_activity_at=params.get("lastActivityAt"),
                     source_state=None,
                 )
-            except MissingWorkspaceError:
+            except (MissingWorkspaceError, SessionDeletedError):
                 return IngestEffect()
             except ValueError as exc:
                 raise NotificationValidationError(
@@ -449,7 +457,7 @@ class SessionSourceNotificationHandler:
                     runtime_id=runtime_id,
                     external_session_id=external_session_id,
                 )
-            except MissingWorkspaceError:
+            except (MissingWorkspaceError, SessionDeletedError):
                 return IngestEffect()
             previous_session = None
         else:
@@ -631,7 +639,7 @@ class SessionStateNotificationHandler:
                     runtime_id=runtime_id,
                     external_session_id=external_session_id,
                 )
-            except MissingWorkspaceError:
+            except (MissingWorkspaceError, SessionDeletedError):
                 return IngestEffect()
             except ValueError as exc:
                 raise NotificationValidationError(
@@ -758,7 +766,7 @@ class SessionTurnEndedNotificationHandler:
                     runtime_id=runtime_id,
                     external_session_id=external_session_id,
                 )
-            except MissingWorkspaceError:
+            except (MissingWorkspaceError, SessionDeletedError):
                 return IngestEffect()
             except ValueError as exc:
                 raise NotificationValidationError(

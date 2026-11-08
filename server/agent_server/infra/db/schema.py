@@ -836,3 +836,23 @@ from agent_server.infra.db.goal_schema import define_goal_tables
 session_goals, session_goal_state, goal_operations, goal_event_outbox = (
     define_goal_tables(metadata)
 )
+
+
+history_deletions = Table(
+    "history_deletions", metadata,
+    Column("session_id", Text, primary_key=True),
+    Column("user_id", Text, ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+    Column("source_key", Text, index=True),
+    Column("deletion_id", Text, nullable=False, index=True),
+    Column("deleted_at", Text, nullable=False),
+)
+history_deletion_audit = Table(
+    "history_deletion_audit", metadata,
+    Column("id", Text, primary_key=True),
+    Column("user_id", Text, ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+    Column("object_type", Text, nullable=False),
+    Column("object_id", Text, nullable=False),
+    Column("session_count", Integer, nullable=False),
+    Column("cleanup_pending", Integer, nullable=False, server_default="1"),
+    Column("deleted_at", Text, nullable=False),
+)

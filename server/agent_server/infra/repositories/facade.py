@@ -41,7 +41,11 @@ from agent_server.infra.repositories.runtime_workflows import (
 from agent_server.infra.repositories.tokens_links import TokensLinkRepositoryMixin
 
 
+from agent_server.infra.repositories.history_deletion import HistoryDeletionRepositoryMixin
+
+
 class Store(
+    HistoryDeletionRepositoryMixin,
     GoalRepositoryMixin,
     ChannelReconciliationRepositoryMixin,
     ModelChannelRepositoryMixin,

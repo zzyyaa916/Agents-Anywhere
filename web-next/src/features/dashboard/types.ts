@@ -485,6 +485,7 @@ export type ProjectPatchRequest = {
 export type ProjectDeleteResponse = {
   projectId: string;
   detachedSessions: number;
+  deletedSessions: number;
   serverTime: string;
 };
 

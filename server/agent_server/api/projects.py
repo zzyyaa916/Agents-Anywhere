@@ -14,12 +14,17 @@ from agent_server.core.models import (
     ProjectSessionListResponse,
 )
 from agent_server.core.utc import utc_now
+from agent_server.core.history_deletion import HistoryDeletionConflict
+from agent_server.services.history_deletion import delete_history_data
+from agent_server.infra.terminal_broker import TerminalBroker
 from agent_server.deps import (
     current_user_id,
     get_rpc,
     get_session_runtime_state_cache,
     get_store,
     get_timeline_broker,
+    get_timeline_write_buffer,
+    get_terminal_broker,
 )
 from agent_server.infra.connector_rpc import ConnectorRpcManager
 from agent_server.infra.repositories.facade import Store
@@ -33,6 +38,8 @@ from agent_server.services.session_meta_projection import (
     project_session_meta_for_dashboard,
 )
 from agent_server.services.session_runtime_state_cache import SessionRuntimeStateCache
+
+from agent_server.services.timeline_write_buffer import TimelineWriteBuffer
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -126,30 +133,41 @@ async def patch_project(
     return ProjectResponse(project=project, serverTime=utc_now())
 
 
+@router.get("/{project_id}/deletion-preview")
+async def project_deletion_preview(project_id: str, user_id: str = Depends(current_user_id), store: Store = Depends(get_store)) -> dict:
+    try:
+        _, ids = await store.history_deletion_target(project_id, user_id=user_id, project=True)
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="forbidden") from None
+    except KeyError:
+        raise HTTPException(status_code=404, detail="project not found") from None
+    return {"projectId": project_id, "sessionCount": len(ids), "serverTime": utc_now()}
+
+
 @router.delete("/{project_id}", response_model=ProjectDeleteResponse)
 async def delete_project(
     project_id: str,
+    expectedSessionCount: int | None = Query(default=None, ge=0),
     user_id: str = Depends(current_user_id),
     store: Store = Depends(get_store),
     broker: TimelineBroker = Depends(get_timeline_broker),
+    timeline_buffer: TimelineWriteBuffer = Depends(get_timeline_write_buffer),
+    runtime_state_cache: SessionRuntimeStateCache = Depends(get_session_runtime_state_cache),
+    terminals: TerminalBroker = Depends(get_terminal_broker),
 ) -> ProjectDeleteResponse:
     try:
-        detached = await store.delete_project(project_id, user_id=user_id)
+        ids = await delete_history_data(project_id, user_id=user_id, project=True, store=store,
+            runtime_state_cache=runtime_state_cache, timeline_buffer=timeline_buffer, terminals=terminals, expected_count=expectedSessionCount)
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="forbidden") from None
     except KeyError:
         raise HTTPException(status_code=404, detail="project not found") from None
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    await publish_dashboard_changed(
-        store,
-        broker,
-        user_id=user_id,
-        reason="project.deleted",
-    )
-    return ProjectDeleteResponse(
-        projectId=project_id,
-        detachedSessions=detached,
-        serverTime=utc_now(),
-    )
+    except HistoryDeletionConflict as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
+    except Exception:
+        raise HTTPException(status_code=503, detail={"code": "deletion_cleanup_failed", "message": "删除清理未完成，请重试"}) from None
+    await publish_dashboard_changed(store, broker, user_id=user_id, reason="project.deleted")
+    return ProjectDeleteResponse(projectId=project_id, detachedSessions=0, deletedSessions=len(ids), serverTime=utc_now())
 
 
 @router.get(

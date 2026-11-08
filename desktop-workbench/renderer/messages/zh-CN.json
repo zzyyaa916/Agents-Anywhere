@@ -1379,6 +1379,21 @@
       "hiddenToast": "已在侧边栏隐藏“Tokens Anywhere”，可在设置 → 外观中重新显示。",
       "shownToast": "已在侧边栏显示“Tokens Anywhere”。",
       "unavailable": "Tokens Anywhere 暂未配置。"
+    },
+    "historyDelete": {
+      "projectTitle": "删除项目",
+      "sessionTitle": "删除会话",
+      "projectDescription": "将永久删除「{name}」及其全部 {count} 个会话、消息与附件。此操作无法撤销。请输入项目名确认。",
+      "sessionDescription": "将永久删除「{name}」及其消息、时间线与附件。此操作无法撤销。",
+      "confirmName": "输入项目名确认删除",
+      "confirm": "删除",
+      "deleting": "正在删除…",
+      "loading": "正在核对全部会话数量…",
+      "previewFailed": "无法核对会话数量，请重试。",
+      "running": "会话正在运行，请先停止",
+      "countChanged": "会话数量已变化，请重新核对并确认。",
+      "failed": "删除未完成，请重试。",
+      "reload": "重新核对"
     }
   },
   "desktopConnector": {

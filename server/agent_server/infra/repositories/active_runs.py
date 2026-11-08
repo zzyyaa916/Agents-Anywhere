@@ -5,7 +5,7 @@ from typing import Any
 from sqlalchemy import delete, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from agent_server.infra.db import session_active_runs as active_runs_t
+from agent_server.infra.db import session_active_runs as active_runs_t, sessions
 from agent_server.infra.db.engine import read_connection
 
 
@@ -26,6 +26,8 @@ class ActiveRunRepository:
         params_json: str | None = None,
     ) -> None:
         async with self._engine.begin() as conn:
+            if (await conn.execute(select(sessions.c.id).where(sessions.c.id == session_id).with_for_update(read=True))).first() is None:
+                raise KeyError(session_id)
             existing = (
                 await conn.execute(
                     select(active_runs_t.c.session_id).where(active_runs_t.c.session_id == session_id)

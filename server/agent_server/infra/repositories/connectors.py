@@ -109,6 +109,9 @@ class ConnectorRepositoryMixin:
     ) -> None:
         now = utc_now()
         async with self._engine.begin() as conn:
+            await conn.execute(select(connectors_t.c.id).where(connectors_t.c.id == connector_id).with_for_update(read=True))
+            await self.require_history_source_available(conn, session_id=session_id, connector_id=connector_id,
+                runtime_id="", external_session_id=None)
             existing = (
                 await conn.execute(
                     select(connector_terminal_roots_t.c.terminal_id).where(

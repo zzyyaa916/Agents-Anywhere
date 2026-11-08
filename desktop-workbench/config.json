@@ -6,10 +6,7 @@
   "apiNamespace": "/api/v2",
   "healthTimeoutMs": 10000,
   "updates": {
-    "downloadUrls": {
-      "darwin": "https://www.agents-anywhere.com/api/download/mac/latest?from=update",
-      "win32": "https://www.agents-anywhere.com/api/download/windows/latest?from=update"
-    }
+    "downloadUrls": {}
   },
   "oauth": {
     "protocol": "agents-anywhere-desktop",

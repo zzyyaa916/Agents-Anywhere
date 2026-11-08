@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { HistoryDeleteDialog } from "@/components/sidebar/history-delete-dialog"
 import {
   Archive,
   Folder,
@@ -10,6 +11,7 @@ import {
   Pin,
   PinOff,
   SquarePen,
+  Trash2,
 } from "lucide-react"
 import {
   Collapsible,
@@ -84,6 +86,7 @@ export function ProjectSidebarItem({
   onRenameSession: (sessionId: string, title: string) => Promise<boolean>
 }) {
   const t = useTranslations("dashboard")
+  const [deleteOpen, setDeleteOpen] = React.useState(false)
   const [nameHovered, setNameHovered] = React.useState(false)
   const [optionsOpen, setOptionsOpen] = React.useState(false)
   const [showsAllSessions, setShowsAllSessions] = React.useState(false)
@@ -190,6 +193,10 @@ export function ProjectSidebarItem({
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator />
                 <DropdownMenuGroup>
+                  <DropdownMenuItem variant="destructive" onSelect={() => setDeleteOpen(true)}>
+                    <Trash2 />
+                    {t("historyDelete.confirm")}
+                  </DropdownMenuItem>
                   <DropdownMenuItem variant="destructive" onSelect={onArchiveAll}>
                     <Archive />
                     {t("projects.archiveAll")}
@@ -253,6 +260,7 @@ export function ProjectSidebarItem({
           </SidebarMenu>
         </CollapsibleContent>
       </Collapsible>
+      <HistoryDeleteDialog open={deleteOpen} onOpenChange={setDeleteOpen} id={project.id} name={project.name} project />
     </SidebarMenuItem>
   )
 }

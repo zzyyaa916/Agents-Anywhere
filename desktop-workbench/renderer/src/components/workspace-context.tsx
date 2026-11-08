@@ -399,7 +399,9 @@ export type WorkspaceState = ReturnType<typeof useSessionCreation> & {
   createProject: (payload: ProjectCreateRequest) => Promise<ProjectView | null>
   resolveProject: (payload: Pick<ProjectCreateRequest, "connectorId" | "workspacePath">) => Promise<ProjectView>
   updateProject: (projectId: string, patch: ProjectPatchRequest) => Promise<ProjectView | null>
-  deleteProject: (projectId: string) => Promise<boolean>
+  deleteProject: (projectId: string, expectedSessionCount?: number) => Promise<boolean>
+  deleteSession: (sessionId: string) => Promise<void>
+  projectDeletionCount: (projectId: string) => Promise<number>
   archiveProjectSessions: (projectId: string) => Promise<boolean>
   markSessionRead: (id: string) => void
   upsertSession: (session: RealSessionView) => void
@@ -1228,24 +1230,56 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     return project
   }, [authSession?.accessToken, connectors, projects, upsertProject])
 
-  const deleteProject = React.useCallback(async (projectId: string): Promise<boolean> => {
-    const token = authSession?.accessToken
-    if (!token) return false
-    try {
-      await dashboardApi.deleteProject(token, projectId)
-      if (currentAccessTokenRef.current !== token) return false
-      dashboardDataGenerationRef.current += 1
-      projectDataGenerationRef.current += 1
-      setProjects((current) => current.filter((project) => project.id !== projectId))
-      setSessions((current) => sortSessions(current.map((session) =>
-        session.projectId === projectId ? { ...session, projectId: null } : session,
-      )))
-      void refreshProjects().catch(() => undefined)
-      return true
-    } catch {
-      return false
+  const removeDeletedSessions = React.useCallback((ids: Set<string>) => {
+    const currentRoute = routeRef.current
+    if (currentRoute.page === "session" && ids.has(resolveSessionAlias(currentRoute.sessionId, sessionAliasesRef.current))) {
+      goHome()
     }
-  }, [authSession?.accessToken, refreshProjects, sortSessions])
+    ids.forEach((id) => {
+      clearOptimisticTop(id)
+      pendingSessionIndicatorRef.current.delete(id)
+      sessionStreamSeqRef.current.delete(id)
+    })
+    setSessions((current) => current.filter((session) => !ids.has(session.id)))
+    setOptimisticMessages((current) => {
+      const next = current.filter((message) => !ids.has(message.sessionId))
+      optimisticMessagesRef.current = next
+      return next
+    })
+  }, [clearOptimisticTop, goHome])
+
+  const projectDeletionCount = React.useCallback(async (projectId: string): Promise<number> => {
+    const token = authSession?.accessToken
+    if (!token) throw new Error("Authentication required")
+    return (await dashboardApi.projectDeletionPreview(token, projectId)).sessionCount
+  }, [authSession?.accessToken])
+
+  const deleteSession = React.useCallback(async (sessionId: string): Promise<void> => {
+    const token = authSession?.accessToken
+    if (!token) throw new Error("Authentication required")
+    await dashboardApi.deleteSession(token, sessionId)
+    if (currentAccessTokenRef.current !== token) return
+    dashboardDataGenerationRef.current += 1
+    projectDataGenerationRef.current += 1
+    removeDeletedSessions(new Set([sessionId]))
+    void refreshProjects().catch(() => undefined)
+  }, [authSession?.accessToken, refreshProjects, removeDeletedSessions])
+
+  const deleteProject = React.useCallback(async (projectId: string, expectedSessionCount?: number): Promise<boolean> => {
+    const token = authSession?.accessToken
+    if (!token) throw new Error("Authentication required")
+    await dashboardApi.deleteProject(token, projectId, expectedSessionCount)
+    if (currentAccessTokenRef.current !== token) return false
+    dashboardDataGenerationRef.current += 1
+    projectDataGenerationRef.current += 1
+    const ids = new Set(sessionsRef.current.filter((session) => session.projectId === projectId).map((session) => session.id))
+    removeDeletedSessions(ids)
+    setProjects((current) => current.filter((project) => project.id !== projectId))
+    const currentRoute = routeRef.current
+    if (currentRoute.page === "home" && currentRoute.projectId === projectId) goHome()
+    void refreshProjects().catch(() => undefined)
+    return true
+  }, [authSession?.accessToken, refreshProjects, removeDeletedSessions, goHome])
 
   const archiveProjectSessions = React.useCallback(async (projectId: string): Promise<boolean> => {
     const token = authSession?.accessToken
@@ -1652,6 +1686,8 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     resolveProject,
     updateProject,
     deleteProject,
+    deleteSession,
+    projectDeletionCount,
     archiveProjectSessions,
     markSessionRead,
     upsertSession,
