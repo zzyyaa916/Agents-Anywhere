@@ -1,0 +1,4 @@
+# Contract checksums and generated protocol files must be identical on every OS.
+contracts/** text eol=lf
+web-next/src/generated/** text eol=lf
+desktop-workbench/renderer/src/generated/** text eol=lf
