@@ -23,7 +23,15 @@ const electronCache = join(".cache", "electron");
 
 async function asset(repo, tag, name, directory) {
   await mkdir(directory, { recursive: true });
-  await run("gh", ["release", "download", tag, "--repo", repo, "--pattern", name, "--dir", directory, "--skip-existing"]);
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      await run("gh", ["release", "download", tag, "--repo", repo, "--pattern", name, "--dir", directory, "--skip-existing"]);
+      return;
+    } catch (error) {
+      if (attempt === 3) throw error;
+      await new Promise(resolve => setTimeout(resolve, attempt * 1000));
+    }
+  }
 }
 
 await asset("astral-sh/python-build-standalone", PBS_RELEASE, "SHA256SUMS", pythonCache);
@@ -51,3 +59,20 @@ for (const name of ["LICENSE-MIT", "LICENSE-APACHE"]) {
   await writeFile(join(licenseDirectory, name), Buffer.from(record.content, "base64"));
 }
 console.log("Official native assets cached; Electron hashes verified.");
+
+// Seed the stock builder's documented archive cache; it verifies its pinned hashes.
+const { getCacheDirectory } = createRequire(import.meta.url)("app-builder-lib/out/util/electronGet");
+const builderCache = getCacheDirectory({ allowEnvVarOverride: true });
+const toolsets = process.argv[2] === "win" ? [
+  ["7zip@1.0.0", "7zip-win-x64.tar.gz"],
+  ["winCodeSign-2.6.0", "winCodeSign-2.6.0.7z"],
+  ["nsis-3.0.4.1", "nsis-3.0.4.1.7z"],
+  ["nsis-resources-3.4.1", "nsis-resources-3.4.1.7z"],
+] : [
+  ["7zip@1.0.0", `7zip-darwin-${process.arch === "arm64" ? "arm64" : "x86_64"}.tar.gz`],
+  ["dmg-builder@1.2.5", `dmgbuild-bundle-${process.arch === "arm64" ? "arm64" : "x86_64"}-75c8a6c.tar.gz`],
+];
+for (const [tag, name] of toolsets) {
+  await asset("electron-userland/electron-builder-binaries", tag, name, join(builderCache, tag));
+}
+console.log("Official packaging toolsets cached for local integrity validation.");
