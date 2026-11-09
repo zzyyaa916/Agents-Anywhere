@@ -1,5 +1,7 @@
 # P3 原会话续聊交付核查（本地完成，未部署）
 
+后续范围调整：用户只要求 Windows/macOS 安装包，不再开发或验收 iOS；本文件保留当时验收事实，当前范围与精简结果见 [Ponytail 核查](ponytail-review.md)。
+
 日期：2026-11-09。分支 `feat/con+be+fe+dsk/quota-resume`，继承 P2 `b20cc0a0`；版本 2.5.0。P1 删除在 `fee54aee`，P2 单独分支与报告保留。
 
 ## 改动与需求对应

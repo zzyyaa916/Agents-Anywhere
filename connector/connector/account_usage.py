@@ -227,6 +227,21 @@ async def codex_process(executable="codex"):
                 await process.wait()
 
 
+async def local_output(*args):
+    child = await asyncio.create_subprocess_exec(
+        *args,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    try:
+        output, _ = await asyncio.wait_for(child.communicate(), 5)
+        return output, child.returncode
+    finally:
+        if child.returncode is None:
+            child.kill()
+            await child.wait()
+
+
 class LocalAccountUsage:
     def __init__(
         self,
@@ -274,8 +289,6 @@ class LocalAccountUsage:
             if runtime == "claude_code":
                 return self.claude_identity()
             raise UsageUnavailable("unsupported_auth")
-        except asyncio.CancelledError:
-            raise
         except Exception as exc:  # noqa: BLE001 -- sanitized failure, never propagate upstream bodies
             return {
                 "runtime": runtime,
@@ -290,24 +303,16 @@ class LocalAccountUsage:
 
     async def _claude_token(self):
         if self.platform == "darwin":
-            child = await asyncio.create_subprocess_exec(
+            raw, code = await local_output(
                 "security",
                 "find-generic-password",
                 "-s",
                 "Claude Code-credentials",
                 "-w",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.DEVNULL,
             )
-            try:
-                raw, _ = await asyncio.wait_for(child.communicate(), 5)
-                if child.returncode:
-                    raise UsageUnavailable("account_unavailable")
-                credentials = json.loads(raw)
-            finally:
-                if child.returncode is None:
-                    child.kill()
-                    await child.wait()
+            if code:
+                raise UsageUnavailable("account_unavailable")
+            credentials = json.loads(raw)
         else:
             config = Path(os.environ.get("CLAUDE_CONFIG_DIR", self.home / ".claude"))
             credentials = json.loads((config / ".credentials.json").read_text())
@@ -317,21 +322,10 @@ class LocalAccountUsage:
         return token
 
     async def _claude_usage(self, executable):
-        child = await asyncio.create_subprocess_exec(
-            executable or "claude",
-            "--version",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
-        try:
-            output, _ = await asyncio.wait_for(child.communicate(), 5)
-            match = re.search(rb"\b(\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?)\b", output)
-            if child.returncode or not match:
-                raise UsageUnavailable("unavailable")
-        finally:
-            if child.returncode is None:
-                child.kill()
-                await child.wait()
+        output, code = await local_output(executable or "claude", "--version")
+        match = re.search(rb"\b(\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?)\b", output)
+        if code or not match:
+            raise UsageUnavailable("unavailable")
         token = await self._claude_token()
         try:
             async with self.http_factory(timeout=20, follow_redirects=False) as client:
@@ -396,8 +390,6 @@ class LocalAccountUsage:
                     "failures": 0,
                     "next_attempt_at": now + MINIMUM[runtime],
                 }
-            except asyncio.CancelledError:
-                raise
             except Exception as exc:  # noqa: BLE001 -- sanitized failure, never propagate upstream bodies
                 failures = cached.get("failures", 0) + 1
                 cached.update(
@@ -449,30 +441,22 @@ class AccountUsageRpc:
             value = await self.collector.collect(
                 runtime, params.get("accountKey"), executable
             )
-        aliases = {
+        fields = {
+            "runtime": "runtime",
             "account_key": "accountKey",
             "plan_type": "planType",
             "fetched_at": "fetchedAt",
             "next_attempt_at": "nextAttemptAt",
             "error_code": "errorCode",
+            "stale": "stale",
+            "windows": "windows",
         }
         result = {
-            aliases.get(key, key): val
-            for key, val in value.items()
-            if key
-            in {
-                "runtime",
-                "account_key",
-                "plan_type",
-                "fetched_at",
-                "next_attempt_at",
-                "error_code",
-                "stale",
-                "windows",
-            }
+            wire: value[local] for local, wire in fields.items() if local in value
         }
         if "windows" in result:
-            window_aliases = {
+            fields = {
+                "kind": "kind",
                 "model_scope": "modelScope",
                 "used_percent": "usedPercent",
                 "remaining_percent": "remainingPercent",
@@ -480,7 +464,11 @@ class AccountUsageRpc:
                 "window_duration_mins": "windowDurationMins",
             }
             result["windows"] = [
-                {window_aliases.get(key, key): val for key, val in window.items()}
+                {
+                    wire: window[local]
+                    for local, wire in fields.items()
+                    if local in window
+                }
                 for window in result["windows"]
             ]
         return result

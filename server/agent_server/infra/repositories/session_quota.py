@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 
-from sqlalchemy import select, update
+from sqlalchemy import case, select, update
 
 from agent_server.core.session_quota import effective_quota
 from agent_server.infra.db import schema as db
@@ -60,7 +60,9 @@ class SessionQuotaRepositoryMixin:
             "windows": [w["kind"] for w in windows],
             "resetsAt": max((w["resetsAt"] for w in windows), default=None),
             "externalSessionId": session.externalSessionId,
-            "interruptedAt": previous["interruptedAt"] if previous and previous.get("state") == "limited" else now.isoformat(),
+            "interruptedAt": previous["interruptedAt"]
+            if previous and previous.get("state") == "limited"
+            else now.isoformat(),
         }
         async with self._engine.begin() as conn:
             result = await conn.execute(
@@ -95,14 +97,13 @@ class SessionQuotaRepositoryMixin:
             await conn.execute(
                 update(db.sessions)
                 .where(db.sessions.c.id == session_id)
-                .values(quota_json=json.dumps(quota))
-            )
-            await conn.execute(
-                update(db.sessions)
-                .where(
-                    db.sessions.c.id == session_id, db.sessions.c.status == "limited"
+                .values(
+                    quota_json=json.dumps(quota),
+                    status=case(
+                        (db.sessions.c.status == "limited", "idle"),
+                        else_=db.sessions.c.status,
+                    ),
                 )
-                .values(status="idle")
             )
             await self._bump_session(conn, session_id)
         return quota

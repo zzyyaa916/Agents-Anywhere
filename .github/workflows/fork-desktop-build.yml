@@ -15,7 +15,7 @@ jobs:
         include:
           - os: macos-14
             platform: mac
-            architecture: arm64
+            architecture: universal
           - os: windows-latest
             platform: win
             architecture: x64
@@ -41,6 +41,23 @@ jobs:
       - name: Build with the official native packaging script
         working-directory: desktop-workbench
         run: corepack yarn dist:${{ matrix.platform }} --${{ matrix.architecture }}
+      - name: Check installer output
+        shell: bash
+        working-directory: desktop-workbench
+        run: |
+          node --input-type=module -e '
+            import { readdirSync, statSync, readFileSync, writeFileSync } from "node:fs";
+            import { createHash } from "node:crypto";
+            const extension = process.platform === "win32" ? ".exe" : ".dmg";
+            const files = readdirSync("release").filter(name => name.endsWith(extension));
+            if (!files.length) throw new Error(`No ${extension} installer produced`);
+            const checksums = files.map(name => {
+              const path = `release/${name}`;
+              if (!statSync(path).size) throw new Error(`Empty installer: ${name}`);
+              return `${createHash("sha256").update(readFileSync(path)).digest("hex")}  ${name}`;
+            });
+            writeFileSync("release/SHA256SUMS.txt", checksums.join("\n") + "\n");
+          '
       - name: Keep test installers for review
         uses: actions/upload-artifact@v4
         with:
@@ -48,5 +65,6 @@ jobs:
           path: |
             desktop-workbench/release/*.dmg
             desktop-workbench/release/*.exe
+            desktop-workbench/release/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 14

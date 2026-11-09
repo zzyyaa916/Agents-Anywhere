@@ -16,6 +16,17 @@ from agent_server.core.account_usage import (
 from agent_server.core.utc import utc_now
 
 
+def account_sources(sources, row):
+    return [
+        s
+        for s in sources
+        if s["user_id"] == row["user_id"]
+        and s["account_key"] == row["account_key"]
+        and ("claude_code" if s["runtime_type"] == "claude" else "codex")
+        == row["runtime"]
+    ]
+
+
 class AccountUsageService:
     def __init__(self, store, rpc, *, clock=time.time):
         self.store, self.rpc, self.clock = store, rpc, clock
@@ -42,21 +53,12 @@ class AccountUsageService:
                 if info.runtime != expected:
                     continue
                 await self.store.save_usage_identity(source, info)
-            except asyncio.CancelledError:
-                raise
             except Exception as exc:  # noqa: BLE001 -- optional collection must not break sessions
                 logger.debug("Account identity unavailable: {}", type(exc).__name__)
         sources = await self.store.account_usage_sources(user_id)
         rows = await self.store.account_usage_rows(user_id)
         for row in rows:
-            matching = [
-                s
-                for s in sources
-                if s["user_id"] == row["user_id"]
-                and s["account_key"] == row["account_key"]
-                and ("claude_code" if s["runtime_type"] == "claude" else "codex")
-                == row["runtime"]
-            ]
+            matching = account_sources(sources, row)
             if not matching:
                 continue
             token = await self.store.claim_account_usage(row, self.clock())
@@ -77,8 +79,6 @@ class AccountUsageService:
                         timeout=50,
                     )
                     result = UsageCollection.model_validate(payload)
-                except asyncio.CancelledError:
-                    raise
                 except Exception as exc:  # noqa: BLE001 -- only exception class is logged
                     logger.debug("Account usage unavailable: {}", type(exc).__name__)
                     result = None
@@ -93,13 +93,7 @@ class AccountUsageService:
         represented = set()
         now = self.clock()
         for row in rows:
-            matching = [
-                s
-                for s in sources
-                if s["account_key"] == row["account_key"]
-                and ("claude_code" if s["runtime_type"] == "claude" else "codex")
-                == row["runtime"]
-            ]
+            matching = account_sources(sources, row)
             if not matching:
                 continue
             represented.add(row["runtime"])
@@ -131,7 +125,10 @@ class AccountUsageService:
                     error_code=parsed.error_code if parsed else "unavailable",
                     next_attempt_at=row["next_attempt_at"],
                     bindings=[
-                        {"connector_id": s["connector_id"], "runtime_id": s["runtime_id"]}
+                        {
+                            "connector_id": s["connector_id"],
+                            "runtime_id": s["runtime_id"],
+                        }
                         for s in matching
                     ],
                 )
@@ -146,8 +143,6 @@ class AccountUsageService:
         while True:
             try:
                 await self.refresh()
-            except asyncio.CancelledError:
-                raise
             except Exception as exc:  # noqa: BLE001 -- scheduler stays available after transient failures
                 logger.debug(
                     "Account usage scheduling unavailable: {}", type(exc).__name__

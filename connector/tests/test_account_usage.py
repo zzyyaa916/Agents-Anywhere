@@ -262,3 +262,102 @@ async def test_claude_request_credentials_stay_local(tmp_path, monkeypatch):
         and "synthetic-upstream-secret" not in serialized
     )
     assert result["windows"][0]["remaining_percent"] == 80
+
+
+@pytest.mark.anyio
+async def test_rpc_whitelist_strips_credentials_and_internal_fields():
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from connector.account_usage import AccountUsageRpc
+
+    rpc = AccountUsageRpc(
+        SimpleNamespace(
+            entry_or_none=lambda _: SimpleNamespace(
+                runtime_type="codex", requested_values={}
+            )
+        ),
+        None,
+    )
+    rpc.collector = SimpleNamespace(
+        collect=AsyncMock(
+            return_value={
+                "runtime": "codex",
+                "account_key": "a" * 64,
+                "failures": 2,
+                "accessToken": "synthetic-private",
+                "windows": [
+                    {
+                        "kind": "five_hour",
+                        "used_percent": 90,
+                        "remaining_percent": 10,
+                        "resets_at": "2030-01-01T00:00:00Z",
+                        "window_duration_mins": 300,
+                        "apiKey": "synthetic-window-private",
+                    }
+                ],
+            }
+        )
+    )
+    result = await rpc.dispatch(
+        "accountUsage.collect", {"runtimeId": "codex", "accountKey": "a" * 64}
+    )
+    assert (
+        result["accountKey"] == "a" * 64
+        and result["windows"][0]["remainingPercent"] == 10
+    )
+    assert "private" not in json.dumps(result) and "failures" not in result
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("cancelled", [False, True])
+async def test_local_command_failure_reaps_child(monkeypatch, cancelled):
+    import asyncio
+    from unittest.mock import AsyncMock
+
+    import connector.account_usage as module
+
+    class Child:
+        returncode = None
+        killed = False
+        waited = False
+
+        async def communicate(self):
+            return b"", b""
+
+        def kill(self):
+            self.killed = True
+
+        async def wait(self):
+            self.waited = True
+            self.returncode = -9
+
+    child = Child()
+    monkeypatch.setattr(
+        module.asyncio, "create_subprocess_exec", AsyncMock(return_value=child)
+    )
+    error = asyncio.CancelledError if cancelled else TimeoutError
+
+    async def fail(awaitable, timeout):
+        await awaitable
+        assert timeout == 5
+        raise error()
+
+    monkeypatch.setattr(module.asyncio, "wait_for", fail)
+    with pytest.raises(error):
+        await module.local_output("synthetic-command")
+    assert child.killed and child.waited
+
+
+@pytest.mark.anyio
+async def test_usage_cancellation_propagates(tmp_path):
+    import asyncio
+
+    @asynccontextmanager
+    async def cancelled(executable):
+        raise asyncio.CancelledError()
+        yield
+
+    collector = LocalAccountUsage(KV(), home=tmp_path, codex_factory=cancelled)
+    with pytest.raises(asyncio.CancelledError):
+        await collector.identify("codex")
