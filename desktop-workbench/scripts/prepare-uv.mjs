@@ -7,7 +7,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { ProxyAgent } from "proxy-agent";
 
-const UV_VERSION = process.env.UV_BUNDLE_VERSION || "0.11.26";
+export const UV_VERSION = process.env.UV_BUNDLE_VERSION || "0.11.26";
 const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const CACHE_ROOT = join(PROJECT_ROOT, ".cache", "uv", UV_VERSION);
 const OUTPUT_ROOT = process.env.WORKBENCH_UV_BUNDLE_DIR?.trim()

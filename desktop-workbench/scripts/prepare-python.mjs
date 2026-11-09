@@ -5,8 +5,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { download, exists, run, runtimeTargetKey } from "./prepare-uv.mjs";
 
 // The python-build-standalone CPython builds that uv itself installs.
-const PYTHON_VERSION = process.env.PYTHON_BUNDLE_VERSION || "3.12.14";
-const PBS_RELEASE = process.env.PYTHON_BUNDLE_RELEASE || "20260929";
+export const PYTHON_VERSION = process.env.PYTHON_BUNDLE_VERSION || "3.12.14";
+export const PBS_RELEASE = process.env.PYTHON_BUNDLE_RELEASE || "20260929";
 const BUILD = `${PYTHON_VERSION}+${PBS_RELEASE}`;
 const MINOR = PYTHON_VERSION.split(".").slice(0, 2).join(".");
 const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");

@@ -40,8 +40,15 @@ jobs:
           corepack yarn test:main
           corepack yarn renderer:typecheck
           corepack yarn workspace agents-anywhere-desktop-renderer protocol:check
+      - name: Cache native dependencies from the official GitHub Release API
+        working-directory: desktop-workbench
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/cache-native-dependencies.mjs ${{ matrix.platform }}
       - name: Build with the official native packaging script
         working-directory: desktop-workbench
+        env:
+          WORKBENCH_ELECTRON_DIST: .cache/electron
         shell: bash
         run: |
           for attempt in 1 2 3; do
