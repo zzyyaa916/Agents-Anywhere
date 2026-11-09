@@ -4,7 +4,7 @@ import { DESKTOP_OAUTH_PROTOCOL } from "./desktop-oauth";
  * Deep-link entry into the Desktop onboarding flow.
  *
  * The DSH plugin opens
- * `agents-anywhere-desktop://onboarding?source=dsh-plugin&flowId=<id>`
+ * `agents-anywhere-fork-desktop://onboarding?source=dsh-plugin&flowId=<id>`
  * every time the user asks to configure this machine from the plugin, so a
  * plugin entry always shows the flow regardless of the completion flag.
  *

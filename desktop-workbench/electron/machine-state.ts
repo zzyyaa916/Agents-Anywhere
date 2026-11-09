@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
+import { userInfo } from "node:os";
 import { randomUUID } from "node:crypto";
-import { localRuntimePath, readMachineStateFile } from "./local-runtime";
+import { readMachineStateFile } from "./local-runtime";
 import { withMachineStateLock } from "./machine-state-lock";
 
 export type DesktopInstallation = {
@@ -21,7 +22,8 @@ export type DesktopOnboardingState = {
   source: DesktopOnboardingSource | null;
 };
 
-export const machineStatePath = localRuntimePath;
+export const machineStatePath = (home = userInfo().homedir): string =>
+  path.join(home, ".agents-anywhere-fork", "desktop-state.json");
 
 const EMPTY_ONBOARDING: DesktopOnboardingState = { completedAt: null, source: null };
 
@@ -37,10 +39,14 @@ function readOnboardingRecord(state: Record<string, unknown>): DesktopOnboarding
 
 /** Desktop owns installation metadata and its own onboarding flag; Connector alone appends IDs and owns startup. */
 export class MachineStateStore {
-  constructor(readonly filePath = machineStatePath(), private readonly warn?: (message: string) => void) {}
+  constructor(
+    readonly filePath = machineStatePath(),
+    private readonly warn?: (message: string) => void,
+    private readonly runtimeFilePath = filePath,
+  ) {}
 
   readConnectorIds(): string[] {
-    return readMachineStateFile(this.filePath).connectorIds;
+    return readMachineStateFile(this.runtimeFilePath).connectorIds;
   }
 
   /**
@@ -84,8 +90,8 @@ export class MachineStateStore {
   }
 
   /**
-   * This short file transaction protects Desktop fields from concurrent Python
-   * writes. It neither inspects nor acquires Connector startup ownership.
+   * Fork metadata is separate from the global Connector ownership record.
+   * This transaction only serializes Desktop metadata writes.
    */
   private transact<T>(update: (state: Record<string, unknown>) => { value: T; changed: boolean }): Promise<T> {
     return withMachineStateLock(this.filePath, () => {

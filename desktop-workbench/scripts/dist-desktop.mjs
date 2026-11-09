@@ -26,6 +26,7 @@ import {
 } from "./release-credentials.mjs";
 
 const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const PRODUCT_NAME = createRequire(import.meta.url)("../package.json").productName;
 const OUTPUT_DIR = join(PROJECT_ROOT, "release");
 // uv and CPython bundles share the `<platform>-<arch>` target keys.
 const BUNDLE_TARGETS = {
@@ -136,7 +137,7 @@ function verifyMac({ signed, notarized, artifact }) {
   }
   const app = readdirSync(OUTPUT_DIR, { withFileTypes: true })
     .filter((entry) => entry.isDirectory() && entry.name.startsWith("mac"))
-    .map((entry) => join(OUTPUT_DIR, entry.name, "Agents Anywhere.app"))
+    .map((entry) => join(OUTPUT_DIR, entry.name, `${PRODUCT_NAME}.app`))
     .find((candidate) => existsSync(candidate));
   if (!app) fail("The packaged application was not found under release/, so it could not be verified.");
   log(`Verifying the code signature of ${app}`);

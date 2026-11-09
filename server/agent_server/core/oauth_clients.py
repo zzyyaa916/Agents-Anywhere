@@ -36,6 +36,12 @@ DESKTOP_OAUTH_CLIENT = FirstPartyOAuthClient(
     redirect_uri="agents-anywhere-desktop://oauth/callback",
 )
 
+FORK_DESKTOP_OAUTH_CLIENT = FirstPartyOAuthClient(
+    client_id="agents-anywhere-fork-desktop",
+    name="Agents Anywhere Fork Desktop",
+    redirect_uri="agents-anywhere-fork-desktop://oauth/callback",
+)
+
 DSH_PLUGIN_OAUTH_CLIENT = FirstPartyOAuthClient(
     client_id="agents-anywhere-dsh-plugin",
     name="Agents Anywhere DSH Plugin",
@@ -44,7 +50,7 @@ DSH_PLUGIN_OAUTH_CLIENT = FirstPartyOAuthClient(
 
 FIRST_PARTY_OAUTH_CLIENTS = {
     client.client_id: client
-    for client in (MOBILE_OAUTH_CLIENT, DESKTOP_OAUTH_CLIENT, DSH_PLUGIN_OAUTH_CLIENT)
+    for client in (MOBILE_OAUTH_CLIENT, DESKTOP_OAUTH_CLIENT, FORK_DESKTOP_OAUTH_CLIENT, DSH_PLUGIN_OAUTH_CLIENT)
 }
 
 

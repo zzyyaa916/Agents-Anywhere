@@ -8,7 +8,7 @@ import { desktopInstallation, MachineStateStore } from "../machine-state";
 import type { DesktopOnboardingSource, DesktopOnboardingState } from "../machine-state";
 import { readShellEnvironment } from "../shell-environment";
 import { LogBatcher } from "./log-batcher";
-import type { OwnershipState } from "../local-runtime";
+import { localRuntimePath, type OwnershipState } from "../local-runtime";
 import type {
   ConnectorConfigPatch,
   ConnectorLogEntry,
@@ -57,7 +57,7 @@ export class BackendState {
 
   constructor(private readonly init: BackendInit, fetcher: BackendFetcher) {
     this.server = { serverUrl: init.defaultServerUrl, apiNamespace: init.apiNamespace };
-    this.machineState = new MachineStateStore(undefined, (message) => this.appendLog({ level: "WARNING", message }));
+    this.machineState = new MachineStateStore(undefined, (message) => this.appendLog({ level: "WARNING", message }), localRuntimePath());
     this.settings = new DesktopSettingsStore(init.settingsPath, init.preferredLanguages);
     this.logs = new ConnectorLogStore(init.logsPath, () => this.settings.get());
     this.binding = new DesktopBindingStore(init.bindingPath);

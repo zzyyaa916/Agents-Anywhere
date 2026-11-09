@@ -62,8 +62,8 @@ import type {
   DesktopNotificationResult,
 } from "./connector-types";
 
-const APP_NAME = "Agents Anywhere";
-const APP_ID = "dev.agentsanywhere.workbench";
+const APP_NAME = "Agents Anywhere Fork";
+const APP_ID = "dev.agentsanywhere.fork.workbench";
 const WEB_PROTOCOL = "aa-workbench";
 const WEB_HOST = "web";
 const LOGIN_ITEM_HIDDEN_ARG = "--hidden";

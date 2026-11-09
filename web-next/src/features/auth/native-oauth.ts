@@ -21,7 +21,9 @@ export function isPluginRedirect(uri: string): boolean {
 }
 
 export function readNativeOAuthParams(params: { get(name: string): string | null }, kind: NativeOAuthKind): NativeOAuthParams | null {
-  const client = clients[kind]
+  const client = kind === 'desktop' && params.get('client_id') === 'agents-anywhere-fork-desktop'
+    ? { id: 'agents-anywhere-fork-desktop', redirect: 'agents-anywhere-fork-desktop://oauth/callback' }
+    : clients[kind]
   const redirect = params.get('redirect_uri') ?? ''
   const challenge = params.get('code_challenge') ?? ''
   const state = params.get('state') ?? ''

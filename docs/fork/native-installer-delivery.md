@@ -1,5 +1,7 @@
 # Windows / macOS 测试安装包交付（2026-11-09）
 
+> 以下是旧 2.5.0 包，沿用官方安装标识，不要覆盖安装。适合同一系统账号并排安装的新包说明见 [2.5.1](../releases/2.5.1-fork-desktop.md)。
+
 ## 下载
 
 - [Windows x64 ZIP](https://github.com/zzyyaa916/Agents-Anywhere/actions/runs/42574403306/artifacts/13654512523)

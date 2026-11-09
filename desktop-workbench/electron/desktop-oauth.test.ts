@@ -61,3 +61,15 @@ test("extracts Desktop callbacks from secondary-instance arguments", () => {
   assert.equal(desktopOAuthUrlFromArgv(["electron", ".", callback]), callback);
   assert.equal(desktopOAuthUrlFromArgv(["electron", "."]), null);
 });
+
+
+test("Fork installer identity and OAuth scheme cannot replace the official Desktop", () => {
+  assert.equal(DESKTOP_OAUTH_CLIENT_ID, "agents-anywhere-fork-desktop");
+  assert.equal(DESKTOP_OAUTH_REDIRECT_URI, "agents-anywhere-fork-desktop://oauth/callback");
+  const pkg = require("../../package.json");
+  assert.equal(pkg.productName, "Agents Anywhere Fork");
+  assert.equal(pkg.build.productName, pkg.productName);
+  assert.equal(pkg.build.appId, "dev.agentsanywhere.fork.workbench");
+  assert.deepEqual(pkg.build.protocols[0].schemes, [DESKTOP_OAUTH_CLIENT_ID]);
+  assert.equal(desktopOAuthUrlFromArgv(["agents-anywhere-desktop://oauth/callback?code=foreign&state=foreign"]), null);
+});

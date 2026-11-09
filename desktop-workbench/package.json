@@ -1,8 +1,8 @@
 {
   "name": "agents-anywhere-desktop-workbench",
-  "productName": "Agents Anywhere",
+  "productName": "Agents Anywhere Fork",
   "private": true,
-  "version": "2.5.0",
+  "version": "2.5.1",
   "description": "Electron shell for the Agents Anywhere web workbench",
   "packageManager": "yarn@4.6.0",
   "workspaces": [
@@ -39,8 +39,8 @@
     "typescript": "^6.0.3"
   },
   "build": {
-    "appId": "dev.agentsanywhere.workbench",
-    "productName": "Agents Anywhere",
+    "appId": "dev.agentsanywhere.fork.workbench",
+    "productName": "Agents Anywhere Fork",
     "files": [
       "dist/electron/**",
       "dist/shared/**",
@@ -103,9 +103,9 @@
     },
     "protocols": [
       {
-        "name": "Agents Anywhere Desktop OAuth",
+        "name": "Agents Anywhere Fork Desktop OAuth",
         "schemes": [
-          "agents-anywhere-desktop"
+          "agents-anywhere-fork-desktop"
         ]
       }
     ],

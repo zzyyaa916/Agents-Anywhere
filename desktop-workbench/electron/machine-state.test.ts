@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { localRuntimePath } from "./local-runtime";
 import { desktopInstallation, MachineStateStore, machineStatePath } from "./machine-state";
 
 test("Desktop reads history and updates only its installation metadata", async t => {
@@ -59,4 +60,22 @@ test("Desktop records onboarding completion once and preserves every other field
   const installation = desktopInstallation({ executablePath: process.execPath, appPath: home, packaged: false, platform: process.platform });
   await store.recordInstallation(installation);
   assert.deepEqual(JSON.parse(fs.readFileSync(store.filePath, "utf8")).onboarding, { completedAt: "2026-09-09T00:00:00.000Z", source: "dsh-plugin" });
+});
+
+
+test("Fork metadata stays separate while Connector ownership and history remain global", async t => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "aa-fork-isolation-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const official = localRuntimePath(home);
+  fs.mkdirSync(path.dirname(official), { recursive: true });
+  const original = JSON.stringify({ version: 2, connectorIds: ["official-id"], desktop: { appPath: "official" }, runtime: { pid: 123, kind: "desktop", instanceId: "official-runtime", startedAt: "before" }, onboarding: { completedAt: "before", source: "desktop" } });
+  fs.writeFileSync(official, original);
+  const fork = new MachineStateStore(machineStatePath(home), undefined, official);
+  assert.notEqual(fork.filePath, official);
+  assert.deepEqual(fork.readConnectorIds(), ["official-id"]);
+  assert.equal(fork.readOnboarding().completedAt, null);
+  await fork.recordInstallation(desktopInstallation({ executablePath: process.execPath, appPath: home, packaged: false, platform: process.platform }));
+  await fork.completeOnboarding("desktop");
+  assert.equal(fs.readFileSync(official, "utf8"), original);
+  assert.equal(JSON.parse(fs.readFileSync(fork.filePath, "utf8")).desktop.executablePath, fs.realpathSync(process.execPath));
 });

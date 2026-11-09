@@ -76,3 +76,16 @@ test('Tokens Anywhere login and registration preserve the original authorization
     assert.equal(readWebOAuthParams(invalid), null)
   }
 })
+
+
+test('official and Fork Desktop callbacks accept only their matching client', () => {
+  for (const id of ['agents-anywhere-desktop', 'agents-anywhere-fork-desktop']) {
+    const params = new URLSearchParams({ response_type: 'code', client_id: id, redirect_uri: `${id}://oauth/callback`, code_challenge: 'a'.repeat(43), state: 'b'.repeat(43) })
+    assert.ok(readNativeOAuthParams(params, 'desktop'))
+    const other = id === 'agents-anywhere-desktop' ? 'agents-anywhere-fork-desktop' : 'agents-anywhere-desktop'
+    params.set('redirect_uri', `${other}://oauth/callback`)
+    assert.equal(readNativeOAuthParams(params, 'desktop'), null)
+    params.set('redirect_uri', `${id}://oauth/callback?redirect=elsewhere`)
+    assert.equal(readNativeOAuthParams(params, 'desktop'), null)
+  }
+})
