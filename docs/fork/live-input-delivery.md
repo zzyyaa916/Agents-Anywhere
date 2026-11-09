@@ -50,7 +50,7 @@ Web 源码已同步，在线 Server/Web 2.5.1 本轮尚未部署；新的桌面�
 
 [公开测试版下载](https://github.com/zzyyaa916/Agents-Anywhere/releases/tag/v2.5.3-fork)，无需登录 GitHub。Windows x64：`Agents.Anywhere.Fork.Setup.2.5.3.exe`，311195159 bytes，SHA256 `45f092cccbfe5a516592bd763eda6a25738145687253d509a56d45efeec4e5a0`。GitHub Release 的资产摘要与本地核验一致；公开文件名使用句点，清单也使用相同文件名。
 
-macOS universal：`Agents.Anywhere.Fork-2.5.3-universal.dmg`，542821167 bytes，SHA256 `95547c8d9c9e58165d827c8bc29094cd81a394d35c147213e5e3fba1fb158edd`，下载文件与构建清单一致，DMG 尾部格式核验通过。Windows 跳过项为 POSIX 专用 fixture/权限测试及未安装 Electron 时的运行探针；macOS 跳过项为同一个 Electron 探针。原生打包成功不替代真机运行验收。安装包未签名，macOS 未公证。
+此前 macOS universal（已由 Intel 包替换，见 [Intel 交付记录](mac-intel-delivery.md)）：`Agents.Anywhere.Fork-2.5.3-universal.dmg`，542821167 bytes，SHA256 `95547c8d9c9e58165d827c8bc29094cd81a394d35c147213e5e3fba1fb158edd`，下载文件与构建清单一致，DMG 尾部格式核验通过。Windows 跳过项为 POSIX 专用 fixture/权限测试及未安装 Electron 时的运行探针；macOS 跳过项为同一个 Electron 探针。原生打包成功不替代真机运行验收。安装包未签名，macOS 未公证。
 
 ## 首次响应慢的核查
 
