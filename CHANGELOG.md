@@ -235,6 +235,8 @@
 
 ### Desktop
 
+- 分叉版提供 Windows x64 与 macOS 通用测试安装包，包含删除、用量及限额续聊功能；请在独立系统用户或虚拟机中验收。（[下载与安装说明](docs/fork/native-installer-delivery.md)）
+
 - 把本地文件夹拖进侧栏就能创建项目。重复目录、普通文件和一次拖入多项时会给出提示；拖拽结束或窗口失焦时，提示自动消失。（[#82](https://github.com/anywhere-labs/Agents-Anywhere/pull/82)）
 - Connector 启动失败时显示真实原因，可以复制错误信息、打开日志目录。（[#294](https://github.com/anywhere-labs/Agents-Anywhere/pull/294)）
 - 依赖下载失败时，可以在启动弹窗里切换 PyPI 镜像或 Python 下载镜像、重试，或者「清空缓存并重试」；所选镜像缺少的包会自动从官方 PyPI 补齐。（[#450](https://github.com/anywhere-labs/Agents-Anywhere/pull/450)）

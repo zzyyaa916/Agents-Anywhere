@@ -28,9 +28,11 @@
 - 工作流 YAML 解析通过，目标恰好为 macOS universal / Windows x64；安装包检查逻辑在临时目录分别模拟两平台，验证缺失/空文件失败、有效文件生成正确 SHA-256。模拟文件不是真安装包，没有上传。
 - 全程使用独立测试解释器与一次性测试库；未重启本机 Connector，未读取真实厂商凭据。
 
-## 安装包仍缺的条件
+## 当时尚缺的条件（后续已接入 GitHub 原生构建）
 
-当前只有 Linux VM；官方 `dist:mac` 强制要求 macOS，`dist:win` 强制要求 Windows。没有可用原生构建机，`gh auth status` 显示未登录 GitHub，也没有可调用的已连接 GitHub 工具，因此尚不能推送 fork 并执行托管构建。**本轮没有生成 `.exe` / `.dmg`，工作流验证不能等同于原生产物验收。**
+本报告完成时只有 Linux VM；官方 `dist:mac` 强制要求 macOS，`dist:win` 强制要求 Windows。当时没有可用原生构建机，`gh auth status` 显示未登录 GitHub，也没有可调用的已连接 GitHub 工具，因此当时尚不能推送 fork 并执行托管构建。**当时没有生成 `.exe` / `.dmg`，工作流验证不能等同于原生产物验收。**
+
+后续已创建用户 fork 并通过 Windows/macOS 原生构建生成真实产物，见[安装包交付记录](native-installer-delivery.md)。
 
 获得原生构建机后，在各自系统的同一分叉提交运行：
 
