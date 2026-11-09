@@ -32,7 +32,8 @@
 - [x] 已上传附件引用可恢复，不在本地队列中复制附件文件字节。
 - [x] Windows 返回父目录不再生成 C: 相对路径，能进入盘符列表、刷新并切换 D 盘；正反斜杠与 UNC 路径回归通过。
 - [x] 用空白临时 Codex Home 验证真实 SDK 只读 initialize/account/read 成功且无账号；没有探测真实厂商账号、请求额度或执行付费任务。
-- [ ] Windows/macOS 原生 CI、下载与 SHA 格式核验：产物完成后填写。
+- [x] Windows 原生 CI：主进程 154 通过、12 跳过；本轮界面 40/40；安装包 SHA 与 PE 格式核验通过。
+- [x] macOS 原生 CI：主进程 165 通过、1 跳过；本轮界面 40/40；安装包 SHA 与 DMG 格式核验通过。
 - [ ] 用户 Windows/macOS 真机任务队列、真实 Codex 即时补充与其他盘实际权限：待用户验收。
 
 ## 未解决风险 / 部署边界
@@ -45,4 +46,12 @@ Web 源码已同步，在线 Server/Web 2.5.1 本轮尚未部署；新的桌面�
 
 ## 安装包
 
-Windows x64 与 macOS universal 构建、下载、哈希和来源提交待填写。安装包未签名，macOS 未公证。
+构建源码提交 `4ea6501dfc665a353285299007f3e7ca437d7e51`；[原生 CI](https://github.com/zzyyaa916/Agents-Anywhere/actions/runs/42607639996)。
+
+[公开测试版下载](https://github.com/zzyyaa916/Agents-Anywhere/releases/tag/v2.5.3-fork)，无需登录 GitHub。Windows x64：`Agents.Anywhere.Fork.Setup.2.5.3.exe`，311195159 bytes，SHA256 `45f092cccbfe5a516592bd763eda6a25738145687253d509a56d45efeec4e5a0`。GitHub Release 的资产摘要与本地核验一致；公开文件名使用句点，清单也使用相同文件名。
+
+macOS universal：`Agents.Anywhere.Fork-2.5.3-universal.dmg`，542821167 bytes，SHA256 `95547c8d9c9e58165d827c8bc29094cd81a394d35c147213e5e3fba1fb158edd`，下载文件与构建清单一致，DMG 尾部格式核验通过。Windows 跳过项为 POSIX 专用 fixture/权限测试及未安装 Electron 时的运行探针；macOS 跳过项为同一个 Electron 探针。原生打包成功不替代真机运行验收。安装包未签名，macOS 未公证。
+
+## 首次响应慢的核查
+
+用户反馈 Windows 新会话发送“你好”约一分钟以上才回复。静态核查发现消息 RPC 以独立任务并发调度（普通请求最多 8 个并发），用量采集使用独立处理器；未发现每条消息固定等待一分钟的逻辑。Codex 发起任务前仍需原生初始化、会话恢复与模型/权限目录等步骤，实际哪一步耗时未测得。没有访问用户 Windows 的阶段计时，也没有执行真实账号任务；此问题仍未定位，不能视为已修复。
