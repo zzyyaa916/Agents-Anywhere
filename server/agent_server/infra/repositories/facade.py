@@ -47,7 +47,11 @@ from agent_server.infra.repositories.history_deletion import HistoryDeletionRepo
 from agent_server.infra.repositories.account_usage import AccountUsageRepositoryMixin
 
 
+from agent_server.infra.repositories.session_quota import SessionQuotaRepositoryMixin
+
+
 class Store(
+    SessionQuotaRepositoryMixin,
     AccountUsageRepositoryMixin,
     HistoryDeletionRepositoryMixin,
     GoalRepositoryMixin,

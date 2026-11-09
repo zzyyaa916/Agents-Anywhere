@@ -421,6 +421,7 @@ sessions = Table(
     Column("title", Text),
     Column("title_source", Text),
     Column("cwd", Text),
+    Column("quota_json", Text),
     Column("status", Text, nullable=False),
     Column("takeover", Integer, nullable=False),
     Column("pinned", Integer, nullable=False, server_default="0"),

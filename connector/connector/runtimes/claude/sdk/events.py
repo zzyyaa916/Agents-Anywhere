@@ -4,6 +4,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from connector.quota_errors import is_usage_limit
+
 ClaudeTerminalStatus = Literal["completed", "failed", "interrupted"]
 INTERRUPTED_TERMINAL_REASONS = frozenset({"aborted_streaming", "aborted_tools"})
 
@@ -19,6 +21,17 @@ class ClaudeTerminalEvent:
 def terminal_event_from_message(message: Any) -> ClaudeTerminalEvent | None:
     """Normalize a Claude SDK ResultMessage into one runtime terminal event."""
 
+    # Claude versions may put the quota error in an assistant error block or
+    # in an error result's result text. Plain assistant prose is never a signal.
+    native_error = _string_attr(message, "error")
+    if native_error or _bool_attr(message, "is_error", "isError"):
+        content = _attr(message, "content")
+        text = _string_attr(message, "result") or ""
+        if isinstance(content, Sequence) and not isinstance(content, str | bytes):
+            text += " ".join(_string_attr(block, "text") or "" for block in content)
+        text += " " + (message_error_text(message) or "")
+        if is_usage_limit("claude", {"code": native_error, "message": text}):
+            return ClaudeTerminalEvent(status="failed", error_code="usage_limit_reached", error_message="Claude usage limit reached")
     if not is_result_message(message):
         return None
     terminal_reason = _string_attr(message, "terminal_reason", "terminalReason")

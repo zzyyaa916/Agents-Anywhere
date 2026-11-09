@@ -48,6 +48,7 @@ ConnectorStatus = Literal["offline", "online"]
 ConnectorDeviceOs = Literal["macos", "windows", "linux"]
 ConnectorKind = Literal["desktop", "cli"]
 SessionStatus = Literal[
+    "limited",
     "idle",
     "waiting",
     "pending",
@@ -838,6 +839,7 @@ class SessionCreateAndStartRequest(BaseModel):
 
 
 class SessionView(BaseModel):
+    quotaLimit: dict[str, Any] | None = None
     id: str
     connectorId: str
     projectId: str | None = None

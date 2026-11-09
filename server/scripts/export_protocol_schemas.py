@@ -98,9 +98,17 @@ def _schema_document(artifact: ProtocolSchema, version: str = "1.0") -> dict[str
     schema = artifact.model.model_json_schema(by_alias=True, mode=artifact.mode)
     def project(value):
         if isinstance(value, dict):
-            if version == "1.0" and value.get("enum") == ["1.0", "1.1"]:
+            if version in {"1.0", "1.1"}:
+                if isinstance(value.get("enum"), list) and "limited" in value["enum"]:
+                    value["enum"].remove("limited")
+                if value.get("enum") == ["1.0", "1.1", "1.2"] and version == "1.1":
+                    value["enum"] = ["1.0", "1.1"]
+                if value.get("title") == "SessionView":
+                    value.get("properties", {}).pop("quotaLimit", None)
+
+            if version == "1.0" and value.get("enum") == ["1.0", "1.1", "1.2"]:
                 value.pop("enum"); value["const"] = "1.0"
-            if version == "1.1" and value.get("enum") == ["codex", "claude", "opencode", "acp", "dsh"]:
+            if version in {"1.1", "1.2"} and value.get("enum") == ["codex", "claude", "opencode", "acp", "dsh"]:
                 value.pop("enum"); value["pattern"] = r"^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
             for child in value.values(): project(child)
         elif isinstance(value, list):
@@ -150,7 +158,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Export the canonical Agents Anywhere protocol JSON Schemas."
     )
-    parser.add_argument("--version", choices=["1.0", "1.1"], default="1.0")
+    parser.add_argument("--version", choices=["1.0", "1.1", "1.2"], default="1.0")
     parser.add_argument(
         "--output",
         type=Path,

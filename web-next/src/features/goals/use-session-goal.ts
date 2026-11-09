@@ -2,9 +2,9 @@
 import * as React from "react";
 import { apiClient, isApiError } from "@/lib/api";
 import { useTranslations } from "next-intl";
-import type { GoalState } from "@/generated/protocol/v1_1/goal-state";
-import type { GoalRequest } from "@/generated/protocol/v1_1/goal-request";
-import type { GoalResponse } from "@/generated/protocol/v1_1/goal-response";
+import type { GoalState } from "@/generated/protocol/v1_2/goal-state";
+import type { GoalRequest } from "@/generated/protocol/v1_2/goal-request";
+import type { GoalResponse } from "@/generated/protocol/v1_2/goal-response";
 export type { GoalState };
 type Visit = { sessionId: string; token: string };
 export function useSessionGoal(

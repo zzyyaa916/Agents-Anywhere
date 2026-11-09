@@ -25,10 +25,10 @@ from agent_server.core.planning.models import (
 )
 
 PROTOCOL_VERSION_1 = "1.0"
-SUPPORTED_PROTOCOL_VERSIONS = ["1.1", PROTOCOL_VERSION_1]
+SUPPORTED_PROTOCOL_VERSIONS = ["1.2", "1.1", PROTOCOL_VERSION_1]
 PROTOCOL_MAX_REVISION = 9_007_199_254_740_991
 
-ProtocolVersion = Literal["1.0", "1.1"]
+ProtocolVersion = Literal["1.0", "1.1", "1.2"]
 ProtocolCapabilityScope = Literal["runtime", "session"]
 
 
@@ -52,6 +52,7 @@ class _ProtocolSnapshotExtensionModel(BaseModel):
 
 
 class SessionView(_ProtocolSnapshotExtensionModel):
+    quotaLimit: dict[str, Any] | None = None
     id: str
     connectorId: str
     projectId: str | None = None

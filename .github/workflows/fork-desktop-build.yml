@@ -44,7 +44,7 @@ jobs:
       - name: Keep test installers for review
         uses: actions/upload-artifact@v4
         with:
-          name: fork-p1-${{ matrix.platform }}-${{ matrix.architecture }}
+          name: fork-test-${{ matrix.platform }}-${{ matrix.architecture }}
           path: |
             desktop-workbench/release/*.dmg
             desktop-workbench/release/*.exe

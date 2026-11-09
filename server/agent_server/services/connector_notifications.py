@@ -674,10 +674,36 @@ class SessionStateNotificationHandler:
             )
         if runtime_state["status"] in {"idle", "error"}:
             await self._store.clear_active_run(session_id)
+        notices = None
+        quota_item = None
+        if (runtime_state["status"] == "error" and runtime in {"codex", "claude"}
+                and runtime_state["metadata"].get("quotaLimited") is True):
+            quota = await self._store.record_session_quota(session.model_copy(update={"externalSessionId": external_session_id or session.externalSessionId}))
+            runtime_state["status"] = "limited"
+            runtime_state["metadata"]["quotaLimit"] = quota
+            marker_id = "quota_limit_" + hashlib.sha256((session_id + quota["interruptedAt"]).encode()).hexdigest()[:24]
+            marker_content = {"kind": "notice", "code": "usage_limit", "text": "因限额中断；用量恢复后可在原会话继续。", "severity": "warning", "resetsAt": quota.get("resetsAt")}
+            marker = TimelineItemIn.model_validate({
+                "id": marker_id, "sessionId": session_id, "type": "system", "status": "done", "role": "system",
+                "content": marker_content, "source": {"runtime": "platform", "itemType": "usage_limit"},
+                "orderSeq": 1, "revision": 1, "contentHash": "sha256:" + hashlib.sha256(json.dumps(marker_content, sort_keys=True).encode()).hexdigest(),
+            })
+            written = await self._store.upsert_timeline_item(session_id=session_id, item=marker)
+            quota_item = written.item.model_dump(mode="json")
+
+            notices = [NoticeIn.model_validate({
+                "noticeId": f"quota_limit_{session_id}", "sessionId": session_id,
+                "type": "notification", "source": {"runtime": runtime, "component": "runtime"},
+                "title": "因限额中断", "message": "当前轮次因账号用量限额中断；恢复后可在原会话继续。",
+                "severity": "warning", "status": "open", "context": {"reason": "usage_limit", "quotaLimit": quota},
+            })]
         return IngestEffect(
             session_id=session_id,
             runtime_state=runtime_state,
-            dashboard_changed=created,
+            notices=notices,
+            notices_changed=notices is not None,
+            item=quota_item,
+            dashboard_changed=created or notices is not None,
         )
 
 

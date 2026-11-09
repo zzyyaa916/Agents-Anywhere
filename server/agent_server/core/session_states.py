@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from agent_server.core.models import SessionStatus
 
 SESSION_TRANSITIONS: dict[SessionStatus, frozenset[SessionStatus]] = {
+    "limited": frozenset({"idle", "stopping", "error"}),
     "idle": frozenset({"waiting", "pending", "running", "waiting_approval", "error", "blocked"}),
     "waiting": frozenset({"idle", "running", "stopping", "waiting_approval", "error", "blocked"}),
     "pending": frozenset({"idle", "running", "stopping", "waiting_approval", "error", "blocked"}),
@@ -14,6 +15,11 @@ SESSION_TRANSITIONS: dict[SessionStatus, frozenset[SessionStatus]] = {
     "error": frozenset({"idle", "waiting", "pending", "running", "stopping", "waiting_approval", "blocked"}),
     "blocked": frozenset({"idle", "waiting", "pending", "running", "stopping", "waiting_approval", "error"}),
 }
+
+
+for _status in list(SESSION_TRANSITIONS):
+    if _status != "limited":
+        SESSION_TRANSITIONS[_status] = SESSION_TRANSITIONS[_status] | {"limited"}
 
 
 class SessionStateDomainError(ValueError):
@@ -30,6 +36,8 @@ class SessionStateFacts:
 
 
 def derive_session_status(facts: SessionStateFacts) -> SessionStatus:
+    if facts.current_status == "limited" or facts.observed_status == "limited":
+        return "limited"
     if facts.has_blocking_interaction:
         return "waiting_approval"
     if facts.observed_status in {"waiting_approval", "error", "blocked"}:

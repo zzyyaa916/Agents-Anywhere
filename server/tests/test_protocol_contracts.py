@@ -102,3 +102,12 @@ def test_invalid_protocol_fixtures_are_rejected(fixture_path: Path) -> None:
         _load_json(SCHEMA_DIR / f"{slug}.schema.json")
     )
     assert not validator.is_valid(_load_json(fixture_path))
+
+
+@pytest.mark.parametrize("version", ["1.1", "1.2"])
+def test_versioned_protocol_exports_are_fresh(tmp_path, version):
+    target = tmp_path / version
+    subprocess.run([sys.executable, "-m", "scripts.export_protocol_schemas", "--version", version, "--output", str(target)], cwd=REPOSITORY_ROOT / "server", check=True)
+    expected = REPOSITORY_ROOT / "contracts" / "protocol" / version
+    for path in [Path("manifest.json"), *sorted(p.relative_to(expected) for p in expected.glob("schemas/*.json"))]:
+        assert (target/path).read_bytes() == (expected/path).read_bytes()

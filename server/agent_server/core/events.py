@@ -51,7 +51,18 @@ def protocol_event(
     event_hash = hashlib.sha256(
         json.dumps([event_type, payload], sort_keys=True, default=str).encode("utf-8")
     ).hexdigest()[:12]
+
+    def contains_limited(value):
+        if isinstance(value, dict):
+            return value.get("status") == "limited" or any(
+                contains_limited(child) for child in value.values()
+            )
+        if isinstance(value, list):
+            return any(contains_limited(child) for child in value)
+        return False
+
     return ProtocolEventEnvelope(
+        protocolVersion="1.2" if contains_limited(payload) else "1.0",
         eventId=f"evt_{sequence}_{event_hash}",
         sequence=sequence,
         cursor=cursor,
@@ -156,7 +167,14 @@ def events_from_invalidation(payload: dict[str, Any]) -> list[ProtocolEventEnvel
         )
     planning = payload.get("planningState")
     if isinstance(planning, dict):
-        events.append(protocol_event(session_id, sequence=max(next_sequence, 0), event_type="planning.state.updated", payload={"state": planning}))
+        events.append(
+            protocol_event(
+                session_id,
+                sequence=max(next_sequence, 0),
+                event_type="planning.state.updated",
+                payload={"state": planning},
+            )
+        )
     runtime_state = payload.get("runtimeState")
     if isinstance(runtime_state, dict):
         sequence = int(runtime_state.get("updatedSeq") or next_sequence or 0)
@@ -212,7 +230,9 @@ def events_from_invalidation(payload: dict[str, Any]) -> list[ProtocolEventEnvel
                 sequence = int(notice.get("updatedSeq") or next_sequence or 0)
                 if sequence <= 0:
                     continue
-                notice_payload = {"notice": notice_with_event_sequence(notice, sequence)}
+                notice_payload = {
+                    "notice": notice_with_event_sequence(notice, sequence)
+                }
                 events.append(
                     protocol_event(
                         session_id,

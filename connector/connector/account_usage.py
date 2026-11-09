@@ -206,7 +206,7 @@ async def codex_process(executable="codex"):
                 "clientInfo": {
                     "name": "agents_anywhere_usage",
                     "title": "Agents Anywhere usage",
-                    "version": "2.4.0",
+                    "version": "2.5.0",
                 }
             },
         )

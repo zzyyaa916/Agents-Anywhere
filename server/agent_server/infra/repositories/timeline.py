@@ -363,6 +363,11 @@ class TimelineRepositoryMixin:
         async with self._timeline_transaction(session_id) as conn:
             current_items = await self.timeline.read(session_id, conn=conn)
             current_by_id = {item.id: item for item in current_items}
+            # Platform quota annotations are durable Server facts, outside the native snapshot.
+            for current in current_items:
+                if current.source.runtime == "platform" and current.source.itemType == "usage_limit":
+                    incoming_by_id[current.id] = current
+
             await update_source_observed_at(
                 conn,
                 session_id=session_id,

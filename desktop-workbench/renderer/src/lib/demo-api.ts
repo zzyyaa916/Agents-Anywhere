@@ -26,6 +26,7 @@ export type SessionStatus =
   | "stopping"
   | "waiting_approval"
   | "error"
+  | "limited"
   | "blocked"
 
 export type SessionView = {

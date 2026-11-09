@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from agent_server.core.models import SessionView
+from agent_server.core.session_quota import quota_status
 from agent_server.services.connector_presence import (
     ConnectorPresencePort,
     connector_online_statuses,
@@ -31,7 +32,7 @@ async def project_session_meta_for_dashboard(
                         runtime_state.externalSessionId
                         or projected.externalSessionId
                     ),
-                    "status": runtime_state.status,
+                    "status": quota_status(runtime_state.status, session.quotaLimit),
                 }
             )
         projected_sessions.append(projected)

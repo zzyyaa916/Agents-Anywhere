@@ -19,6 +19,7 @@ from agent_server.api import (
     admin,
     admin_usage,
     account_usage,
+    session_quota,
     agents,
     announcements,
     auth,
@@ -229,7 +230,7 @@ def create_app(
                                 finally:
                                     await app.state.store.close()
 
-    app = FastAPI(title="Agent Server", version="2.4.0", lifespan=lifespan)
+    app = FastAPI(title="Agent Server", version="2.5.0", lifespan=lifespan)
     app.add_exception_handler(
         ConnectorServiceError,
         error_handlers.connector_service_error_handler,
@@ -432,6 +433,7 @@ def create_app(
     app.include_router(agents.router, prefix=API_V2_PREFIX)
     app.include_router(pairing.router, prefix=API_V2_PREFIX)
     app.include_router(account_usage.router, prefix=API_V2_PREFIX)
+    app.include_router(session_quota.router, prefix=API_V2_PREFIX)
     app.include_router(projects.router, prefix=API_V2_PREFIX)
     app.include_router(sessions.router, prefix=API_V2_PREFIX)
     app.include_router(session_planning.router, prefix=API_V2_PREFIX)

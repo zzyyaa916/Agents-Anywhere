@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from agent_server.core.session_quota import project_quota_state
+
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -358,6 +360,7 @@ class ConnectorIngestService:
                     next_seq,
                     bucket["runtime_state"],
                 )
+                runtime_state = project_quota_state(bound_session, runtime_state)
                 previous_runtime_state = await self._runtime_state_cache.get(session_id)
                 if runtime_states_semantically_equal(
                     previous_runtime_state,

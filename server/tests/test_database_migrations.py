@@ -1020,9 +1020,9 @@ def test_unversioned_runtime_schema_is_classified_by_actual_columns(tmp_path,
     )
 
 
-def test_current_schema_version_is_v2_55() -> None:
-    assert CURRENT_SCHEMA_REVISION == "v2_55"
-    assert CURRENT_SCHEMA_VERSION == "2.55"
+def test_current_schema_version_is_v2_56() -> None:
+    assert CURRENT_SCHEMA_REVISION == "v2_56"
+    assert CURRENT_SCHEMA_VERSION == "2.56"
 
 
 def test_v2_49_tracks_inventory_scans_without_rewriting_sessions(
@@ -2573,5 +2573,23 @@ def test_v2_54_history_deletion_metadata_upgrade_and_downgrade(fresh_database_ur
     try:
         assert "history_deletions" not in inspect(engine).get_table_names()
         assert "history_deletion_audit" not in inspect(engine).get_table_names()
+    finally:
+        engine.dispose()
+
+
+
+def test_v2_56_quota_column_roundtrip(fresh_database_url):
+    url = fresh_database_url
+    upgrade_database(db_url=url, revision="v2_55")
+    upgrade_database(db_url=url)
+    engine = create_engine(_sync_url(url))
+    try:
+        assert "quota_json" in {c["name"] for c in inspect(engine).get_columns("sessions")}
+    finally:
+        engine.dispose()
+    command.downgrade(_alembic_config(url), "v2_55")
+    engine = create_engine(_sync_url(url))
+    try:
+        assert "quota_json" not in {c["name"] for c in inspect(engine).get_columns("sessions")}
     finally:
         engine.dispose()

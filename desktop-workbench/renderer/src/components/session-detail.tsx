@@ -931,7 +931,7 @@ export function SessionDetail({
 
     const applyEvent = (event: ProtocolEventEnvelope) => {
       if (cancelled || event.sessionId !== sessionId) return
-      if (event.type === "goal.state.updated") { goals.ingest(event.payload.state as import("@/generated/protocol/v1_1/goal-state").GoalState); return }
+      if (event.type === "goal.state.updated") { goals.ingest(event.payload.state as import("@/generated/protocol/v1_2/goal-state").GoalState); return }
       if (event.type === "planning.state.updated") { planning.ingest(event.payload.state as import("@/generated/protocol/v1/planning-state").PlanningState); return }
       if (event.type === "keepalive") return
       const usesDurableEventIdDedup = sessionEventUsesDurableEventIdDedup(event)
@@ -2879,7 +2879,7 @@ function parseProtocolEvent(data: string): ProtocolEventEnvelope | null {
     if (!event || typeof event.type !== "string") return null
     if (event.type === "keepalive") return null
     if (
-      event.protocolVersion !== "1.0" ||
+      (event.protocolVersion !== "1.0" && event.protocolVersion !== "1.1" && event.protocolVersion !== "1.2") ||
       typeof event.eventId !== "string" ||
       typeof event.emittedAt !== "string" ||
       typeof event.sessionId !== "string" ||

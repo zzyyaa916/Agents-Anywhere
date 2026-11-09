@@ -10,6 +10,7 @@ import httpx
 from websockets.exceptions import ConnectionClosed
 
 from connector.logging import logger
+from connector.quota_errors import is_usage_limit
 from connector.runtime_protocol import (
     RuntimeAttachmentContent,
     RuntimeCapabilitySet,
@@ -170,6 +171,10 @@ class ConnectorRuntimeHost(RuntimeHostClient):
     ) -> None:
         selection_values = dict(selections or {})
         instance_metadata = dict(metadata or {})
+        if status == "error" and is_usage_limit(runtime, error):
+            instance_metadata["quotaLimited"] = True
+            status_reason = "usage_limit"
+
         payload: dict[str, Any] = {
             "sessionId": session_id,
             "runtime": runtime,

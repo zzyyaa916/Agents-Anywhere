@@ -638,6 +638,13 @@ class SessionRunService:
         user_id: str,
     ) -> RpcResponsePayload:
         session_id = session.id
+        # Re-read inside admission; the caller's dashboard/session may be stale.
+        session = await self._store.get_session(session_id, user_id=user_id)
+        quota = session.quotaLimit
+        if quota and quota.get("state") == "limited":
+            raise SessionRunConflictError({"code": "session_usage_limited", "message": "仍在用量限额中，请等待恢复或重新检查。", "resetsAt": quota.get("resetsAt")})
+        if quota and (not quota.get("externalSessionId") or session.externalSessionId != quota["externalSessionId"]):
+            raise SessionRunConflictError({"code": "session_resume_identity_missing", "message": "原 Runtime 会话标识不可用，不能创建新会话替代。"})
         await self._ensure_session_runtime_running(session, user_id=user_id)
         from agent_server.core.planning.commands import parse_plan_command
         intent = parse_plan_command(payload.content)
@@ -729,6 +736,8 @@ class SessionRunService:
                     ),
                 }
             )
+        if quota:
+            await self._store.finish_session_quota(session_id, resumed=True, expected=quota)
         await self._usage.record(
             message_sent_event(
                 session,
@@ -1202,6 +1211,10 @@ class SessionRunService:
             raise SessionRunNotFoundError("session not found") from None
         if require_takeover and not session.takeover:
             raise SessionRunConflictError("session is read-only until takeover is enabled")
+        if session.quotaLimit and session.quotaLimit.get("state") == "limited":
+            await self._store.finish_session_quota(session_id, stopped=True, expected=session.quotaLimit)
+            await self._store.clear_active_run(session_id)
+            return RpcResponsePayload(ok=True, result={"stopped": True})
         if require_takeover:
             await self._require_session_capability(
                 session,

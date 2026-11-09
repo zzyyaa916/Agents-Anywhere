@@ -48,6 +48,7 @@ export type SessionStatus =
   | "stopping"
   | "waiting_approval"
   | "error"
+  | "limited"
   | "blocked"
 
 export type SessionView = {
@@ -296,7 +297,7 @@ let mockInstanceSettings: InstanceSettings = {
 
 const mockServiceInfo: ServiceInfo = {
   endpoint: "https://anywhere.t4wefan.pub",
-  version: "2.4.0",
+  version: "2.5.0",
   database: "PostgreSQL",
   databasePath: "postgres:5432/agents_anywhere",
   startedAt: new Date(Date.now() - 86400000 * 7).toISOString(),

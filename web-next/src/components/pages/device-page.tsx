@@ -107,7 +107,7 @@ type DeviceSession = {
   runtime: string
   title?: string | null
   cwd?: string | null
-  status: "idle" | "waiting" | "pending" | "running" | "stopping" | "waiting_approval" | "error" | "blocked"
+  status: "idle" | "waiting" | "pending" | "running" | "stopping" | "waiting_approval" | "error" | "limited" | "blocked"
   takeover: boolean
   pinned: boolean
   archived: boolean

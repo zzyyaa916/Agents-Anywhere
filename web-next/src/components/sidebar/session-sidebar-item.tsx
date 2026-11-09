@@ -146,6 +146,7 @@ export function SessionSidebarItem({
               >
                 <span className="flex min-w-0 w-full items-center gap-2">
                   <SessionAgentIcon runtime={item.runtime} runtimeType={item.runtimeType} />
+                  {item.status === "limited" && <span className="text-xs text-amber-600" title="限额等待">限额等待</span>}
                   <OverflowMarquee text={item.title ?? ""} active={nameHovered} />
                   <SessionSidebarIndicator
                     busy={isBusy}

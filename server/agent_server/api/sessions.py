@@ -75,6 +75,7 @@ from agent_server.core.runtime_identity import (
     resolve_session_runtime_binding,
 )
 from agent_server.core.utc import utc_now
+from agent_server.core.session_quota import project_quota_state
 from agent_server.core.history_deletion import HistoryDeletionConflict
 from agent_server.services.history_deletion import delete_history_data
 from agent_server.infra.terminal_broker import TerminalBroker
@@ -293,8 +294,8 @@ async def read_runtime_state_snapshot(
 
     cached_state = await runtime_state_cache.get(session.id)
     if cached_state is not None:
-        return cached_state
-    return await db.get_session_runtime_state(session.id, user_id=user_id)
+        return project_quota_state(session, cached_state)
+    return project_quota_state(session, await db.get_session_runtime_state(session.id, user_id=user_id))
 
 
 async def refresh_runtime_state_in_background(
@@ -324,6 +325,7 @@ async def refresh_runtime_state_in_background(
             state = await read_runtime_state_from_connector(manager, session)
             if state is None:
                 return
+            state = project_quota_state(session, state)
             persisted_session = await db.set_session_status(session.id, state.status)
             state = state.model_copy(update={"updatedSeq": persisted_session.updatedSeq})
             await runtime_state_cache.put(state)
@@ -1672,14 +1674,15 @@ async def read_runtime_state_live(
     if await manager.is_online(session.connectorId):
         state = await read_runtime_state_from_connector(manager, session)
         if state is not None:
+            state = project_quota_state(session, state)
             persisted_session = await db.set_session_status(session.id, state.status)
             state = state.model_copy(update={"updatedSeq": persisted_session.updatedSeq})
             await runtime_state_cache.put(state)
             return state
     cached_state = await runtime_state_cache.get(session.id)
     if cached_state is not None:
-        return cached_state
-    return await db.get_session_runtime_state(session.id, user_id=user_id)
+        return project_quota_state(session, cached_state)
+    return project_quota_state(session, await db.get_session_runtime_state(session.id, user_id=user_id))
 
 
 async def read_session_capabilities_with_fallback(

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from agent_server.core.session_quota import effective_quota, quota_status
+
 from collections.abc import Sequence
 
 from sqlalchemy import func
@@ -1422,12 +1424,14 @@ class SessionRepositoryMixin:
             row = (await conn.execute(query)).mappings().first()
         if row is None:
             raise KeyError(session_id)
+        quota = await self.session_quota(session_id)
         return SessionRuntimeState(
             sessionId=row["id"],
             runtime=row["runtime"],
             runtimeId=row["runtime_id"],
             externalSessionId=row["external_session_id"],
-            status=row["status"],
+            status=quota_status(row["status"], quota),
+            metadata={"quotaLimit": quota} if quota else {},
             selections={},
             updatedSeq=int(row["updated_seq"] or 0),
             createdAt=row["created_at"],
@@ -1778,6 +1782,9 @@ class SessionRepositoryMixin:
         expected_status: str | None = None,
         mark_read_on_change: bool = False,
     ) -> SessionView:
+        quota = await self.session_quota(session_id)
+        if quota and quota.get("state") == "limited":
+            status = "limited"
         async with self.session_revision_fence(session_id):
             changed = False
             async with closing_connection(self._engine, write=True) as conn:
@@ -2050,7 +2057,8 @@ class SessionRepositoryMixin:
             externalSessionId=row["external_session_id"],
             title=title,
             cwd=row["cwd"],
-            status=row["status"],
+            quotaLimit=effective_quota(json.loads(row["quota_json"]) if row.get("quota_json") else None),
+            status=quota_status(row["status"], json.loads(row["quota_json"]) if row.get("quota_json") else None),
             takeover=bool(row["takeover"]),
             pinned=bool(row["pinned"]),
             pinnedAt=row["pinned_at"],
