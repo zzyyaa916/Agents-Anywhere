@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from connector.core.fork_profile import PROTECTED_PROFILE_ENV, fork_enabled
 from connector.runtime_protocol import RuntimeInvalidRequestError
 from connector.runtimes.custom_models import custom_models_schema
 from connector.runtimes.model_gateway import model_gateway_schema
@@ -104,7 +105,8 @@ def merge_environment(raw: Any) -> dict[str, str]:
             raise RuntimeInvalidRequestError(
                 "environment contains an invalid variable name"
             )
-        if key in PROTECTED_ENV_NAMES or key.startswith(PROTECTED_ENV_PREFIXES):
+        if (key in PROTECTED_ENV_NAMES or key.startswith(PROTECTED_ENV_PREFIXES)
+                or (fork_enabled() and key.upper() in PROTECTED_PROFILE_ENV)):
             raise RuntimeInvalidRequestError(
                 f"environment variable {key!r} is managed by the connector"
             )

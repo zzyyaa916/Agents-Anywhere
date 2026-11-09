@@ -15,6 +15,7 @@ import {
   type IpcMainInvokeEvent,
 } from "electron";
 import fs from "node:fs";
+import { nativeLoginLaunchers } from "./native-login-launchers";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
@@ -470,6 +471,7 @@ function createWindowsTray(): void {
   tray.setToolTip(APP_NAME);
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: "打开 Agents Anywhere", click: () => showMainWindow() },
+    ...nativeLoginMenu(),
     { type: "separator" },
     { label: "退出", click: () => { void requestQuit({ confirm: true }); } },
   ]));
@@ -512,6 +514,24 @@ function sendToRenderer(channel: string, value?: unknown): void {
 
 function connectorDataPath(): string {
   return path.join(app.getPath("userData"), "connector");
+}
+
+function nativeLoginMenu(): Electron.MenuItemConstructorOptions[] {
+  return (["codex", "claude"] as const).map(runtime => ({
+    label: `登录独立 ${runtime === "codex" ? "Codex" : "Claude Code"} 账号`,
+    click: () => { void openNativeLogin(runtime); },
+  }));
+}
+
+async function openNativeLogin(runtime: "codex" | "claude"): Promise<void> {
+  const directory = connectorDataPath();
+  const python = path.join(directory, ".venv", process.platform === "win32" ? "Scripts/python.exe" : "bin/python");
+  if (!fs.existsSync(python)) {
+    await dialog.showMessageBox({ type: "info", message: "请先等待本机 Connector 准备完成，再登录原生账号。" });
+    return;
+  }
+  const error = await shell.openPath(nativeLoginLaunchers(directory)[runtime]);
+  if (error) await dialog.showMessageBox({ type: "error", message: "无法打开原生登录终端。请从设置中的数据目录打开 Login 文件。" });
 }
 
 function connectorLogsPath(): string {
@@ -777,7 +797,7 @@ function registerIpcHandlers(): void {
   );
   ipcMain.handle("workbench:connector:openDataFolder", async (event) => {
     assertTrustedRenderer(event);
-    fs.mkdirSync(connectorDataPath(), { recursive: true, mode: 0o700 });
+    nativeLoginLaunchers(connectorDataPath());
     return shell.openPath(connectorDataPath());
   });
   ipcMain.handle("workbench:connector:openLogsFolder", async (event) => {
@@ -1018,7 +1038,10 @@ if (hasSingleInstanceLock) {
     if (app.isPackaged) queueDesktopOAuthCallback(rawUrl);
   });
   app.whenReady().then(async () => {
-    Menu.setApplicationMenu(null);
+    Menu.setApplicationMenu(process.platform === "darwin" ? Menu.buildFromTemplate([
+      { label: APP_NAME, submenu: [...nativeLoginMenu(), { type: "separator" }, { role: "quit" }] },
+      { role: "editMenu" },
+    ]) : null);
     registerStaticWebProtocol();
     await initializeDesktopServices();
     updates = new DesktopUpdateService({

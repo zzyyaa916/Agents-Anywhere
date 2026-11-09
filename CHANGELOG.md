@@ -6,7 +6,9 @@
 
 ### 分叉桌面版并排安装
 
-- Windows 和 macOS 分叉桌面版使用独立名称、安装标识、登录回调与配置目录，可与官方版安装在同一账号下；本机 Connector 仍须轮流运行。（[发布说明](docs/releases/2.5.1-fork-desktop.md)）
+- 改动版提供独立 Codex / Claude Code 登录入口，不复制官方版原生账号或会话；用量采集兼容 Windows 启动脚本和 SDK 自带 CLI。（[发布说明](docs/releases/2.5.2-fork-desktop.md)）
+
+- Windows 和 macOS 分叉桌面版使用独立名称、安装标识、登录回调与配置目录，可与官方版安装在同一账号下；升级到 2.5.2 后，两版可同时运行各自的本机任务，改动版原生账号须重新登录。（[发布说明](docs/releases/2.5.1-fork-desktop.md)）
 
 ### 分叉版限额续聊
 

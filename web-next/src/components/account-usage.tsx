@@ -72,6 +72,7 @@ export function AccountUsagePanel() {
           </div>)}
         </div>
       })}
+      {(["codex", "claude_code"].some(runtime => !data?.snapshots.some(s => s.runtime === runtime)) || data?.unavailable.length) ? <p className="mb-2 text-muted-foreground">请确认对应设备在线、已添加并启用 Agent，且已在该设备的原生工具登录账号；无需先发起任务。</p> : null}
       <p className="text-muted-foreground">刷新受采集间隔限制；Claude 用量接口为非官方接口。</p>
     </PopoverContent>
   </Popover>

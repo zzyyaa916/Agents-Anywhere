@@ -7,6 +7,7 @@ from typing import Any
 
 from jsonschema import Draft202012Validator
 
+from connector.core.fork_profile import fork_enabled
 from connector.runtime_protocol import (
     AgentRuntime,
     RuntimeConfig,
@@ -132,6 +133,9 @@ class CodexProvider(RuntimeProvider):
 
     async def get_config_schema(self) -> RuntimeConfigSchema:
         schema = provider_config.codex_config_schema()
+        if fork_enabled():
+            for key in ("ipcEnabled", "ipcDeeplinkHandoff"):
+                schema["properties"][key].update(default=False, const=False)
         return RuntimeConfigSchema(
             runtime=self.runtime,
             revision=CODEX_CONFIG_SCHEMA_REVISION,
@@ -154,9 +158,9 @@ class CodexProvider(RuntimeProvider):
                 "customModels": {"component": "customModels"},
             },
             defaults={
-                "useSystemCodex": True,
-                "ipcEnabled": True,
-                "ipcDeeplinkHandoff": True,
+                "useSystemCodex": not fork_enabled(),
+                "ipcEnabled": not fork_enabled(),
+                "ipcDeeplinkHandoff": not fork_enabled(),
                 "environment": {},
                 "customModels": [],
             },
@@ -167,6 +171,9 @@ class CodexProvider(RuntimeProvider):
         values: Mapping[str, Any],
     ) -> RuntimeConfig:
         raw_values = dict(values)
+        if fork_enabled():
+            raw_values.setdefault("useSystemCodex", False)
+            raw_values["ipcEnabled"] = raw_values["ipcDeeplinkHandoff"] = False
         model_gateway = model_gateway_from_config(raw_values.get("modelGateway"))
         if model_gateway is None:
             raw_values.pop("modelGateway", None)

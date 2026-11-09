@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from connector.core.fork_profile import PROTECTED_PROFILE_ENV, fork_enabled
 from connector.runtime_protocol import RuntimeInvalidRequestError
 from connector.runtime_protocol.filesystem import canonical_path
 from connector.runtimes.codex.sdk.binary import CodexRuntimeBinaryMode
@@ -188,7 +189,8 @@ def merge_environment(raw: Any) -> dict[str, str]:
             raise RuntimeInvalidRequestError(
                 "environment contains an invalid variable name"
             )
-        if key in PROTECTED_ENV_NAMES or key.startswith(PROTECTED_ENV_PREFIXES):
+        if (key in PROTECTED_ENV_NAMES or key.startswith(PROTECTED_ENV_PREFIXES)
+                or (fork_enabled() and key.upper() in PROTECTED_PROFILE_ENV)):
             raise RuntimeInvalidRequestError(
                 f"environment variable {key!r} is managed by the connector"
             )
@@ -259,6 +261,10 @@ def normalize_codex_home(raw: Any) -> str | None:
 
 
 def effective_codex_home(configured_home: str | None) -> str:
+    if fork_enabled() and configured_home is not None:
+        expected = canonical_path(os.environ["CODEX_HOME"])
+        if canonical_path(configured_home) != expected:
+            raise RuntimeInvalidRequestError("Fork Codex Home must use its isolated profile")
     if configured_home is not None:
         return configured_home
     environment_home = normalize_codex_home(os.environ.get("CODEX_HOME"))

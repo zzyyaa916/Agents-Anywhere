@@ -549,6 +549,11 @@ test("the Connector network setting replaces any proxy choice inherited from the
     connectControl: async () => fakeChannel(),
   });
   const environment = () => (supervisor as unknown as { connectorEnvironment(): NodeJS.ProcessEnv }).connectorEnvironment();
+  assert.equal(environment().AA_CONNECTOR_PROFILE, "fork");
+  assert.equal(environment().CODEX_HOME, path.join(root, ".agents-anywhere-fork", "native", "codex"));
+  assert.equal(environment().CLAUDE_CONFIG_DIR, path.join(root, ".agents-anywhere-fork", "native", "claude"));
+  assert.equal(environment().CLAUDE_SECURESTORAGE_CONFIG_DIR, environment().CLAUDE_CONFIG_DIR);
+  assert.equal(environment().AGENT_CONNECTOR_DATA_DIR, root);
   assert.equal(environment().AA_CONNECTOR_PROXY, undefined);
   settings.save({ connectorProxy: "direct" });
   assert.equal(environment().AA_CONNECTOR_PROXY, "direct");

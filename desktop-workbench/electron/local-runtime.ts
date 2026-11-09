@@ -29,7 +29,7 @@ export type OwnershipState = {
   owner?: RuntimeOwner;
   recovery?: OwnershipRecovery;
 };
-export const localRuntimePath = (home = userInfo().homedir): string => path.join(home, ".agents-anywhere", "connector-runtime.json");
+export const localRuntimePath = (home = userInfo().homedir): string => path.join(home, ".agents-anywhere-fork", "connector-runtime.json");
 
 function object(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -74,7 +74,7 @@ export function readLocalState(file: string): LocalState {
 /** Read legacy metadata without migrating or rewriting it from a host process. */
 export function readMachineStateFile(file: string): LocalState {
   const state = readLocalState(file);
-  if (state.legacyMachineMigrated === true) return state;
+  if (state.legacyMachineMigrated === true || path.basename(path.dirname(file)) === ".agents-anywhere-fork") return state;
   const legacyRoot = path.join(path.dirname(path.dirname(file)), ".agentsanywhere");
   const machine = readJson(path.join(legacyRoot, "machine.json"));
   const installation = readJson(path.join(legacyRoot, "desktop", "install.json"));

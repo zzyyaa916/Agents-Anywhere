@@ -21,6 +21,12 @@ from typing import TYPE_CHECKING, Any
 import psutil
 from meshcall import MeshCallError
 
+from connector.core.fork_profile import (
+    fork_enabled,
+    fork_root,
+    system_home,
+    validate_fork_environment,
+)
 from connector.logging import logger
 
 if TYPE_CHECKING:
@@ -30,16 +36,11 @@ if TYPE_CHECKING:
 CONNECTOR_ALREADY_RUNNING = "connector_already_running"
 
 
-def system_home() -> Path:
-    if sys.platform != "win32":
-        import pwd
-
-        return Path(pwd.getpwuid(os.getuid()).pw_dir)
-    return Path.home()
-
-
 def runtime_path(config_path: str | Path | None = None) -> Path:
-    # Credentials may be relocated; the per-user mutex may not.
+    if fork_enabled():
+        validate_fork_environment(system_home())
+        return fork_root(system_home()) / "connector-runtime.json"
+    # Arbitrary config/data directories still cannot bypass the official mutex.
     return system_home() / ".agents-anywhere" / "connector-runtime.json"
 
 
@@ -275,7 +276,8 @@ def state_transaction(path: str | Path) -> Iterator[dict[str, Any]]:
         installation = legacy.parent / "desktop" / "install.json"
         # Only a record with legacy files left to fold in needs the second lock;
         # locking a path that does not exist would also create its directory.
-        if state.get("legacyMachineMigrated") is True or not (legacy.exists() or installation.exists()):
+        if (file == fork_root(system_home()) / "connector-runtime.json"
+                or state.get("legacyMachineMigrated") is True or not (legacy.exists() or installation.exists())):
             state["legacyMachineMigrated"] = True
             yield state
             _write(file, state)

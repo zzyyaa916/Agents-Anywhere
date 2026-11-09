@@ -16,6 +16,9 @@ from pathlib import Path
 
 import httpx
 
+from connector.core.fork_profile import fork_enabled
+from connector.native_cli import claude_command, codex_command
+
 MINIMUM = {"codex": 60, "claude_code": 300}
 PLANS = {"free", "plus", "pro", "max", "team", "business", "enterprise", "edu", "go"}
 
@@ -133,11 +136,12 @@ def claude_windows(payload):
 
 
 @asynccontextmanager
-async def codex_process(executable="codex"):
+async def codex_process(executable=None):
     # Intentionally no auth-file reads, token forwarding, login/logout or turn requests.
+    command, environment = await asyncio.to_thread(codex_command, ["app-server"], executable)
     process = await asyncio.create_subprocess_exec(
-        executable,
-        "app-server",
+        *command,
+        env=environment,
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.DEVNULL,
@@ -206,7 +210,7 @@ async def codex_process(executable="codex"):
                 "clientInfo": {
                     "name": "agents_anywhere_usage",
                     "title": "Agents Anywhere usage",
-                    "version": "2.5.0",
+                    "version": "2.5.2",
                 }
             },
         )
@@ -277,7 +281,7 @@ class LocalAccountUsage:
     async def identify(self, runtime, executable=None):
         try:
             if runtime == "codex":
-                async with self.codex_factory(executable or "codex") as request:
+                async with self.codex_factory(executable) as request:
                     account = (
                         await request("account/read", {"refreshToken": False})
                     ).get("account") or {}
@@ -303,11 +307,15 @@ class LocalAccountUsage:
 
     async def _claude_token(self):
         if self.platform == "darwin":
+            service = "Claude Code-credentials"
+            directory = os.environ.get("CLAUDE_SECURESTORAGE_CONFIG_DIR", os.environ.get("CLAUDE_CONFIG_DIR", ""))
+            if directory:
+                service += "-" + hashlib.sha256(directory.encode()).hexdigest()[:8]
             raw, code = await local_output(
                 "security",
                 "find-generic-password",
                 "-s",
-                "Claude Code-credentials",
+                service,
                 "-w",
             )
             if code:
@@ -322,7 +330,8 @@ class LocalAccountUsage:
         return token
 
     async def _claude_usage(self, executable):
-        output, code = await local_output(executable or "claude", "--version")
+        command = await asyncio.to_thread(claude_command, ["--version"], executable)
+        output, code = await local_output(*command)
         match = re.search(rb"\b(\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?)\b", output)
         if code or not match:
             raise UsageUnavailable("unavailable")
@@ -368,7 +377,7 @@ class LocalAccountUsage:
             self.kv.set(key, cached)
             try:
                 if runtime == "codex":
-                    async with self.codex_factory(executable or "codex") as request:
+                    async with self.codex_factory(executable) as request:
                         account = (
                             await request("account/read", {"refreshToken": False})
                         ).get("account") or {}
@@ -422,7 +431,8 @@ class AccountUsageRpc:
         if (
             values.get("modelGateway")
             or values.get("environment")
-            or values.get("codexHome")
+            or (values.get("codexHome") and (not fork_enabled()
+                or Path(values["codexHome"]).resolve() != Path(os.environ["CODEX_HOME"]).resolve()))
         ):
             # Custom credential environments need explicit profile support; never read a different account.
             return {

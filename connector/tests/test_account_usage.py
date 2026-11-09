@@ -199,6 +199,8 @@ def anyio_backend():
 async def test_claude_request_credentials_stay_local(tmp_path, monkeypatch):
     import connector.account_usage as module
 
+    monkeypatch.setattr(module, "claude_command", lambda args, executable: [executable or "claude", *args])
+
     monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
     credentials = tmp_path / ".claude"
     credentials.mkdir()

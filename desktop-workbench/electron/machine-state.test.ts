@@ -63,16 +63,19 @@ test("Desktop records onboarding completion once and preserves every other field
 });
 
 
-test("Fork metadata stays separate while Connector ownership and history remain global", async t => {
+test("Fork metadata and identity history stay separate from official records", async t => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "aa-fork-isolation-"));
   t.after(() => fs.rmSync(home, { recursive: true, force: true }));
-  const official = localRuntimePath(home);
+  const official = path.join(home, ".agents-anywhere", "connector-runtime.json");
   fs.mkdirSync(path.dirname(official), { recursive: true });
   const original = JSON.stringify({ version: 2, connectorIds: ["official-id"], desktop: { appPath: "official" }, runtime: { pid: 123, kind: "desktop", instanceId: "official-runtime", startedAt: "before" }, onboarding: { completedAt: "before", source: "desktop" } });
   fs.writeFileSync(official, original);
-  const fork = new MachineStateStore(machineStatePath(home), undefined, official);
+  const forkRuntime = localRuntimePath(home);
+  fs.mkdirSync(path.dirname(forkRuntime), { recursive: true });
+  fs.writeFileSync(forkRuntime, JSON.stringify({ version: 2, connectorIds: ["fork-id"] }));
+  const fork = new MachineStateStore(machineStatePath(home), undefined, forkRuntime);
   assert.notEqual(fork.filePath, official);
-  assert.deepEqual(fork.readConnectorIds(), ["official-id"]);
+  assert.deepEqual(fork.readConnectorIds(), ["fork-id"]);
   assert.equal(fork.readOnboarding().completedAt, null);
   await fork.recordInstallation(desktopInstallation({ executablePath: process.execPath, appPath: home, packaged: false, platform: process.platform }));
   await fork.completeOnboarding("desktop");

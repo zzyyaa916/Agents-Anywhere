@@ -33,6 +33,12 @@ SHELL_LIFETIME_WARNING = (
 def main(argv: list[str] | None = None) -> None:
     parser = _build_parser()
     args = parser.parse_args(argv)
+    from connector.core.fork_profile import fork_enabled, prepare_native_profile
+    if args.command == "fork-login":
+        from connector.native_login import login
+        raise SystemExit(login(args.runtime))
+    if fork_enabled():
+        prepare_native_profile()
     configure_connector_logging(debug=bool(getattr(args, "debug", False)))
     sanitize_no_proxy_environment()
     try:
@@ -87,8 +93,11 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="anywhere-cli", description="Agent Server Codex connector CLI"
     )
     subparsers = parser.add_subparsers(
-        dest="command", metavar="{start,pair,configure,rpc,prepare-pi}"
+        dest="command", metavar="{start,pair,configure,rpc,prepare-pi,fork-login}"
     )
+
+    native_login = subparsers.add_parser("fork-login", help="log in to an isolated Fork native account locally")
+    native_login.add_argument("runtime", choices=("codex", "claude"))
 
     start = subparsers.add_parser("start", help="start the connector")
     _add_config_args(start)

@@ -15,8 +15,8 @@ test("host reads preserve Python ownership and do not migrate legacy records", t
   fs.mkdirSync(path.dirname(legacy), { recursive: true });
   const contents = JSON.stringify({ version: 1, connectorIds: ["old", "old"], desktop: { appPath: "/Desktop" }, future: true });
   fs.writeFileSync(legacy, contents);
-  assert.deepEqual(readMachineStateFile(file).connectorIds, ["old"]);
-  assert.deepEqual(readMachineStateFile(file).desktop, { appPath: "/Desktop" });
+  assert.deepEqual(readMachineStateFile(file).connectorIds, []);
+  assert.equal(readMachineStateFile(file).desktop, undefined);
   assert.equal(fs.readFileSync(legacy, "utf8"), contents);
   assert.equal(fs.existsSync(file), false);
   fs.mkdirSync(path.dirname(file), { recursive: true });

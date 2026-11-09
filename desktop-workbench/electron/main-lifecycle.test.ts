@@ -167,8 +167,9 @@ test("Windows tray opens the app, cancels exit, and shuts down only after confir
       showMainWindow: () => fixture.calls.push("show"),
       confirmQuit: async () => { fixture.calls.push("confirm"); return confirm; },
       requestQuit: fixture.requestQuit,
+      openNativeLogin: async (runtime: string) => { fixture.calls.push(`login-${runtime}`); },
     });
-    const { createWindowsTray } = loadFunctions(["createWindowsTray"], globals);
+    const { createWindowsTray } = loadFunctions(["createWindowsTray", "nativeLoginMenu"], globals);
     createWindowsTray();
     const tray = globals.tray!;
     assert.equal(tray.icon, path.join(packaged ? resourcesPath : appPath, "build", "icon.ico"));
@@ -177,6 +178,10 @@ test("Windows tray opens the app, cancels exit, and shuts down only after confir
     tray.emit("click");
     tray.menu.find((item) => item.label === "打开 Agents Anywhere")!.click!();
     assert.deepEqual(fixture.calls, ["show", "show"]);
+    fixture.calls.length = 0;
+    tray.menu.find(item => item.label === "登录独立 Codex 账号")!.click!();
+    tray.menu.find(item => item.label === "登录独立 Claude Code 账号")!.click!();
+    assert.deepEqual(fixture.calls, ["login-codex", "login-claude"]);
     fixture.calls.length = 0;
     const exit = tray.menu.find((item) => item.label === "退出")!.click!;
     exit();
