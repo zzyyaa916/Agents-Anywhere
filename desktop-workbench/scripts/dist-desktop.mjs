@@ -91,10 +91,10 @@ function resolveTargets({ platform, archFlag }) {
     const arch = archFlag === "--arm64" ? "arm64" : "x64";
     return { builderFlags: [`--${arch}`], bundleTargets: [BUNDLE_TARGETS[`win32-${arch}`]] };
   }
-  if (archFlag === null || archFlag === "--universal") {
+  if (archFlag === "--universal") {
     return { builderFlags: ["--universal"], bundleTargets: [BUNDLE_TARGETS["darwin-arm64"], BUNDLE_TARGETS["darwin-x64"]] };
   }
-  const arch = archFlag === "--x64" || archFlag === "--arm64" ? archFlag.slice(2) : process.arch;
+  const arch = archFlag === "--arm64" ? "arm64" : "x64";
   if (arch !== "arm64" && arch !== "x64") fail(`Unsupported macOS architecture: ${arch}`);
   return { builderFlags: [`--${arch}`], bundleTargets: [BUNDLE_TARGETS[`darwin-${arch}`]] };
 }

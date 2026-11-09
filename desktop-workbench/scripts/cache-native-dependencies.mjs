@@ -11,7 +11,6 @@ import { PYTHON_VERSION, PBS_RELEASE } from "./prepare-python.mjs";
 const targets = {
   win: [{ uv: "x86_64-pc-windows-msvc.zip", python: "x86_64-pc-windows-msvc", electron: "win32-x64" }],
   mac: [
-    { uv: "aarch64-apple-darwin.tar.gz", python: "aarch64-apple-darwin", electron: "darwin-arm64" },
     { uv: "x86_64-apple-darwin.tar.gz", python: "x86_64-apple-darwin", electron: "darwin-x64" },
   ],
 }[process.argv[2]];

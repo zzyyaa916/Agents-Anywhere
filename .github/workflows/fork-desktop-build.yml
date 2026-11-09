@@ -15,7 +15,7 @@ jobs:
         include:
           - os: macos-latest
             platform: mac
-            architecture: universal
+            architecture: x64
           - os: windows-latest
             platform: win
             architecture: x64
