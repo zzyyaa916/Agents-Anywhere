@@ -1,0 +1,82 @@
+name: agents-anywhere-fork
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 0.5
+    environment:
+      POSTGRES_DB: agents_anywhere_fork
+      POSTGRES_USER: agents_anywhere_fork
+      POSTGRES_PASSWORD: ${FORK_DB_PASSWORD:?set a separate fork database password}
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U agents_anywhere_fork -d agents_anywhere_fork]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    mem_limit: 192m
+    cpus: 0.25
+    command: [redis-server, --save, "", --appendonly, "yes", --appendfsync, everysec, --maxmemory, 128mb, --maxmemory-policy, noeviction]
+    volumes:
+      - redis:/data
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  migrate:
+    image: ${FORK_IMAGE:?set the fork release image}
+    mem_limit: 384m
+    cpus: 0.5
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      AGENT_SERVER_DB_URL: postgresql+asyncpg://agents_anywhere_fork:${FORK_DB_PASSWORD:?required}@postgres:5432/agents_anywhere_fork
+    command: [/opt/venv/bin/python, -m, agent_server.infra.db.migrations, upgrade]
+
+  server:
+    image: ${FORK_IMAGE:?set the fork release image}
+    restart: unless-stopped
+    mem_limit: 768m
+    cpus: 1
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    environment:
+      AGENT_SERVER_DB_URL: postgresql+asyncpg://agents_anywhere_fork:${FORK_DB_PASSWORD:?required}@postgres:5432/agents_anywhere_fork
+      AGENT_SERVER_REDIS_URL: redis://redis:6379/0
+      AGENT_SERVER_SECRET: ${FORK_AUTH_SECRET:?set a separate fork auth secret}
+      AGENT_SERVER_PUBLIC_ORIGIN: ${FORK_PUBLIC_ORIGIN:?set the HTTPS fork origin}
+      AGENT_SERVER_CORS_ORIGINS: ${FORK_PUBLIC_ORIGIN:?required}
+      AGENT_SERVER_FILES_BACKEND: local
+      AGENT_SERVER_FILES_LOCAL_ROOT: /data/agent-server.files
+      AGENT_SERVER_DB_POOL_SIZE: "4"
+      AGENT_SERVER_DB_MAX_OVERFLOW: "4"
+      AGENT_SERVER_WORKERS: "1"
+      AGENT_SERVER_EVENT_WORKERS: "0"
+    volumes:
+      - files:/data
+    ports:
+      - 127.0.0.1:18500:8000
+    healthcheck:
+      test: [CMD, /opt/venv/bin/python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v2/health', timeout=5)"]
+      interval: 15s
+      timeout: 6s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  postgres:
+  redis:
+  files:
