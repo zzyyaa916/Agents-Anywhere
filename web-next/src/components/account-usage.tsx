@@ -1,6 +1,8 @@
 "use client"
 
 import * as React from "react"
+import { Gauge } from "lucide-react"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { useAuth } from "@/components/auth/auth-context"
 import { apiClient } from "@/lib/api"
 import { Button } from "@/components/ui/button"
@@ -47,25 +49,32 @@ export function AccountUsageProvider({ children }: { children: React.ReactNode }
 
 export function AccountUsagePanel() {
   const { data, busy, refresh } = React.useContext(Context)
-  return <section aria-label="账号剩余用量" className="mb-2 max-h-64 overflow-auto rounded-md border p-2 text-xs group-data-[collapsible=icon]:hidden">
-    <div className="mb-2 flex items-center justify-between"><span>账号剩余用量</span><Button size="sm" variant="ghost" disabled={busy} onClick={() => void refresh()}>{busy ? "检查中…" : "刷新"}</Button></div>
-    {["codex", "claude_code"].map(runtime => {
-      const snapshots = data?.snapshots.filter(s => s.runtime === runtime) ?? []
-      const name = runtime === "codex" ? "Codex" : "Claude Code"
-      return <div key={runtime} className="mb-2 space-y-1">
-        {!snapshots.length && <p>{name} · 用量不可用</p>}
-        {snapshots.map(s => <div key={s.accountKey} className="space-y-1">
-          <p>{name} · {s.accountLabel}{s.planType ? ` · ${s.planType}` : ""}</p>
-          {s.windows.map((w, index) => <div key={`${w.kind}-${index}`}>
-            <p>{windowLabel(w)} · 剩余 {Math.round(w.remainingPercent)}% · {localTime(w.resetsAt)} 重置</p>
-            <progress aria-label={`${name} ${windowLabel(w)}剩余`} value={w.remainingPercent} max={100} className="h-1 w-full accent-primary" />
+  return <Popover>
+    <PopoverTrigger asChild>
+      <Button size="icon" variant="ghost" aria-label="查看账号用量" title="账号用量" className="size-9 shrink-0 rounded-full bg-muted text-muted-foreground">
+        <Gauge className="size-6" aria-hidden="true" />
+      </Button>
+    </PopoverTrigger>
+    <PopoverContent side="top" align="start" aria-label="账号剩余用量" className="max-h-[min(70vh,32rem)] w-80 max-w-[calc(100vw-2rem)] gap-0 overflow-y-auto text-xs">
+      <div className="mb-2 flex items-center justify-between"><span>账号剩余用量</span><Button size="sm" variant="ghost" disabled={busy} onClick={() => void refresh()}>{busy ? "检查中…" : "刷新"}</Button></div>
+      {["codex", "claude_code"].map(runtime => {
+        const snapshots = data?.snapshots.filter(s => s.runtime === runtime) ?? []
+        const name = runtime === "codex" ? "Codex" : "Claude Code"
+        return <div key={runtime} className="mb-2 space-y-1">
+          {!snapshots.length && <p>{name} · 用量不可用</p>}
+          {snapshots.map(s => <div key={s.accountKey} className="space-y-1">
+            <p>{name} · {s.accountLabel}{s.planType ? ` · ${s.planType}` : ""}</p>
+            {s.windows.map((w, index) => <div key={`${w.kind}-${index}`}>
+              <p>{windowLabel(w)} · 剩余 {Math.round(w.remainingPercent)}% · {localTime(w.resetsAt)} 重置</p>
+              <progress aria-label={`${name} ${windowLabel(w)}剩余`} value={w.remainingPercent} max={100} className="h-1 w-full accent-primary" />
+            </div>)}
+            <p className="text-muted-foreground">{s.stale ? "数据已过期 · " : ""}{s.fetchedAt ? `${localTime(s.fetchedAt)} 更新` : "用量不可用"}</p>
           </div>)}
-          <p className="text-muted-foreground">{s.stale ? "数据已过期 · " : ""}{s.fetchedAt ? `${localTime(s.fetchedAt)} 更新` : "用量不可用"}</p>
-        </div>)}
-      </div>
-    })}
-    <p className="text-muted-foreground">刷新受采集间隔限制；Claude 用量接口为非官方接口。</p>
-  </section>
+        </div>
+      })}
+      <p className="text-muted-foreground">刷新受采集间隔限制；Claude 用量接口为非官方接口。</p>
+    </PopoverContent>
+  </Popover>
 }
 
 export function SessionUsageNotice({ connectorId, runtimeId }: { connectorId: string; runtimeId?: string }) {

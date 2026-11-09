@@ -54,8 +54,8 @@ export function SidebarAccountFooter({
 
   return (
     <>
-      <div className="px-3"><AccountUsagePanel /></div>
-      <SidebarFooter className="min-w-0 flex-row items-center gap-1 px-3 py-3">
+      <SidebarFooter className="min-w-0 flex-row items-center group-data-[collapsible=icon]:flex-col gap-1 px-3 py-3">
+        <AccountUsagePanel />
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button

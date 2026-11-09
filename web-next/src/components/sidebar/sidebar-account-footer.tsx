@@ -53,13 +53,13 @@ export function SidebarAccountFooter({
 
   return (
     <>
-      <SidebarFooter className="min-w-0 px-3 py-3">
+      <SidebarFooter className="min-w-0 flex-row items-center group-data-[collapsible=icon]:flex-col gap-2 px-3 py-3">
         <AccountUsagePanel />
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              className="flex w-full min-w-0 max-w-full items-center gap-3 rounded-lg px-1 py-1.5 transition-colors hover:bg-sidebar-accent"
+              className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-1 py-1.5 transition-colors hover:bg-sidebar-accent"
             >
               <Avatar className="size-9 rounded-full">
                 {me?.avatar && <AvatarImage src={me.avatar} alt={userId} />}
