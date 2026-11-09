@@ -230,7 +230,7 @@ def create_app(
                                 finally:
                                     await app.state.store.close()
 
-    app = FastAPI(title="Agent Server", version="2.5.0", lifespan=lifespan)
+    app = FastAPI(title="Agent Server", version="2.5.1", lifespan=lifespan)
     app.add_exception_handler(
         ConnectorServiceError,
         error_handlers.connector_service_error_handler,
