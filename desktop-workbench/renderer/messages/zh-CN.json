@@ -1126,7 +1126,7 @@
       "queuePlaceholder": "任务执行中，可继续输入并加入待发送队列",
       "queuedMessages": "当前客户端待发送消息",
       "resumeQueue": "继续排队发送",
-      "queueStorageError": "无法保存待发送消息，草稿已保留。",
+      "queueStorageError": "本地队列保存失败，请保留页面并检查草稿及待发送消息。",
       "queueFailed": "发送失败或结果未知，请先确认会话再重试",
       "supplementRejected": "消息未被接收，已保留在待发送队列。",
       "queueSending": "正在发送…",

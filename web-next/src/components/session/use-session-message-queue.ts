@@ -27,7 +27,7 @@ function persist(scope: string | undefined, items: Item[]) {
   localStorage.setItem(scope, JSON.stringify(items, (key, value) => key === "file" || key === "preview" ? undefined : value))
 }
 
-export function useSessionMessageQueue({ scope, canSend, canSteer, onSend }: { scope?: string; canSend: boolean; canSteer: boolean; onSend: Send }) {
+export function useSessionMessageQueue({ scope, canSend, canSteer, autoSend = true, onSend }: { scope?: string; canSend: boolean; canSteer: boolean; autoSend?: boolean; onSend: Send }) {
   const [state, setState] = React.useState(() => { const items = restore(scope); return { scope, items, paused: items.length > 0 } })
   const [error, setError] = React.useState<"storage" | null>(null)
   const latest = React.useRef({ state, scope, canSend, canSteer, onSend })
@@ -37,6 +37,7 @@ export function useSessionMessageQueue({ scope, canSend, canSteer, onSend }: { s
   }, [])
   React.useEffect(() => {
     if (state.scope === scope) return
+    state.items.filter(item => item.status === "queued").forEach(item => item.attachments.forEach(file => { if (file.preview) URL.revokeObjectURL(file.preview) }))
     const items = restore(scope)
     setState({ scope, items, paused: items.length > 0 })
   }, [scope, state.scope])
@@ -81,21 +82,28 @@ export function useSessionMessageQueue({ scope, canSend, canSteer, onSend }: { s
       try { sent = await current.onSend(item.text, item.attachments, { clientMessageId: id, steer }) } catch { /* Result is uncertain; require manual retry. */ }
       if (latest.current.scope !== original.scope) {
         const stored = restore(original.scope)
-        persist(original.scope, sent ? stored.filter(value => value.id !== id) : stored.map(value => value.id === id ? { ...value, status: "failed" } : value))
+        try { persist(original.scope, sent ? stored.filter(value => value.id !== id) : stored.map(value => value.id === id ? { ...value, status: "failed" } : value)) } catch { /* Keep the persisted in-flight record for manual review after restore. */ }
         return
       }
-      replace(sent ? latest.current.state.items.filter(value => value.id !== id) : latest.current.state.items.map(value => value.id === id ? { ...value, status: "failed" } : value))
+      const items: Item[] = sent ? latest.current.state.items.filter(value => value.id !== id) : latest.current.state.items.map(value => value.id === id ? { ...value, status: "failed" } : value)
+      if (!replace(items)) {
+        const next = { ...latest.current.state, items }
+        latest.current.state = next
+        setState(next)
+      }
     }
     try {
       if (typeof navigator !== "undefined" && navigator.locks) await navigator.locks.request(lock, run)
       else await run()
+    } catch {
+      if (latest.current.scope === original.scope) replace(latest.current.state.items.map(item => item.id === id ? { ...item, status: "failed" } : item))
     } finally { active.delete(lock) }
   }
   const items = state.scope === scope ? state.items : []
   React.useEffect(() => {
     const first = items[0]
-    if (!state.paused && canSend && first?.status === "queued") void deliver(first.id, false)
-  }, [items, state.paused, canSend])
+    if (!state.paused && autoSend && canSend && first?.status === "queued") void deliver(first.id, false)
+  }, [items, state.paused, canSend, autoSend])
   const pause = () => {
     const next = { ...latest.current.state, paused: true }
     latest.current.state = next

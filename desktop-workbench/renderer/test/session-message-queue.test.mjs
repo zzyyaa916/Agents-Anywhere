@@ -116,3 +116,25 @@ test('uploaded attachment references survive restore without copying local file 
  assert.equal(queue.items[0].attachments[0].uploaded.fileId,'uploaded-file')
  assert.equal(queue.items[0].attachments[0].file.size,0)
 })
+
+
+test('error recovery permits explicit continuation without automatically retrying work',async t=>{
+ const calls=[]
+ await mount(t,{scope:'queue:error-recovery',canSend:true,canSteer:false,autoSend:false,onSend:async text=>{calls.push(text);return true}})
+ await act(async()=>queue.enqueue('continue after reset',[]))
+ assert.equal(calls.length,0)
+ await act(async()=>queue.deliver(queue.items[0].id,false))
+ assert.deepEqual(calls,['continue after reset']);assert.equal(queue.items.length,0)
+})
+
+
+test('storage failure after acceptance cannot leave a message permanently sending',async t=>{
+ const scope='queue:cleanup-failed'
+ await mount(t,{scope,canSend:false,canSteer:true,onSend:async()=>true})
+ await act(async()=>queue.enqueue('accepted',[]))
+ const id=queue.items[0].id
+ t.mock.method(dom.window.Storage.prototype,'removeItem',()=>{throw new Error('blocked storage')})
+ await act(async()=>queue.deliver(id,true))
+ assert.equal(queue.items.length,0);assert.equal(queue.error,'storage')
+ assert.equal(JSON.parse(localStorage.getItem(scope))[0].status,'sending')
+})

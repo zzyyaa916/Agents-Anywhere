@@ -234,7 +234,8 @@ export function SessionComposer({
     !interrupting &&
     acceptsUserInput
   const messageQueue = useSessionMessageQueue({ scope: queueScope,
-    canSend: allowQueueDelivery && pendingInteractionCount === 0 && runtimeStatus === "idle" && canSend && session.takeover,
+    canSend: allowQueueDelivery && pendingInteractionCount === 0 && !canQueue && canSend && session.takeover,
+    autoSend: runtimeStatus === "idle",
     canSteer: canSteer && session.takeover && !sending && !interrupting && !commandPending,
     onSend,
   })
@@ -698,7 +699,7 @@ export function SessionComposer({
             <div className="flex items-center gap-2 text-xs">
               <span className="flex-1 text-muted-foreground">{tSession(item.status === "failed" ? "queueFailed" : item.status === "sending" ? "queueSending" : "queueWaiting")}</span>
               {canSteer && <Button size="sm" variant="outline" disabled={sending || interrupting || item.status === "sending"} onClick={() => void messageQueue.deliver(item.id, true)}>{tSession("sendSupplement")}</Button>}
-              {runtimeStatus === "idle" && item.status === "failed" && <Button size="sm" variant="outline" disabled={!canSend} onClick={() => void messageQueue.deliver(item.id, false)}>{tSession("retryQueued")}</Button>}
+              {!canQueue && canSend && item.status !== "sending" && <Button size="sm" variant="outline" disabled={pendingInteractionCount > 0 || !allowQueueDelivery} onClick={() => void messageQueue.deliver(item.id, false)}>{tSession(item.status === "failed" ? "retryQueued" : "send")}</Button>}
               <Button size="icon-sm" variant="ghost" aria-label={tSession("removeQueued")} disabled={item.status === "sending"} onClick={() => messageQueue.remove(item.id)}><X className="size-3" /></Button>
             </div>
           </div>)}

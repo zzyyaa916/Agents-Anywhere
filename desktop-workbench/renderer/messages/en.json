@@ -1126,7 +1126,7 @@
       "queuePlaceholder": "Queue another message while the task continues",
       "queuedMessages": "Pending messages on this client",
       "resumeQueue": "Resume queue",
-      "queueStorageError": "Could not save the queue. Your draft has been kept.",
+      "queueStorageError": "Could not save the queue. Keep this page open and check your draft and pending messages.",
       "queueFailed": "Delivery failed or uncertain; check the conversation before retrying",
       "supplementRejected": "The message was not accepted; it remains pending.",
       "queueSending": "Sending…",

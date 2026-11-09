@@ -453,3 +453,15 @@ test('a failed queue save preserves the typed draft',async t=>{
   assert.equal(input.value,'do not lose this')
   assert.match(host.textContent,/Could not save the queue/)
 })
+
+
+test('queued messages in an error state require and permit a manual retry',async t=>{
+ const scope='queue:composer-error';const calls=[]
+ localStorage.setItem(scope,JSON.stringify([{id:'stable-retry',text:'continue',attachments:[],status:'failed'}]))
+ const host=await mount(t,h(SessionComposer,{token:'test',queueScope:scope,session:{...session,status:'error'},runtimeState:{status:'error',metadata:{},selections:{}},pendingInteractionCount:0,sending:false,interrupting:false,takeoverBusy:false,value:'',effectiveCapabilities:capability,modelCatalog:null,permissionCatalog:null,runtimeCommands:[],onCommandQueryChange(){},onValueChange(){},onSelectionChange:async()=>true,onSend:async(text,files,options)=>{calls.push({text,options});return true},onInterrupt(){},onToggleTakeover(){},onCommand:async()=>({ok:false})}))
+ assert.equal(calls.length,0)
+ const retry=[...host.querySelectorAll('button')].find(b=>b.textContent==='Retry sending')
+ assert.ok(retry)
+ await act(async()=>retry.click())
+ assert.deepEqual(calls,[{text:'continue',options:{clientMessageId:'stable-retry',steer:false}}])
+})
