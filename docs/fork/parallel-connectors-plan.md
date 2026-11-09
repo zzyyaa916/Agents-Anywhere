@@ -14,3 +14,5 @@
 验证：临时目录证明官方/Fork 可同时持有各自锁、同一模式重复启动仍被拒；官方文件与旧登录目录不变；越界配置/符号链接被拒；Windows 启动 shim 与 SDK 回退、采集白名单/取消回收/门禁回归；两平台原生构建，真机验收由用户完成。测试不启动/停止真实工作 Connector，不采集真实厂商凭据。
 
 客户端内部修复使用 PATCH 2.5.2（Connector/Desktop/renderer/Web）；Server API、RPC 载荷、数据库格式不变。沿用现有服务，不迁移其他服务器的用户和数据。
+
+原生账号存储核对：Codex 的 [认证存储实现](https://github.com/openai/codex/blob/main/codex-rs/login/src/auth/storage.rs) 按 Codex Home 生成 keyring 账户键，文件存储也位于该 Home；Claude 原生登录沿用 [官方 CLI 命令](https://code.claude.com/docs/en/cli-reference)。macOS 私有 keychain 服务选择仍需真实设备验收，不把合成数据测试当作真实账号成功。

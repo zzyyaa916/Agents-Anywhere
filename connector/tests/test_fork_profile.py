@@ -158,3 +158,103 @@ def test_interactive_login_uses_private_environment_without_capture(
     assert kwargs["env"]["CODEX_HOME"] == str(
         home / ".agents-anywhere-fork/native/codex"
     )
+
+
+def test_two_real_processes_keep_separate_leases_and_reject_duplicates(tmp_path):
+    import subprocess
+    import sys
+
+    script = tmp_path / "probe/connector/cli.py"
+    script.parent.mkdir(parents=True)
+    script.write_text("""
+import os, sys
+from pathlib import Path
+from connector.core import fork_profile, runtime_owner
+home = Path(os.environ["AA_TEST_HOME"])
+fork_profile.system_home = runtime_owner.system_home = lambda: home
+if fork_profile.fork_enabled():
+    fork_profile.prepare_native_profile()
+lease = runtime_owner.RuntimeLease()
+try:
+    lease.claim()
+except runtime_owner.ConnectorAlreadyRunningError:
+    sys.exit(2)
+print("ready", flush=True)
+try:
+    sys.stdin.readline()
+finally:
+    lease.release()
+""")
+    base = {**os.environ, "AA_TEST_HOME": str(tmp_path / "home")}
+    base.pop("AA_CONNECTOR_PROFILE", None)
+    children = []
+    try:
+        for profile in (None, "fork"):
+            environment = dict(base)
+            if profile:
+                environment["AA_CONNECTOR_PROFILE"] = profile
+            child = subprocess.Popen(
+                [sys.executable, str(script)],
+                env=environment,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            children.append(child)
+            assert child.stdout.readline().strip() == "ready"
+            duplicate = subprocess.run(
+                [sys.executable, str(script)],
+                env=environment,
+                input="",
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            assert duplicate.returncode == 2, duplicate.stderr
+        assert all(child.poll() is None for child in children)
+    finally:
+        for child in children:
+            child.stdin.close()
+            try:
+                child.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                child.kill()
+                child.wait()
+            child.stdout.close()
+            child.stderr.close()
+
+
+def test_fork_disables_desktop_ipc_even_for_previous_saved_values(monkeypatch):
+    import asyncio
+
+    from connector.runtimes.codex import provider
+    from connector.runtimes.codex.sdk.binary import (
+        CodexRuntimeBinarySelection,
+        LoginShellPathResult,
+    )
+
+    home = activate(monkeypatch)
+    monkeypatch.setattr(
+        provider,
+        "codex_runtime_environment",
+        lambda *a, **kw: (dict(os.environ), LoginShellPathResult(None, None)),
+    )
+    monkeypatch.setattr(
+        provider,
+        "select_codex_runtime_binary",
+        lambda *a, **kw: CodexRuntimeBinarySelection(
+            "sdk_bundled", "sdk_bundled", None, None, None
+        ),
+    )
+    instance = provider.CodexProvider(sdk_checker=lambda: {"available": True})
+    config = asyncio.run(
+        instance.validate_config({"ipcEnabled": True, "ipcDeeplinkHandoff": True})
+    )
+    assert config.values["ipcEnabled"] is False
+    assert config.values["ipcDeeplinkHandoff"] is False
+    assert config.values["codexHome"] == str(
+        home / ".agents-anywhere-fork/native/codex"
+    )
+    assert config.values["useSystemCodex"] is False
