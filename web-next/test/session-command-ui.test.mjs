@@ -5,7 +5,7 @@ import { JSDOM } from 'jsdom'
 import { registerSource } from './helpers/onboarding-source.mjs'
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url:'https://app.example.test/', pretendToBeVisual:true })
-for (const key of ['window','document','navigator','HTMLElement','HTMLTextAreaElement','HTMLFormElement','HTMLInputElement','DocumentFragment','CustomEvent','Element','Node','MutationObserver','getComputedStyle','requestAnimationFrame','cancelAnimationFrame']) {
+for (const key of ['localStorage','window','document','navigator','HTMLElement','HTMLTextAreaElement','HTMLFormElement','HTMLInputElement','DocumentFragment','CustomEvent','Element','Node','MutationObserver','getComputedStyle','requestAnimationFrame','cancelAnimationFrame']) {
   Object.defineProperty(globalThis,key,{configurable:true,value:dom.window[key]})
 }
 globalThis.ResizeObserver = class {observe(){} disconnect(){}}
@@ -403,4 +403,77 @@ test('without planning capability the menu does not offer /plan',async t=>{
   const host=await mount(t,h(Host))
   assert.match(host.querySelectorAll('[role=option]')[1].textContent,/native/,'a native command keeps the runtime description')
   assert.deepEqual([...host.querySelectorAll('[role=option]')].map(option=>option.querySelector('span').textContent.split(' ')[0]),['/compact','/skill-x'])
+})
+
+
+test('running tasks queue messages by Enter and supplement only on explicit click', async t => {
+  const sent=[]; let stopped=0
+  const runningCapabilities={...capability,capabilities:[...capability.capabilities.map(c=>c.capabilityId==='session.send_message'?{...c,available:false}:c),{...capability.capabilities[0],capabilityId:'session.steer'}]}
+  function Host(){
+    const [value,setValue]=useState('')
+    return h(SessionComposer,{token:'test',session:{...session,status:'running'},runtimeState:{status:'running',metadata:{},selections:{}},pendingInteractionCount:0,sending:false,interrupting:false,takeoverBusy:false,value,effectiveCapabilities:runningCapabilities,modelCatalog:null,permissionCatalog:null,runtimeCommands:[],onCommandQueryChange(){},onValueChange:setValue,onSelectionChange:async()=>true,onSend:async text=>{sent.push(text);return true},onInterrupt(){stopped++},onToggleTakeover(){},onCommand:async()=>({ok:false})})
+  }
+  const host=await mount(t,h(Host))
+  const input=host.querySelector('textarea')
+  const buttons=()=>[...host.querySelectorAll('button')]
+  assert.ok(buttons().find(b=>b.getAttribute('aria-label')==='Interrupt'))
+  for(const text of ['补充限制：仅修改测试目录','补充验收：保留原会话']){
+    await type(input,text)
+    await act(async()=>input.dispatchEvent(new window.KeyboardEvent('keydown',{key:'Enter',bubbles:true})))
+    assert.equal(input.value,'')
+  }
+  assert.deepEqual(sent,[])
+  assert.match(host.textContent,/Pending messages on this client/)
+  for(let index=0;index<2;index++){
+    await act(async()=>buttons().find(b=>b.textContent==='Supplement now').click())
+  }
+  assert.deepEqual(sent,['补充限制：仅修改测试目录','补充验收：保留原会话'])
+  assert.equal(stopped,0)
+  await type(input,'draft stays')
+  await act(async()=>buttons().find(b=>b.getAttribute('aria-label')==='Interrupt').click())
+  assert.equal(stopped,1)
+  assert.equal(input.value,'draft stays')
+})
+
+test('without steer capability Enter queues the draft but offers no immediate supplement', async t => {
+  let sent=0,stopped=0
+  const caps={...capability,capabilities:capability.capabilities.map(c=>c.capabilityId==='session.send_message'?{...c,available:false}:c)}
+  const host=await mount(t,h(SessionComposer,{token:'test',session:{...session,status:'running'},runtimeState:{status:'running',metadata:{},selections:{}},pendingInteractionCount:0,sending:false,interrupting:false,takeoverBusy:false,value:'supplement',effectiveCapabilities:caps,modelCatalog:null,permissionCatalog:null,runtimeCommands:[],onCommandQueryChange(){},onValueChange(){},onSelectionChange:async()=>true,onSend:async()=>{sent++;return true},onInterrupt(){stopped++},onToggleTakeover(){},onCommand:async()=>({ok:false})}))
+  await act(async()=>host.querySelector('textarea').dispatchEvent(new window.KeyboardEvent('keydown',{key:'Enter',bubbles:true})))
+  assert.equal(sent,0);assert.equal(stopped,0)
+  assert.match(host.textContent,/Pending messages on this client/)
+  assert.equal([...host.querySelectorAll("button")].some(b=>b.textContent==='Supplement now'),false)
+})
+
+
+test('pending approvals and plan review prevent automatic queue delivery',async t=>{
+  const sent=[];let status,pending,review
+  function Host(){
+    const [value,setValue]=useState('')
+    const [runtime,setRuntime]=useState('running');status=setRuntime
+    const [count,setCount]=useState(1);pending=setCount
+    const [released,setReleased]=useState(false);review=setReleased
+    return h(SessionComposer,{token:'test',session:{...session,status:runtime},runtimeState:{status:runtime,metadata:{},selections:{}},allowQueueDelivery:released,pendingInteractionCount:count,sending:false,interrupting:false,takeoverBusy:false,value,effectiveCapabilities:capability,modelCatalog:null,permissionCatalog:null,runtimeCommands:[],onCommandQueryChange(){},onValueChange:setValue,onSelectionChange:async()=>true,onSend:async text=>{sent.push(text);return true},onInterrupt(){},onToggleTakeover(){},onCommand:async()=>({ok:false})})
+  }
+  const host=await mount(t,h(Host));const input=host.querySelector('textarea')
+  await type(input,'wait for review')
+  await act(async()=>input.dispatchEvent(new window.KeyboardEvent('keydown',{key:'Enter',bubbles:true})))
+  await act(async()=>status('idle'))
+  assert.equal(sent.length,0)
+  await act(async()=>pending(0))
+  assert.equal(sent.length,0)
+  await act(async()=>review(true))
+  assert.deepEqual(sent,['wait for review'])
+})
+
+test('a failed queue save preserves the typed draft',async t=>{
+  t.mock.method(dom.window.Storage.prototype,'setItem',()=>{throw new Error('full')})
+  function Host(){
+    const [value,setValue]=useState('do not lose this')
+    return h(SessionComposer,{token:'test',queueScope:'queue:full-composer',session:{...session,status:'running'},runtimeState:{status:'running',metadata:{},selections:{}},pendingInteractionCount:0,sending:false,interrupting:false,takeoverBusy:false,value,effectiveCapabilities:capability,modelCatalog:null,permissionCatalog:null,runtimeCommands:[],onCommandQueryChange(){},onValueChange:setValue,onSelectionChange:async()=>true,onSend:async()=>{assert.fail('save failed')},onInterrupt(){},onToggleTakeover(){},onCommand:async()=>({ok:false})})
+  }
+  const host=await mount(t,h(Host));const input=host.querySelector('textarea')
+  await act(async()=>input.dispatchEvent(new window.KeyboardEvent('keydown',{key:'Enter',bubbles:true})))
+  assert.equal(input.value,'do not lose this')
+  assert.match(host.textContent,/Could not save the queue/)
 })

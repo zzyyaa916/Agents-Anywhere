@@ -740,11 +740,11 @@ export class DashboardApi {
     token: string,
     sessionId: string,
     content: string,
-    options: MessageSendOptions = {},
+    options: MessageSendOptions & { steer?: boolean } = {},
   ): Promise<RpcResponse<unknown>> {
     const { attachments, clientMessageId } = options;
     return this.client.post<RpcResponse<unknown>>(
-      `/sessions/${encodeURIComponent(sessionId)}/runtime/messages`,
+      `/sessions/${encodeURIComponent(sessionId)}/runtime/${options.steer ? "steer" : "messages"}`,
       {
         content,
         ...(attachments && attachments.length > 0 ? { attachments } : {}),

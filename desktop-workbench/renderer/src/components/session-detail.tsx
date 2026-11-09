@@ -1,5 +1,6 @@
 "use client"
 
+import { useAuth } from "@/components/auth/auth-context"
 import { useRuntimeErrorText } from "@/lib/runtime-error-text"
 import { useSessionGoal } from "@/features/goals/use-session-goal"
 import { GoalPanel } from "@/components/session/goal-panel"
@@ -335,6 +336,7 @@ export function SessionDetail({
   onMemorySnapshotUpdated,
   onStreamProgress,
 }: SessionDetailProps) {
+  const { session: accountSession } = useAuth()
   const tSession = useTranslations("dashboard.session")
   const tPlanning = useTranslations("planning")
   const tNew = useTranslations("dashboard.new")
@@ -1204,7 +1206,7 @@ export function SessionDetail({
   const handleSend = async (
     content: string,
     attachments: AttachedFile[],
-    _selections: { model?: string; permission?: string },
+    options: { model?: string; permission?: string; clientMessageId?: string; steer?: boolean },
   ): Promise<boolean> => {
     if (!session || (!content.trim() && attachments.length === 0)) return false
     if (capabilityIsUsable(effectiveCapabilities,"session.goal",sessionRuntimeScope) && /^\/goal(?:\s|$)/.test(content.trimStart())) {
@@ -1232,7 +1234,10 @@ export function SessionDetail({
       attachment.uploaded ? [attachment.uploaded] : [],
     )
     if (uploadedAttachments.length !== attachments.length) return false
-    const clientMessageId = createClientId("msg")
+    const steering = options.steer === true
+    if (steering && (runtimeStatus !== "running" || !capabilityIsUsable(effectiveCapabilities, CAPABILITY.steer, sessionRuntimeScope))) return false
+    if (runtimeStatus === "running" && !steering) return false
+    const clientMessageId = options.clientMessageId ?? createClientId("msg")
     const messageText = content.trim() || tNew("attachmentOnlyPrompt")
     timelineFollowRef.current?.resume()
     const optimisticMessage = buildOptimisticUserMessage({
@@ -1253,17 +1258,19 @@ export function SessionDetail({
       if (!current) return current
       return {
         ...current,
-        state: nextOptimisticRuntimeState(current.state, current.session, "waiting"),
+        state: steering ? current.state : nextOptimisticRuntimeState(current.state, current.session, "waiting"),
         items: mergeTimelineItems(current.items, [optimisticMessage]),
       }
     })
     setSending(true)
     try {
       await selectionWritesRef.current.get(session.id)
-      await dashboardApi.sendSessionMessage(token, session.id, messageText, {
+      const delivered = await dashboardApi.sendSessionMessage(token, session.id, messageText, {
+        steer: steering,
         attachments: uploadedAttachments.map((attachment) => ({ fileId: attachment.fileId })),
         clientMessageId,
       })
+      if (!delivered.ok || (steering && (delivered.result as { ok?: boolean } | null)?.ok === false)) throw new Error(tSession("supplementRejected"))
       return true
     } catch (err) {
       const nextSourceErrorCode = sessionSourceErrorCode(err)
@@ -1278,7 +1285,7 @@ export function SessionDetail({
         return {
           ...current,
           state:
-            current.state?.status === "waiting"
+            !steering && current.state?.status === "waiting"
               ? previousRuntimeState
               : current.state,
           items: current.items.map((item) =>
@@ -1856,6 +1863,8 @@ export function SessionDetail({
           <div hidden={planReview !== null}>
           <GoalPanel goals={goals}/>
           <SessionComposer
+            allowQueueDelivery={planReview === null}
+            queueScope={accountSession ? `aa-message-queue:${JSON.stringify([accountSession?.serverUrl || window.location.origin, accountSession.userId, session.id])}` : undefined}
             token={token}
             session={session}
             runtimeState={runtimeState}

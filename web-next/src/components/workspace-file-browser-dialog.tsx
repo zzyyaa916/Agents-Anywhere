@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { filePathBreadcrumbParent } from "@/lib/file-path-breadcrumb"
 import { ChevronRight, FolderOpen, RefreshCw } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
@@ -38,6 +39,8 @@ export function FileBrowserDialog({
   const [error, setError] = React.useState<string | null>(null)
   const requestRef = React.useRef(0)
   const isWindowsConnector = connectorDeviceOs === "windows"
+  const windowsPath = React.useRef(isWindowsConnector)
+  React.useEffect(() => { windowsPath.current = isWindowsConnector }, [connectorId, isWindowsConnector])
 
   const loadPath = React.useCallback(
     async (path: string) => {
@@ -52,7 +55,7 @@ export function FileBrowserDialog({
       setError(null)
       try {
         const trimmedPath = path.trim()
-        const target = isWindowsConnector ? trimmedPath : trimmedPath || "/"
+        const target = windowsPath.current ? trimmedPath : trimmedPath || "/"
         const root = target || "~"
         const res = await dashboardApi.connectorFsList(token, connectorId, {
           root,
@@ -62,6 +65,7 @@ export function FileBrowserDialog({
         if (res.result.targetType === "file") throw new Error(t("directoryRequired"))
         setEntries(res.result.entries)
         const resolved = res.result.path || target
+        if (/^[A-Za-z]:[\\/]/.test(resolved) || resolved.startsWith("\\\\")) windowsPath.current = true
         setCurrentPath(resolved)
         setInputPath(resolved)
       } catch (err) {
@@ -85,15 +89,12 @@ export function FileBrowserDialog({
     [entries],
   )
 
-  const isWindows = currentPath.includes("\\") || /^[A-Z]:/.test(currentPath)
-  const sep = isWindows ? "\\" : "/"
-
   const parentPath = React.useMemo(() => {
-    if (!currentPath || currentPath === "." || currentPath === "") return null
-    if (isWindows && /^[A-Za-z]:[\\/]?$/.test(currentPath)) return ""
-    const parts = currentPath.split(sep)
-    return parts.length > 1 ? parts.slice(0, -1).join(sep) || sep : null
-  }, [currentPath, isWindows, sep])
+    if (!currentPath || currentPath === ".") return null
+    if (/^[A-Za-z]:[\\/]?$/.test(currentPath)) return ""
+    const parent = filePathBreadcrumbParent(currentPath)
+    return parent === currentPath ? null : parent
+  }, [currentPath])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -123,7 +124,7 @@ export function FileBrowserDialog({
               <ChevronRight className="-rotate-90" />
             </Button>
           )}
-          <Button type="button" variant="outline" size="icon" disabled={loading} onClick={() => void loadPath(currentPath || inputPath || initialPath)} aria-label={t("refresh")}>
+          <Button type="button" variant="outline" size="icon" disabled={loading} onClick={() => void loadPath(currentPath)} aria-label={t("refresh")}>
             <RefreshCw />
           </Button>
         </div>
@@ -158,7 +159,7 @@ export function FileBrowserDialog({
         </ScrollArea>
 
         <div className="truncate rounded-md border border-border bg-muted/40 px-3 py-2 code-mono text-xs text-muted-foreground">
-          {currentPath || t("resolvingHome")}
+          {currentPath || (windowsPath.current && !loading ? t("drives") : t("resolvingHome"))}
         </div>
 
         <DialogFooter>

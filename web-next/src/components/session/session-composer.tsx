@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { useSessionMessageQueue } from "./use-session-message-queue"
 import { parsePlanningCommand } from "@/features/planning/commands"
 import { ArrowUp, Check, ChevronDown, Loader2, Square, X } from "lucide-react"
 import { toast } from "sonner"
@@ -76,6 +77,8 @@ export type { AttachedFile }
 
 export function SessionComposer({
   token,
+  queueScope,
+  allowQueueDelivery = true,
   session,
   runtimeState,
   pendingInteractionCount,
@@ -98,6 +101,8 @@ export function SessionComposer({
   onCommand,
   onToggleTakeover,
 }: {
+  allowQueueDelivery?: boolean
+  queueScope?: string
   token: string
   session: SessionView
   runtimeState?: SessionRuntimeState | null
@@ -119,7 +124,7 @@ export function SessionComposer({
   onSend: (
     content: string,
     attachments: AttachedFile[],
-    selections: { model?: string; permission?: string },
+    selections: { model?: string; permission?: string; clientMessageId?: string; steer?: boolean },
   ) => Promise<boolean>
   onInterrupt: () => void
   onCommand: (command: string, options: { args: string[]; raw: string }) => Promise<CommandOutcome>
@@ -186,15 +191,11 @@ export function SessionComposer({
   const isDisconnected = runtimeStatus === "disconnected"
   const sourceUnavailable = session.archived
   const connectorOnline = session.connectorStatus === "online"
-  const acceptsUserInput =
-    connectorOnline &&
-    !sourceUnavailable &&
-    !isDisconnected &&
-    !isWaiting &&
-    !isRunning &&
-    !isStopping &&
-    !isWaitingApproval &&
-    !isBlocked
+  const canSteer = session.takeover && connectorOnline && !sourceUnavailable && isRunning && capabilityIsUsable(effectiveCapabilities, CAPABILITY.steer, runtimeScope)
+  const sendCapability = findCapability(effectiveCapabilities, CAPABILITY.sendMessage, runtimeScope)
+  const canQueue = connectorOnline && !sourceUnavailable && !isDisconnected &&
+    (isRunning || isWaiting || isStopping || isWaitingApproval || isBlocked) && Boolean(sendCapability?.supported && sendCapability.allowed)
+  const acceptsUserInput = connectorOnline && !sourceUnavailable && !isDisconnected
   const canUseSendMessage = capabilityIsUsable(effectiveCapabilities, CAPABILITY.sendMessage, runtimeScope)
   const canUseCommands = capabilityIsUsable(effectiveCapabilities, CAPABILITY.commands, runtimeScope)
   const canUseInterrupt = capabilityIsUsable(effectiveCapabilities, CAPABILITY.interrupt, runtimeScope)
@@ -226,12 +227,17 @@ export function SessionComposer({
     onDrop,
   } = useAttachments({ sessionId: creatingSession ? undefined : session.id, token, enabled: canUseAttachments, allowedMimeTypes, imagesAllowed })
   const canSend =
-    canUseSendMessage &&
+    (canUseSendMessage || canQueue) &&
     !creatingSession &&
     !sending &&
     !commandPending &&
     !interrupting &&
     acceptsUserInput
+  const messageQueue = useSessionMessageQueue({ scope: queueScope,
+    canSend: allowQueueDelivery && pendingInteractionCount === 0 && runtimeStatus === "idle" && canSend && session.takeover,
+    canSteer: canSteer && session.takeover && !sending && !interrupting && !commandPending,
+    onSend,
+  })
   const hasInput = value.trim().length > 0 || attachments.length > 0
   const attachmentsReady = attachmentsAllowed && (attachments.length === 0 || (allUploaded && !uploadsPending && !uploadFailed))
   const activeSessionCanInterrupt = Boolean(
@@ -383,6 +389,8 @@ export function SessionComposer({
         ? tSession("waitingApprovalPlaceholder")
         : isWaiting
           ? tSession("pendingPlaceholder")
+          : canQueue
+            ? tSession("queuePlaceholder")
           : isStopping || isRunning
             ? tSession("busyPlaceholder")
             : isWaitingApproval || isBlocked
@@ -438,7 +446,7 @@ export function SessionComposer({
     ? commandSuggestions[Math.min(activeCommandIndex, commandSuggestions.length - 1)]
     : null
   React.useEffect(() => { setActiveCommandIndex(0) }, [commandQuery])
-  const showInterruptAction = showInterrupt && (mode.kind === "message" || goalIntent || goalMode) && !showCommandMenu
+  const showInterruptAction = showInterrupt && !canQueue && (mode.kind === "message" || goalIntent || goalMode) && !showCommandMenu
   React.useEffect(() => {
     onCommandQueryChange(commandQuery)
   }, [commandQuery, onCommandQueryChange])
@@ -580,6 +588,13 @@ export function SessionComposer({
       }
       return
     }
+    if (canQueue || messageQueue.items.length) {
+      if (messageQueue.enqueue(text, files)) {
+        updateValue("")
+        clear({ revokePreviews: false })
+      }
+      return
+    }
     updateValue("")
     clear({ revokePreviews: false })
     const sent = await onSend(text, files, {
@@ -593,6 +608,7 @@ export function SessionComposer({
 
   const primaryAction = () => {
     if (showInterruptAction) {
+      messageQueue.pause()
       onInterrupt()
       return
     }
@@ -670,6 +686,23 @@ export function SessionComposer({
       {goalMode && <Badge variant="outline">{tGoal("title")}<Button type="button" variant="ghost" size="icon-sm" aria-label={tGoal("clearMode")} onClick={()=>setGoalMode(false)}><X/></Button></Badge>}
       <DragOverlay isDragging={isDragging} />
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-2">
+        {messageQueue.error && <p role="alert" className="text-sm text-destructive">{tSession("queueStorageError")}</p>}
+        {messageQueue.items.length > 0 && <div aria-label={tSession("queuedMessages")} className="max-h-48 space-y-2 overflow-y-auto rounded-md border p-2">
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <span>{tSession("queuedMessages")}</span>
+            {messageQueue.paused && <Button size="sm" variant="outline" onClick={messageQueue.resume}>{tSession("resumeQueue")}</Button>}
+          </div>
+          {messageQueue.items.map(item => <div key={item.id} className="space-y-1 rounded border p-2">
+            <p className="line-clamp-3 whitespace-pre-wrap break-words text-sm">{item.text}</p>
+            {item.attachments.length > 0 && <p className="text-xs text-muted-foreground">{item.attachments.map(file => file.name).join(", ")}</p>}
+            <div className="flex items-center gap-2 text-xs">
+              <span className="flex-1 text-muted-foreground">{tSession(item.status === "failed" ? "queueFailed" : item.status === "sending" ? "queueSending" : "queueWaiting")}</span>
+              {canSteer && <Button size="sm" variant="outline" disabled={sending || interrupting || item.status === "sending"} onClick={() => void messageQueue.deliver(item.id, true)}>{tSession("sendSupplement")}</Button>}
+              {runtimeStatus === "idle" && item.status === "failed" && <Button size="sm" variant="outline" disabled={!canSend} onClick={() => void messageQueue.deliver(item.id, false)}>{tSession("retryQueued")}</Button>}
+              <Button size="icon-sm" variant="ghost" aria-label={tSession("removeQueued")} disabled={item.status === "sending"} onClick={() => messageQueue.remove(item.id)}><X className="size-3" /></Button>
+            </div>
+          </div>)}
+        </div>}
         {commandFeedback ? (
           <Alert variant="destructive" role="alert" className="pr-10">
             <AlertDescription>
@@ -957,6 +990,14 @@ export function SessionComposer({
               {tSession("takeover")}
             </div>
             <span className="mx-1 h-5 w-px shrink-0 bg-border" />
+            {canQueue && showInterrupt && <Button
+              type="button"
+              size="icon"
+              aria-label={tSession("interrupt")}
+              className="size-8 rounded-full bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={interrupting}
+              onClick={() => { messageQueue.pause(); onInterrupt() }}
+            ><Square className="size-4" /></Button>}
             <Button
               type="button"
               size="icon"

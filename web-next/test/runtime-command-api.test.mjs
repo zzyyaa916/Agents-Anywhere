@@ -17,3 +17,13 @@ test('public API preserves empty and long exact raw without splitting >32 words'
   assert.equal(requests[1].body.raw,'')
   assert.equal(requests[2].path,'/sessions/s1/runtime/commands?query=goal+status&limit=1000')
 })
+
+
+test('supplements use existing steer endpoint and preserve attachment and message identity',async()=>{
+  const calls=[]
+  const api=new DashboardApi({post:async(path,body)=>{calls.push({path,body});return {ok:true}}})
+  const options={clientMessageId:'same-message',attachments:[{fileId:'file-1'}]}
+  await api.sendSessionMessage('synthetic','session/id','extra detail',{...options,steer:true})
+  await api.sendSessionMessage('synthetic','session/id','new turn',options)
+  assert.deepEqual(calls,[{path:'/sessions/session%2Fid/runtime/steer',body:{content:'extra detail',...options}},{path:'/sessions/session%2Fid/runtime/messages',body:{content:'new turn',...options}}])
+})

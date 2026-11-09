@@ -4,6 +4,11 @@
 
 ## 未发布
 
+### 分叉桌面版消息与项目选择
+
+- 任务执行期间可继续把消息加入输入框上方的本地待发送队列，支持即时补充的 Agent 可点击「立即补充」；停止任务会暂停队列，重新打开后需手动继续。（[发布说明](docs/releases/2.5.3-fork-desktop.md)）
+- 修复 Windows 项目选择器返回上级时跳回用户目录的问题，可以从 C 盘返回盘符列表并切换其他盘。（[发布说明](docs/releases/2.5.3-fork-desktop.md)）
+
 ### 分叉桌面版并排安装
 
 - 改动版提供独立 Codex / Claude Code 登录入口，不复制官方版原生账号或会话；用量采集兼容 Windows 启动脚本和 SDK 自带 CLI。（[发布说明](docs/releases/2.5.2-fork-desktop.md)）
