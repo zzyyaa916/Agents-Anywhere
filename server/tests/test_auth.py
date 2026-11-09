@@ -883,7 +883,8 @@ def test_first_party_oauth_authorize_json_returns_app_callback(tmp_path):
     assert params["code"]
 
 
-def test_desktop_oauth_authorization_code_pkce_round_trip(tmp_path):
+@pytest.mark.parametrize("client_id", ["agents-anywhere-desktop", "agents-anywhere-fork-desktop"])
+def test_desktop_oauth_authorization_code_pkce_round_trip(tmp_path, client_id):
     client = make_client(tmp_path)
     token = admin_token(client)
     verifier = "desktop-test-verifier-value"
@@ -892,8 +893,8 @@ def test_desktop_oauth_authorization_code_pkce_round_trip(tmp_path):
         headers=bearer(token),
         params={
             "response_type": "code",
-            "client_id": "agents-anywhere-desktop",
-            "redirect_uri": "agents-anywhere-desktop://oauth/callback",
+            "client_id": client_id,
+            "redirect_uri": f"{client_id}://oauth/callback",
             "code_challenge": pkce_challenge(verifier),
             "code_challenge_method": "S256",
             "scope": "profile",
@@ -904,7 +905,7 @@ def test_desktop_oauth_authorization_code_pkce_round_trip(tmp_path):
     assert auth.status_code in (302, 307), auth.text
     redirected = urlparse(auth.headers["location"])
     params = parse_qs(redirected.query)
-    assert redirected.scheme == "agents-anywhere-desktop"
+    assert redirected.scheme == client_id
     assert params["state"] == ["desktop-state"]
 
     exchanged = client.post(
@@ -912,8 +913,8 @@ def test_desktop_oauth_authorization_code_pkce_round_trip(tmp_path):
         data={
             "grant_type": "authorization_code",
             "code": params["code"][0],
-            "client_id": "agents-anywhere-desktop",
-            "redirect_uri": "agents-anywhere-desktop://oauth/callback",
+            "client_id": client_id,
+            "redirect_uri": f"{client_id}://oauth/callback",
             "code_verifier": verifier,
         },
     )
