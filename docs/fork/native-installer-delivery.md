@@ -1,5 +1,18 @@
 # Windows / macOS 测试安装包交付（2026-11-09）
 
+## 当前 2.5.1 并排安装包
+
+- [Windows x64 ZIP](https://github.com/zzyyaa916/Agents-Anywhere/actions/runs/42581972039/artifacts/13657309502)
+- [macOS universal ZIP](https://github.com/zzyyaa916/Agents-Anywhere/actions/runs/42581972039/artifacts/13658130916)
+- [成功原生构建](https://github.com/zzyyaa916/Agents-Anywhere/actions/runs/42581972039)；源码 `c536513263a418b12acf6fbed4887f94247831dd`。
+
+无需虚拟机或第二个系统账号，保留默认 Fork 安装目录即可；两版 Connector 须轮流运行。ZIP 内含安装文件和 SHA256SUMS，GitHub 登录后下载，保存 14 天。[完整验收与文件列表](side-by-side-desktop-delivery.md)。
+
+| 文件 | 字节数 | SHA256 |
+| --- | --- | --- |
+| `Agents Anywhere Fork Setup 2.5.1.exe` | 311176620 | `f4a6f82cedfb42f95004072c7298f1c6bcb620f0ae93ec4dceaef4b12437a29b` |
+| `Agents Anywhere Fork-2.5.1-universal.dmg` | 542766028 | `1a3168b4a614c7458bb07238317a489c96b1f1e85fcb5ac5ca4d4cf266c21687` |
+
 > 以下是旧 2.5.0 包，沿用官方安装标识，不要覆盖安装。适合同一系统账号并排安装的新包说明见 [2.5.1](../releases/2.5.1-fork-desktop.md)。
 
 ## 下载

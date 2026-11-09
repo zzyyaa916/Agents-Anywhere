@@ -1,5 +1,7 @@
 # 改动版隔离部署记录（2026-11-09）
 
+> 后续已在同一隔离服务更新 Server/Web 至 **2.5.1**，支持 Fork 独立登录回调；官方容器保持原样，注册仍关闭，临时 SSH 密钥已撤销。[更新验收、备份与回退记录](side-by-side-desktop-delivery.md)。下文保留首次 2.5.0 部署记录。
+
 ## 版本与目录
 
 - Server/Web：2.5.0，产品源码提交 `efaf6394`；独立镜像 `agents-anywhere-fork:2.5.0-efaf6394`，镜像 ID `502ff0e8c1b4`。
