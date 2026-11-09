@@ -18,6 +18,7 @@ from redis.exceptions import RedisError
 from agent_server.api import (
     admin,
     admin_usage,
+    account_usage,
     agents,
     announcements,
     auth,
@@ -135,6 +136,7 @@ def create_app(
         presence_task: asyncio.Task[None] | None = None
         deletion_task: asyncio.Task[None] | None = None
         usage_task: asyncio.Task[None] | None = None
+        account_usage_task: asyncio.Task[None] | None = None
         tokens_task: asyncio.Task[None] | None = None
         goal_task: asyncio.Task[None] | None = None
         try:
@@ -156,6 +158,8 @@ def create_app(
             presence_task = asyncio.create_task(_connector_presence_watchdog(app))
             deletion_task = asyncio.create_task(app.state.connector_deletion_recovery.run())
             usage_task = asyncio.create_task(app.state.usage_maintenance.run())
+            if os.environ.get("AGENT_SERVER_ACCOUNT_USAGE_POLLING", "1") != "0":
+                account_usage_task = asyncio.create_task(app.state.account_usage_service.run())
             tokens_task = asyncio.create_task(tokens_link_service_for(app.state).run_keep_alive())
             # Switches a stopped worker left behind; waiting ones resume on events.
             await model_channel_service_for(app.state).resume()
@@ -172,6 +176,9 @@ def create_app(
                 await SetupTokenService(app.state.setup_token, app.state.redis).snapshot()
             yield
         finally:
+            if account_usage_task is not None:
+                account_usage_task.cancel()
+                await asyncio.gather(account_usage_task, return_exceptions=True)
             if tokens_task is not None:
                 tokens_task.cancel()
                 await asyncio.gather(tokens_task, return_exceptions=True)
@@ -222,7 +229,7 @@ def create_app(
                                 finally:
                                     await app.state.store.close()
 
-    app = FastAPI(title="Agent Server", version="2.3.0", lifespan=lifespan)
+    app = FastAPI(title="Agent Server", version="2.4.0", lifespan=lifespan)
     app.add_exception_handler(
         ConnectorServiceError,
         error_handlers.connector_service_error_handler,
@@ -323,6 +330,8 @@ def create_app(
         app.state.store, app.state.rpc, app.state.terminal_broker,
         app.state.timeline_write_buffer, app.state.session_runtime_state_cache, app.state.timeline_broker,
     )
+    from agent_server.services.account_usage import AccountUsageService
+    app.state.account_usage_service = AccountUsageService(app.state.store, app.state.rpc)
     app.state.usage_recorder = UsageRecorder(
         app.state.store,
         flush_interval_seconds=float(
@@ -422,6 +431,7 @@ def create_app(
     app.include_router(connector_ingress.router, prefix=API_V2_PREFIX)
     app.include_router(agents.router, prefix=API_V2_PREFIX)
     app.include_router(pairing.router, prefix=API_V2_PREFIX)
+    app.include_router(account_usage.router, prefix=API_V2_PREFIX)
     app.include_router(projects.router, prefix=API_V2_PREFIX)
     app.include_router(sessions.router, prefix=API_V2_PREFIX)
     app.include_router(session_planning.router, prefix=API_V2_PREFIX)

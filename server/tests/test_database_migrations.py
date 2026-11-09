@@ -1020,9 +1020,9 @@ def test_unversioned_runtime_schema_is_classified_by_actual_columns(tmp_path,
     )
 
 
-def test_current_schema_version_is_v2_54() -> None:
-    assert CURRENT_SCHEMA_REVISION == "v2_54"
-    assert CURRENT_SCHEMA_VERSION == "2.54"
+def test_current_schema_version_is_v2_55() -> None:
+    assert CURRENT_SCHEMA_REVISION == "v2_55"
+    assert CURRENT_SCHEMA_VERSION == "2.55"
 
 
 def test_v2_49_tracks_inventory_scans_without_rewriting_sessions(

@@ -856,3 +856,14 @@ history_deletion_audit = Table(
     Column("cleanup_pending", Integer, nullable=False, server_default="1"),
     Column("deleted_at", Text, nullable=False),
 )
+
+
+account_usage_sources = Table("account_usage_sources", metadata,
+    Column("connector_id", Text, primary_key=True), Column("runtime_id", Text, primary_key=True),
+    Column("account_key", Text), Column("discovery_after", Float, nullable=False, server_default="0"),
+    ForeignKeyConstraint(["connector_id", "runtime_id"], ["device_runtimes.connector_id", "device_runtimes.runtime_id"], ondelete="CASCADE"))
+account_usage_snapshots = Table("account_usage_snapshots", metadata,
+    Column("user_id", Text, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
+    Column("runtime", Text, primary_key=True), Column("account_key", Text, primary_key=True),
+    Column("snapshot_json", Text), Column("failures", Integer, nullable=False, server_default="0"),
+    Column("next_attempt_at", Float, nullable=False, server_default="0"), Column("attempt_id", Text))

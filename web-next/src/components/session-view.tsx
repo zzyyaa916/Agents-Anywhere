@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { SessionUsageNotice } from "@/components/account-usage"
 
 import { SessionDetail, type SessionMemorySnapshot } from "@/components/session-detail"
 import {
@@ -240,6 +241,7 @@ export function SessionView() {
             onToggleTools={toolSidebar.toggleSidebar}
           />
 
+          <SessionUsageNotice connectorId={session.connectorId} runtimeId={session.runtimeId} />
           <div className="min-h-0 flex-1 overflow-hidden">
             {token ? (
               <SessionFilePreviewProvider onOpenFilePreview={handleOpenFilePreview}>

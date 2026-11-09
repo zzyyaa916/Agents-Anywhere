@@ -1,0 +1,232 @@
+{
+  "$defs": {
+    "UsageBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "connectorId": {
+          "title": "Connectorid",
+          "type": "string"
+        },
+        "runtimeId": {
+          "title": "Runtimeid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "connectorId",
+        "runtimeId"
+      ],
+      "title": "UsageBinding",
+      "type": "object"
+    },
+    "UsageSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "runtime": {
+          "enum": [
+            "codex",
+            "claude_code",
+            "dsh"
+          ],
+          "title": "Runtime",
+          "type": "string"
+        },
+        "accountKey": {
+          "title": "Accountkey",
+          "type": "string"
+        },
+        "bindings": {
+          "items": {
+            "$ref": "#/$defs/UsageBinding"
+          },
+          "title": "Bindings",
+          "type": "array"
+        },
+        "accountLabel": {
+          "title": "Accountlabel",
+          "type": "string"
+        },
+        "planType": {
+          "anyOf": [
+            {
+              "enum": [
+                "free",
+                "plus",
+                "pro",
+                "max",
+                "team",
+                "business",
+                "enterprise",
+                "edu",
+                "go"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Plantype"
+        },
+        "windows": {
+          "items": {
+            "$ref": "#/$defs/UsageWindow"
+          },
+          "title": "Windows",
+          "type": "array"
+        },
+        "fetchedAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fetchedat"
+        },
+        "stale": {
+          "title": "Stale",
+          "type": "boolean"
+        },
+        "errorCode": {
+          "anyOf": [
+            {
+              "enum": [
+                "unavailable",
+                "rate_limited",
+                "invalid_response",
+                "account_changed",
+                "account_unavailable",
+                "unsupported_auth"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Errorcode"
+        },
+        "nextAttemptAt": {
+          "title": "Nextattemptat",
+          "type": "number"
+        }
+      },
+      "required": [
+        "runtime",
+        "accountKey",
+        "accountLabel",
+        "windows",
+        "stale",
+        "nextAttemptAt"
+      ],
+      "title": "UsageSnapshot",
+      "type": "object"
+    },
+    "UsageWindow": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "five_hour",
+            "weekly",
+            "seven_day",
+            "weekly_scoped",
+            "other"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "modelScope": {
+          "anyOf": [
+            {
+              "enum": [
+                "opus",
+                "sonnet",
+                "haiku",
+                "unknown"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Modelscope"
+        },
+        "usedPercent": {
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Usedpercent",
+          "type": "number"
+        },
+        "remainingPercent": {
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Remainingpercent",
+          "type": "number"
+        },
+        "resetsAt": {
+          "format": "date-time",
+          "title": "Resetsat",
+          "type": "string"
+        },
+        "windowDurationMins": {
+          "exclusiveMinimum": 0,
+          "maximum": 525600,
+          "title": "Windowdurationmins",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "usedPercent",
+        "remainingPercent",
+        "resetsAt",
+        "windowDurationMins"
+      ],
+      "title": "UsageWindow",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "snapshots": {
+      "items": {
+        "$ref": "#/$defs/UsageSnapshot"
+      },
+      "title": "Snapshots",
+      "type": "array"
+    },
+    "unavailable": {
+      "items": {
+        "enum": [
+          "codex",
+          "claude_code",
+          "dsh"
+        ],
+        "type": "string"
+      },
+      "title": "Unavailable",
+      "type": "array"
+    },
+    "serverTime": {
+      "title": "Servertime",
+      "type": "string"
+    }
+  },
+  "required": [
+    "snapshots",
+    "unavailable",
+    "serverTime"
+  ],
+  "title": "UsageResponse",
+  "type": "object"
+}

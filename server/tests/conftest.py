@@ -29,6 +29,7 @@ os.environ.setdefault("AGENT_SERVER_SESSION_RPC_TIMEOUT_SECONDS", "0.2")
 os.environ.setdefault("AGENT_SERVER_PASSWORD_ITERATIONS", "1000")
 # Most tests exercise protocol behavior. The process pool has dedicated tests.
 os.environ.setdefault("AGENT_SERVER_EVENT_WORKERS", "0")
+os.environ.setdefault("AGENT_SERVER_ACCOUNT_USAGE_POLLING", "0")
 # Tests run one app from many short-lived event loops; see engine.build_engine.
 os.environ.setdefault("AGENT_SERVER_DB_NULL_POOL", "1")
 
@@ -72,6 +73,7 @@ def make_test_client() -> TestClient:
 
 _API_PREFIX = "/api/v2"
 _API_ROOTS = (
+    "/account-usage",
     "/.well-known",
     "/admin",
     "/agents",

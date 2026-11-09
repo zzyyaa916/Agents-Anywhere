@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from connector.account_usage import AccountUsageRpc
 from connector.runtime_protocol import RuntimeHostClient, RuntimeSupervisor
 from connector.server.local_rpc import (
     BackgroundScheduler,
@@ -24,6 +25,8 @@ class ConnectorRequestSession:
         self.local_rpc = local_rpc
 
     async def dispatch(self, method: str, params: dict[str, Any]) -> Any:
+        if method in {"accountUsage.identify", "accountUsage.collect"}:
+            return await self.account_usage_rpc.dispatch(method, params)
         if self.runtime_rpc.supports(method):
             return await self.runtime_rpc.dispatch(method, params)
         if self.local_rpc.supports(method):
@@ -55,11 +58,12 @@ class ConnectorRequestDispatcher:
             start_terminal_relay=start_terminal_relay,
             schedule_background=schedule_background,
         )
+        self.account_usage_rpc = AccountUsageRpc(agent_runtime_supervisor, agent_runtime_host)
         self._default_session = self.new_session()
         self.runtime_rpc = self._default_session.runtime_rpc
 
     def new_session(self) -> ConnectorRequestSession:
-        return ConnectorRequestSession(
+        session = ConnectorRequestSession(
             runtime_rpc=RuntimeRpcHandler(
                 agent_runtime_supervisor=self._agent_runtime_supervisor,
                 agent_runtime_host=self._agent_runtime_host,
@@ -67,6 +71,8 @@ class ConnectorRequestDispatcher:
             ),
             local_rpc=self.local_rpc,
         )
+        session.account_usage_rpc = self.account_usage_rpc
+        return session
 
     async def dispatch(self, method: str, params: dict[str, Any]) -> Any:
         return await self._default_session.dispatch(method, params)

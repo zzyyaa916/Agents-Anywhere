@@ -44,7 +44,11 @@ from agent_server.infra.repositories.tokens_links import TokensLinkRepositoryMix
 from agent_server.infra.repositories.history_deletion import HistoryDeletionRepositoryMixin
 
 
+from agent_server.infra.repositories.account_usage import AccountUsageRepositoryMixin
+
+
 class Store(
+    AccountUsageRepositoryMixin,
     HistoryDeletionRepositoryMixin,
     GoalRepositoryMixin,
     ChannelReconciliationRepositoryMixin,

@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { AccountUsageProvider } from "@/components/account-usage"
 import {
   defaultFilter,
   listConnectors as listMockConnectors,
@@ -1548,7 +1549,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     refreshData: fetchData,
   }
 
-  return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>
+  return <WorkspaceContext.Provider value={value}><AccountUsageProvider>{children}</AccountUsageProvider></WorkspaceContext.Provider>
 }
 
 function sameStableValue(left: unknown, right: unknown): boolean {

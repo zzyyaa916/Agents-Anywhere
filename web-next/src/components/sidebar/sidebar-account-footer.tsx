@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { AccountUsagePanel } from "@/components/account-usage"
 import { LayoutDashboard, LogOut, Settings } from "lucide-react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -53,6 +54,7 @@ export function SidebarAccountFooter({
   return (
     <>
       <SidebarFooter className="min-w-0 px-3 py-3">
+        <AccountUsagePanel />
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button
