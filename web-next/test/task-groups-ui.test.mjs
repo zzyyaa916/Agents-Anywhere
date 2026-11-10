@@ -35,19 +35,22 @@ globalThis.testTaskGroups = {
   },
 }
 globalThis.testWorkspace = {
-  projects: [{ id: 'p', connectorId: 'c', name: 'Project' }], connectors: [{ id: 'c', deviceOs: 'linux' }],
-  newSessionProject: { id: 'p', connectorId: 'c', name: 'Project' },
-  runtimes: ['codex', 'claude', 'dsh'].map(runtime => ({ connectorId: 'c', runtimeId: runtime, runtimeType: runtime, displayName: runtime, status: 'running' })),
+  projects: [{ id: 'p', connectorId: 'c', name: 'Project', workspacePath: '/chosen/project' }], connectors: [{ id: 'c', name: 'Device', status: 'online', deviceOs: 'linux' }],
+  newSessionProject: { id: 'p', connectorId: 'c', name: 'Project', workspacePath: '/chosen/project' },
+  runtimes: ['codex', 'claude', 'dsh'].map(runtime => ({ connectorId: 'c', runtimeId: runtime, runtimeType: runtime, displayName: runtime, status: 'running', configured: true, active: true })),
   resolveProject: async body => { calls.push(['resolveProject', body]); return { id: 'p', connectorId: body.connectorId, workspacePath: body.workspacePath, name: 'Project' } },
+  startSessionCreation: body => { calls.push(['single', body]); return Promise.resolve() },
+  saveCreationEditor: () => {}, discardCreationEditor: () => {}, goHome: () => {},
   refreshData: async () => {}, upsertSession: () => {}, reportSessionStreamProgress: () => {},
 }
 const fullInventory = globalThis.testWorkspace.runtimes
 globalThis.testWorkspace.runtimes = fullInventory.filter(row => row.runtimeType !== 'dsh')
 globalThis.testDashboard = {
   getConnectorRuntimes: async () => ({ runtimes: fullInventory }),
+  sendSessionMessage: async (_token, id, content, options) => { calls.push(['broadcast', id, content, options]); return { ok: true } },
   getConnectorRuntimeCapabilities: async (_token, _connector, id) => ({ capabilitySet: { capabilities: id === 'dsh' ? ['catalog.model', 'catalog.permission'].map(capabilityId => ({ capabilityId, runtime: 'dsh', supported: true, available: true, allowed: true })) : [] } }),
   getConnectorRuntimeModelCatalog: async () => ({ catalog: { models: [
-    { id: 'deepseek', displayName: 'DeepSeek', default: true, selectionId: 'dsh-model-1', reasoningItems: [], metadata: {} },
+    { id: 'deepseek', displayName: 'DeepSeek', default: true, selectionId: 'dsh-model-1', reasoningItems: [{ id: 'low', displayName: 'Low', default: true, selectionId: 'dsh-model-low', metadata: {} }, { id: 'high', displayName: 'High', default: false, selectionId: 'dsh-model-high', metadata: {} }], metadata: {} },
     { id: 'other', displayName: 'Other model', default: false, selectionId: 'dsh-model-2', reasoningItems: [], metadata: {} },
   ] } }),
   getConnectorRuntimePermissionCatalog: async () => ({ catalog: { permissions: [
@@ -59,6 +62,23 @@ const source = registerSource()
 const hooks = registerHooks({ load(url, context, next) {
   const mocks = {
     '/features/dashboard/api.ts': 'export const dashboardApi=globalThis.testDashboard',
+    '/components/ui/sidebar.tsx': 'export const useSidebar=()=>({isMobile:true,state:"collapsed"})',
+    '/hooks/use-element-width.ts': 'export const useElementWidth=()=>320',
+    '/components/session-tool-sidebar-state.tsx': 'export const useSessionToolSidebarStore=()=>({migrateSession:()=>{}})',
+    '/components/session/use-workspace-preparation.ts': 'export const useWorkspacePreparation=()=>({operation:null,pending:false,error:null,retry:()=>{}})',
+    '/components/session/runtime-workflow-panel.tsx': 'export const RuntimeWorkflowPanel=()=>null',
+    '/components/session/runtime-creation-status.tsx': 'export const RuntimeCreationStatus=()=>null',
+    '/components/sidebar/project-editor-dialog.tsx': 'export const ProjectEditorDialog=()=>null',
+    '/components/workspace-picker.tsx': 'export const WorkspacePicker=()=>null',
+    '/components/attachment-input.tsx': 'export const AttachmentButton=()=>null;export const AttachmentPreviewList=()=>null;export const DragOverlay=()=>null;const result={attachments:[],attachmentsAllowed:true,clear:()=>{},add:()=>{},remove:()=>{}};export const useAttachments=()=>result',
+    '/components/ui/badge.tsx': 'import * as React from "react";export const Badge=({children})=>React.createElement("span",null,children)',
+    '/components/ui/separator.tsx': 'import * as React from "react";export const Separator=()=>React.createElement("hr")',
+    '/components/ui/drawer.tsx': `import * as React from "react";const Context=React.createContext(null);
+      export const Drawer=({children,open,onOpenChange})=>{const [value,setValue]=React.useState(false);return React.createElement(Context.Provider,{value:{open:open??value,setOpen:onOpenChange??setValue}},children)};
+      export const DrawerTrigger=({children})=>{const ctx=React.useContext(Context);return React.cloneElement(children,{onClick:()=>ctx.setOpen(true)})};
+      export const DrawerContent=({children})=>{const ctx=React.useContext(Context);return ctx.open?React.createElement('div',{role:'dialog'},children,React.createElement('button',{onClick:()=>ctx.setOpen(false)},'drawer-close')):null};
+      export const DrawerHeader=({children})=>React.createElement('div',null,children);export const DrawerTitle=DrawerHeader;export const DrawerDescription=DrawerHeader;`,
+    '/components/ui/dropdown-menu.tsx': `import * as React from "react";const Part=({children})=>React.createElement('div',null,children);export {Part as DropdownMenu,Part as DropdownMenuTrigger,Part as DropdownMenuContent,Part as DropdownMenuGroup,Part as DropdownMenuItem,Part as DropdownMenuLabel,Part as DropdownMenuSeparator,Part as DropdownMenuSub,Part as DropdownMenuSubContent,Part as DropdownMenuSubTrigger};`,
     '/components/auth/auth-context.tsx': 'export const useAuth=()=>({session:{accessToken:"test-token",userId:"user"}})',
     '/components/workspace-context.tsx': 'export const useWorkspace=()=>globalThis.testWorkspace',
     '/features/task-groups/api.ts': 'export const taskGroupsApi=globalThis.testTaskGroups;export const candidateStopped=c=>c.phase==="sent"&&c.status==="idle"',
@@ -76,10 +96,12 @@ const hooks = registerHooks({ load(url, context, next) {
     '/components/ui/dialog.tsx': 'import * as React from "react";export const Dialog=({open,children})=>open?React.createElement("div",null,children):null;export const DialogContent=({children})=>React.createElement("div",{role:"dialog"},children);export const DialogTitle=DialogContent;export const DialogDescription=DialogContent;export const DialogHeader=DialogContent;export const DialogFooter=DialogContent',
   }
   for (const [path, text] of Object.entries(mocks)) if (url.endsWith(path)) return { format: 'module', shortCircuit: true, source: text }
-  if (url.includes('/next-intl/') || url.endsWith('/next-intl')) return { format: 'module', shortCircuit: true, source: 'export const useTranslations=()=>(key,values)=>key+(values?.n??"")' }
+  if (url.includes('/next-intl/') || url.endsWith('/next-intl')) return { format: 'module', shortCircuit: true, source: 'const translate=(key,values)=>key+(values?.n??"");export const useTranslations=()=>translate' }
   return next(url, context)
 } })
-const { TaskGroupsButton } = await import('../src/components/task-groups.tsx')
+const { TaskGroupConversation } = await import('../src/components/task-groups.tsx')
+const { AgentSelectionDrawer } = await import('../src/components/session/agent-selection-drawer.tsx')
+const { TaskComposer } = await import('../src/components/task-composer.tsx')
 hooks.deregister(); source.deregister()
 
 async function input(element, value) {
@@ -101,29 +123,19 @@ for (const count of [1, 2, 3]) test(`${count} agents open independent chats; pan
   }
   const pane = slot => container.querySelector(`[data-pane-key="${'a'.repeat(40)}:${slot}"]`)
   try {
-    await act(async () => root.render(h(TaskGroupsButton, { workspace: { connectorId: 'c', path: '/chosen/project' } })))
-    await click('entry')
-    assert.deepEqual(calls.shift(), ['resolveProject', { connectorId: 'c', workspacePath: '/chosen/project' }])
-    assert.equal(calls.length, 0)
-    assert.equal(container.querySelector('[aria-label="execution"]').value, '1')
-    assert.equal(container.querySelector('[aria-label="project"]'), null)
-    await act(async () => { const select = container.querySelector('[aria-label="execution"]'); select.value = String(count); select.dispatchEvent(new dom.window.Event('change', { bubbles: true })) })
-    for (let slot = 0; slot < count; slot++) await act(async () => {
-      const select = container.querySelector(`[aria-label="candidate${slot + 1}"]`)
-      assert.ok([...select.options].some(option => option.value === 'dsh'))
-      select.value = slot === count - 1 ? 'dsh' : 'codex'; select.dispatchEvent(new dom.window.Event('change', { bubbles: true }))
-    })
-    await act(async () => { const select = container.querySelector(`[aria-label="candidate${count} model"]`); select.value = 'other'; select.dispatchEvent(new dom.window.Event('change', { bubbles: true })) })
-    await input(container.querySelector('[aria-label="task"]'), 'Improve the implementation')
-    await click('prepare')
-    assert.equal(calls[0][1].projectId, 'p')
-    assert.equal(calls[0][1].candidates.length, count)
-    assert.deepEqual(calls[0][1].candidates[count - 1], { runtime: 'dsh', runtimeId: 'dsh', selections: { model: 'dsh-model-2', permission: 'dsh-permission-read' } })
-    assert.equal(calls.filter(c => c[0] === 'start').length, 0)
-    await click('start')
-    assert.equal(calls.filter(c => c[0] === 'start').length, count)
+    const body = { projectId: 'p', content: 'Improve the implementation', candidates: Array.from({ length: count }, (_, slot) => ({ runtime: slot === count - 1 ? 'dsh' : 'codex', runtimeId: slot === count - 1 ? 'dsh' : 'codex', selections: {} })) }
+    const initialGroup = await globalThis.testTaskGroups.create('', body)
+    for (let slot = 0; slot < count; slot++) await globalThis.testTaskGroups.start('', initialGroup.id, slot)
+    const started = await globalThis.testTaskGroups.get('', initialGroup.id)
+    await act(async () => root.render(h(TaskGroupConversation, { initialGroup: started, onBack: () => {} })))
     assert.equal(container.querySelectorAll('[data-chat]').length, count)
     assert.equal(container.querySelector('[data-chat-grid]').style.gridTemplateColumns.split('minmax').length - 1, count)
+    await input(container.querySelector('[aria-label^="broadcastLabel"]'), 'Run the tests for your result')
+    await click('broadcastSend')
+    const broadcasts = calls.filter(row => row[0] === 'broadcast')
+    assert.equal(broadcasts.length, count)
+    assert.equal(new Set(broadcasts.map(row => row[3].clientMessageId)).size, count)
+    assert.ok(broadcasts.every(row => row[2] === 'Run the tests for your result'))
     await input(pane(0).querySelector('textarea'), 'Message only for AI 1')
     if (count > 1) await input(pane(1).querySelector('textarea'), 'Unsent draft for AI 2')
     await click('chat-send', pane(0))
@@ -152,7 +164,7 @@ for (const count of [1, 2, 3]) test(`${count} agents open independent chats; pan
     await click('sendForward')
     const forwarded = calls.find(c => c[0] === 'handoff')[2]
     assert.equal(forwarded.target.runtime, 'dsh')
-    assert.deepEqual(forwarded.target.selections, { model: 'dsh-model-1', permission: 'dsh-permission-read' })
+    assert.deepEqual(forwarded.target.selections, { model: 'dsh-model-low', permission: 'dsh-permission-read' })
     assert.equal(forwarded.instructions, 'Check this result; do not change any code.')
     assert.equal(calls.filter(c => c[0] === 'start').length, count + 1)
     assert.equal(container.querySelectorAll('[data-chat]').length, count + 1)
@@ -161,33 +173,125 @@ for (const count of [1, 2, 3]) test(`${count} agents open independent chats; pan
   } finally { await act(async () => root.unmount()); container.remove() }
 })
 
-test('collaboration works without a project route, explains missing workspace and retries failed DSH settings', async () => {
-  const project = globalThis.testWorkspace.newSessionProject
-  const original = globalThis.testDashboard.getConnectorRuntimeModelCatalog
+
+for (const count of [1, 2, 3]) test(`main composer selects ${count} agents and sends the original prompt with each agent's settings`, async () => {
+  calls.length = 0; groups.clear(); window.localStorage.clear()
   const container = document.createElement('div'); document.body.append(container)
   const root = createRoot(container)
-  try {
-    globalThis.testWorkspace.newSessionProject = null
-    await act(async () => root.render(h(TaskGroupsButton, { workspace: null })))
-    assert.equal(container.querySelector('button').disabled, false)
-    await act(async () => container.querySelector('button').click())
-    assert.match(container.textContent, /workspaceRequired/)
-    assert.equal(container.querySelector('[aria-label="task"]'), null)
-    await act(async () => root.render(h(TaskGroupsButton, { workspace: { connectorId: 'c', path: '/chosen/project' } })))
-    await act(async () => container.querySelector('button').click())
-    globalThis.testDashboard.getConnectorRuntimeModelCatalog = async () => { throw new Error('DSH catalog unavailable') }
-    await act(async () => {
-      const select = container.querySelector('[aria-label="candidate1"]'); select.value = 'dsh'; select.dispatchEvent(new dom.window.Event('change', { bubbles: true }))
-    })
-    await input(container.querySelector('[aria-label="task"]'), 'Task')
-    assert.match(container.textContent, /DSH catalog unavailable/)
-    assert.equal([...container.querySelectorAll('button')].find(b => b.textContent === 'prepare').disabled, true)
-    globalThis.testDashboard.getConnectorRuntimeModelCatalog = original
-    await act(async () => [...container.querySelectorAll('button')].find(b => b.textContent === 'retry').click())
-    assert.equal([...container.querySelectorAll('button')].find(b => b.textContent === 'prepare').disabled, false)
-  } finally {
-    globalThis.testDashboard.getConnectorRuntimeModelCatalog = original
-    globalThis.testWorkspace.newSessionProject = project
-    await act(async () => root.unmount()); container.remove()
+  const clickText = async text => {
+    const button = [...container.querySelectorAll('button')].find(row => row.textContent === text)
+    assert.ok(button, `Missing button ${text}`); assert.equal(button.disabled, false)
+    await act(async () => button.click())
   }
+  try {
+    await act(async () => root.render(h(TaskComposer)))
+    assert.equal([...container.querySelectorAll('button')].some(row => row.textContent === 'entry'), false)
+    await act(async () => container.querySelector('[aria-label="agent"]').click())
+    const agents = [...container.querySelectorAll('[role="checkbox"]')].filter(row => ['claude', 'codex', 'dsh'].includes(row.textContent))
+    assert.equal(agents.length, 3)
+    assert.equal(agents.filter(row => row.getAttribute('aria-checked') === 'true').length, 1)
+    if (count >= 2) await clickText('codex')
+    if (count === 3) await clickText('dsh')
+    assert.equal(agents.filter(row => row.getAttribute('aria-checked') === 'true').length, count)
+    await clickText('drawer-close')
+    if (count > 1) {
+      await clickText('settings')
+      if (count === 3) {
+        const reasoning = container.querySelector('[aria-label="dsh reasoning"]')
+        assert.ok(reasoning)
+        await act(async () => { reasoning.value = 'high'; reasoning.dispatchEvent(new dom.window.Event('change', { bubbles: true })) })
+        const permission = container.querySelector('[aria-label="dsh permission"]')
+        await act(async () => { permission.value = 'write'; permission.dispatchEvent(new dom.window.Event('change', { bubbles: true })) })
+      }
+      await clickText('drawer-close')
+      // Closing settings must retain the selections used by the send button.
+    }
+    await input(container.querySelector('textarea[placeholder="placeholder"]'), 'Implement exactly this shared task')
+    const send = container.querySelector('[aria-label="sendTask"]')
+    assert.equal(send.disabled, false)
+    await act(async () => send.click())
+    if (count === 1) {
+      const single = calls.find(row => row[0] === 'single')
+      assert.ok(single)
+      assert.equal(single[1].request.content, 'Implement exactly this shared task')
+      assert.equal(calls.some(row => row[0] === 'prepare'), false)
+    } else {
+      const prepared = calls.find(row => row[0] === 'prepare')[1]
+      assert.equal(prepared.content, 'Implement exactly this shared task')
+      assert.equal(prepared.projectId, 'p')
+      assert.equal(prepared.candidates.length, count)
+      assert.equal(calls.filter(row => row[0] === 'start').length, count)
+      assert.equal(container.querySelectorAll('[data-chat]').length, count)
+      if (count === 3) assert.deepEqual(prepared.candidates.find(row => row.runtime === 'dsh').selections, { model: 'dsh-model-high', permission: 'dsh-permission-write' })
+    }
+  } finally { await act(async () => root.unmount()); container.remove() }
+})
+
+test('agent selection keeps one selected, caps at three and retains choices when the drawer closes', async () => {
+  const container = document.createElement('div'); document.body.append(container)
+  const root = createRoot(container)
+  const { useState } = await import('react')
+  function Harness() {
+    const [ids,setIds] = useState(['a'])
+    return h(AgentSelectionDrawer, { buttonLabel:'agents', title:'Device and agents', deviceLabel:'Device',agentLabel:'Agents',deviceItems:[{id:'device',label:'Device'}],selectedDevice:'device',onDeviceChange:()=>{},
+      agentItems:['a','b','c','d'].map(id=>({id,label:id})),selectedAgent:ids[0],selectedAgents:ids,onAgentChange:id=>setIds(rows=>rows.includes(id)?rows.length===1?rows:rows.filter(row=>row!==id):rows.length===3?rows:[...rows,id]) })
+  }
+  const click = async text => { const button=[...container.querySelectorAll('button')].find(row=>row.textContent===text);assert.ok(button);await act(async()=>button.click()) }
+  try {
+    await act(async()=>root.render(h(Harness)))
+    await act(async()=>container.querySelector('[aria-label="agents"]').click())
+    await click('a')
+    assert.equal(container.querySelectorAll('[role="checkbox"][aria-checked="true"]').length,1)
+    await click('b');await click('c')
+    assert.equal([...container.querySelectorAll('button')].find(row=>row.textContent==='d').disabled,true)
+    await click('b');await click('d')
+    await click('drawer-close')
+    await act(async()=>container.querySelector('[aria-label="agents"]').click())
+    assert.deepEqual([...container.querySelectorAll('[role="checkbox"][aria-checked="true"]')].map(row=>row.textContent),['a','c','d'])
+  } finally { await act(async()=>root.unmount());container.remove() }
+})
+
+test('shared follow-up retry skips confirmed recipients and reuses the unconfirmed message ID', async () => {
+  calls.length = 0;groups.clear()
+  const row=await globalThis.testTaskGroups.create('',{content:'Task',candidates:[{runtime:'codex',runtimeId:'codex'},{runtime:'dsh',runtimeId:'dsh'}]})
+  await globalThis.testTaskGroups.start('',row.id,0);await globalThis.testTaskGroups.start('',row.id,1)
+  const started=await globalThis.testTaskGroups.get('',row.id)
+  const original=globalThis.testDashboard.sendSessionMessage
+  let failed=false
+  globalThis.testDashboard.sendSessionMessage=async (...args)=>{ const result=await original(...args);if(args[1].endsWith('-1')&&!failed){failed=true;throw new Error('connection lost')}return result }
+  const container=document.createElement('div');document.body.append(container)
+  const root=createRoot(container)
+  const send=async()=>{await act(async()=>[...container.querySelectorAll('button')].find(row=>row.textContent==='broadcastSend').click())}
+  try {
+    await act(async()=>root.render(h(TaskGroupConversation,{initialGroup:started,onBack:()=>{}})))
+    await input(container.querySelector('[aria-label^="broadcastLabel"]'),'Review your result')
+    await send()
+    assert.match(container.textContent,/broadcastFailed/)
+    await send()
+    const sent=calls.filter(row=>row[0]==='broadcast')
+    assert.equal(sent.filter(row=>row[1].endsWith('-0')).length,1)
+    const repeated=sent.filter(row=>row[1].endsWith('-1'))
+    assert.equal(repeated.length,2)
+    assert.equal(repeated[0][3].clientMessageId,repeated[1][3].clientMessageId)
+  } finally { globalThis.testDashboard.sendSessionMessage=original;await act(async()=>root.unmount());container.remove() }
+})
+
+test('main composer blocks multi-agent dispatch when an agent configuration fails and recovers via settings', async () => {
+  calls.length=0;groups.clear();window.localStorage.clear()
+  const original=globalThis.testDashboard.getConnectorRuntimeCapabilities
+  const container=document.createElement('div');document.body.append(container);const root=createRoot(container)
+  const click=async text=>{const button=[...container.querySelectorAll('button')].find(row=>row.textContent===text);assert.ok(button);await act(async()=>button.click())}
+  try {
+    await act(async()=>root.render(h(TaskComposer)))
+    globalThis.testDashboard.getConnectorRuntimeCapabilities=async (...args)=>{if(args[2]==='codex')throw new Error('Catalog temporarily unavailable');return original(...args)}
+    await act(async()=>container.querySelector('[aria-label="agent"]').click())
+    await click('codex');await click('drawer-close')
+    await input(container.querySelector('textarea[placeholder="placeholder"]'),'Shared task')
+    assert.equal(container.querySelector('[aria-label="sendTask"]').disabled,true)
+    await click('settings');assert.match(container.textContent,/Catalog temporarily unavailable/)
+    globalThis.testDashboard.getConnectorRuntimeCapabilities=original
+    await click('retry');await click('drawer-close')
+    assert.equal(container.querySelector('[aria-label="sendTask"]').disabled,false)
+    assert.equal(calls.some(row=>row[0]==='prepare'||row[0]==='start'),false)
+  } finally {globalThis.testDashboard.getConnectorRuntimeCapabilities=original;await act(async()=>root.unmount());container.remove()}
 })

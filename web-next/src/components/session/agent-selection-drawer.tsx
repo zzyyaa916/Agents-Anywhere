@@ -29,6 +29,9 @@ export function AgentSelectionDrawer({
   agentItems,
   selectedAgent,
   onAgentChange,
+  selectedAgents,
+  agentSelectionHint,
+  compact = true,
 }: {
   disabled?: boolean
   buttonLabel: string
@@ -42,6 +45,9 @@ export function AgentSelectionDrawer({
   agentItems: SelectionOption[]
   selectedAgent: string
   onAgentChange: (id: string) => void
+  selectedAgents?: string[]
+  agentSelectionHint?: string
+  compact?: boolean
 }) {
   const [open, setOpen] = React.useState(false)
 
@@ -51,13 +57,15 @@ export function AgentSelectionDrawer({
         <Button
           type="button"
           variant="ghost"
-          size="icon"
+          size={compact ? "icon" : "sm"}
           disabled={disabled}
-          className="rounded-xl text-muted-foreground"
+          className="min-w-0 shrink gap-1.5 rounded-xl text-muted-foreground"
           aria-label={buttonLabel}
           title={buttonLabel}
         >
           <Monitor />
+          {!compact && <span className="min-w-0 truncate text-foreground">{deviceItems.find(row => row.id === selectedDevice)?.label} · {selectedAgents?.length ? `${selectedAgents.length} Agent` : agentItems.find(row => row.id === selectedAgent)?.label}</span>}
+          {compact && selectedAgents && selectedAgents.length > 1 && <span className="text-xs">{selectedAgents.length}</span>}
         </Button>
       </DrawerTrigger>
       <DrawerContent>
@@ -81,14 +89,17 @@ export function AgentSelectionDrawer({
             <>
               <Separator />
               <SelectionSection title={agentLabel}>
+                {agentSelectionHint && <p className="px-1 text-xs text-muted-foreground">{agentSelectionHint}</p>}
                 {agentItems.map((item) => (
                   <SelectionRow
                     key={item.id}
-                    selected={selectedAgent === item.id}
+                    multiple={Boolean(selectedAgents)}
+                    selected={selectedAgents ? selectedAgents.includes(item.id) : selectedAgent === item.id}
+                    disabled={Boolean(selectedAgents && (selectedAgents.length === 3 && !selectedAgents.includes(item.id)))}
                     label={item.label}
                     onClick={() => {
                       onAgentChange(item.id)
-                      setOpen(false)
+                      if (!selectedAgents) setOpen(false)
                     }}
                   />
                 ))}
@@ -114,7 +125,11 @@ function SelectionRow({
   selected,
   label,
   onClick,
+  disabled = false,
+  multiple = false,
 }: {
+  disabled?: boolean
+  multiple?: boolean
   selected: boolean
   label: string
   onClick: () => void
@@ -123,8 +138,12 @@ function SelectionRow({
     <button
       type="button"
       onClick={onClick}
+      role={multiple ? "checkbox" : "radio"}
+      aria-checked={selected}
+      disabled={disabled}
       className={cn(
         "flex min-h-10 w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm transition-colors",
+        disabled && "opacity-50",
         selected ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
       )}
     >

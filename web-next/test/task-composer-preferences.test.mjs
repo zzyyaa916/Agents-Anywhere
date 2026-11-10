@@ -219,9 +219,8 @@ test("device, agent, permission, model, and reasoning changes use immediate pers
   assert.match(handlers, /permission: permissionSelectionForNewSessionPreference\(/)
 
   assert.match(source, /onDeviceChange=\{handleDeviceChange\}/)
-  assert.match(source, /onAgentChange=\{handleAgentChange\}/)
-  assert.match(source, /onPrimaryChange=\{handleDeviceChange\}/)
-  assert.match(source, /onSecondaryChange=\{handleAgentChange\}/)
+  assert.match(source, /onAgentChange=\{toggleAgent\}/)
+  assert.match(handlers, /handleAgentChange\(additionalAgents\[0\]!\)/)
   assert.match(source, /onPermissionChange=\{handlePermissionChange\}/)
   assert.match(source, /onModelChange=\{handleModelChange\}/)
   assert.match(source, /onSelect=\{\(\) => handlePermissionChange\(item\.id\)\}/)
@@ -268,12 +267,11 @@ test("the composer footers keep the send button on the option row", () => {
 
   // The device/agent selector truncates for the same reason.
   const selector = readFileSync(
-    new URL("../src/components/cascading-selector.tsx", import.meta.url),
+    new URL("../src/components/session/agent-selection-drawer.tsx", import.meta.url),
     "utf8",
   )
-  assert.match(selector, /className="min-w-0 shrink gap-1\.5 text-muted-foreground"/)
-  assert.match(selector, /<span className="min-w-0 truncate text-foreground">\{primaryLabel\}<\/span>/)
-  assert.match(selector, /<span className="min-w-0 truncate text-foreground">\{secondaryValueLabel\}<\/span>/)
+  assert.match(selector, /className="min-w-0 shrink gap-1\.5 rounded-xl text-muted-foreground"/)
+  assert.match(selector, /<span className="min-w-0 truncate text-foreground">/)
 
   // The in-session composer shares the same footer contract.
   const sessionComposer = readFileSync(

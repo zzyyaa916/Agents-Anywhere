@@ -2602,23 +2602,13 @@
     "resumeTitle": "Resume this goal?"
   },
   "taskGroups": {
-    "entry": "Multi-agent collaboration",
-    "title": "Multi-agent collaboration",
-    "description": "Choose 1–3 AI agents to work independently in the current project. Chat separately, compare results or forward work.",
-    "execution": "Number of agents",
-    "task": "Task description",
     "candidate": "AI {n}",
     "chooseAgents": "Choose an available AI agent",
-    "limits": "Uses the current project. Save and commit existing changes first. Agents share account quotas.",
-    "prepare": "Next: confirm task",
-    "history": "Previous tasks",
-    "chooseGroup": "Choose a task",
     "base": "View the starting code version",
     "preparing": "Preparing",
     "start": "Start",
     "checkBeforeRetry": "Some sends are not confirmed. Check their chats before creating another task.",
     "selected": "Selected",
-    "openSession": "Open chat",
     "inspect": "View code changes",
     "select": "Choose this result",
     "diff": "Code diff",
@@ -2643,9 +2633,6 @@
       "limited": "Quota limited",
       "unavailable": "Original session unavailable"
     },
-    "agentCount": "{n} AI agents",
-    "taskExample": "For example: Fix the login problem so I can sign in normally. Describe it as you would in a chat.",
-    "newTask": "Write a new task",
     "readyToStart": "Ready for {n} agents. Nothing is sent until you click Start.",
     "forward": "Forward to another AI",
     "forwardDescription": "Send your instructions, the original task, a code snapshot and recent conversation text (possibly truncated). The recipient starts a new session without the full history or hidden model context.",
@@ -2664,7 +2651,17 @@
     "permission": "Permissions",
     "loadingAgent": "Loading agent settings…",
     "retry": "Retry",
-    "workspaceRequired": "Choose a working directory below the composer, then open collaboration.",
-    "resolvingProject": "Reading the current project…"
+    "reasoning": "Reasoning effort",
+    "settings": "Settings",
+    "settingsDescription": "Configure each selected agent’s model, reasoning effort and permissions. Only supported options are shown.",
+    "selectionHint": "Choose 1–3 agents. Multiple agents receive the same task and open in separate panes.",
+    "multiAttachments": "Send a text task when multiple agents are selected. Remove these attachments; you can attach files inside each chat pane.",
+    "backToComposer": "New conversation",
+    "broadcastLabel": "Send to the original {n} agents",
+    "broadcastPlaceholder": "Enter a follow-up instruction for each original agent.",
+    "broadcastSend": "Send to all",
+    "broadcastFailed": "Some deliveries are unconfirmed. Retry reuses message IDs and skips confirmed recipients.",
+    "checkSettings": "Loading agent settings. If they remain unavailable, open Settings to check.",
+    "broadcastWait": "Send to all once the original agents are idle. While running, queue messages in each pane."
   }
 }

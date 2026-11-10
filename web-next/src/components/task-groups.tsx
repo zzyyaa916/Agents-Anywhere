@@ -4,12 +4,11 @@ import * as React from "react"
 import { useTranslations } from "next-intl"
 import { TaskGroupAgentSelect } from "@/components/task-group-agent-select"
 import { dashboardApi } from "@/features/dashboard/api"
-import type { DeviceRuntimeView, ProjectView } from "@/features/dashboard/types"
+import type { DeviceRuntimeView } from "@/features/dashboard/types"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
-import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
 import { useAuth } from "@/components/auth/auth-context"
 import { useWorkspace } from "@/components/workspace-context"
 import { TaskGroupChatPane, type ChatPaneMode } from "@/components/task-group-chat-pane"
@@ -18,45 +17,14 @@ import { taskGroupsApi, type TaskGroup, type CandidateDiff, type CandidateTarget
 
 const operationId = () => createClientId("group").replaceAll("_", "-")
 
-export function TaskGroupsButton({ workspace }: { workspace: { connectorId: string; path: string } | null }) {
-  const [open, setOpen] = React.useState(false)
-  const { session } = useAuth()
-  const { resolveProject } = useWorkspace()
-  const [project, setProject] = React.useState<ProjectView | null>(null)
-  const [resolving, setResolving] = React.useState(false)
-  const [error, setError] = React.useState("")
-  const t = useTranslations("taskGroups")
-  async function openWorkbench() {
-    setOpen(true); setError(""); setProject(null)
-    if (!workspace?.connectorId || !workspace.path) { setError(t("workspaceRequired")); return }
-    setResolving(true)
-    try { setProject(await resolveProject({ connectorId: workspace.connectorId, workspacePath: workspace.path })) }
-    catch (e) { setError(e instanceof Error ? e.message : String(e)) }
-    finally { setResolving(false) }
-  }
-  return <><Button variant="ghost" size="sm" className="min-w-0 shrink text-muted-foreground" disabled={resolving} onClick={() => void openWorkbench()}>{t("entry")}</Button>
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent className="max-h-[94dvh] overflow-y-auto sm:max-w-[calc(100vw-2rem)]">
-        <DialogHeader><DialogTitle>{t("title")}</DialogTitle><DialogDescription>{t("description")}</DialogDescription></DialogHeader>
-        {resolving && <p role="status" className="text-sm text-muted-foreground">{t("resolvingProject")}</p>}
-        {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-        {open && project && <TaskGroupsWorkbench key={`${session?.userId}:${project.id}`} project={project} />}
-      </DialogContent>
-    </Dialog></>
-}
-
-function TaskGroupsWorkbench({ project }: { project: ProjectView }) {
+export function TaskGroupConversation({ initialGroup, starting = false, onBack }: { initialGroup: TaskGroup; starting?: boolean; onBack: () => void }) {
   const t = useTranslations("taskGroups")
   const { session } = useAuth()
-  const { refreshData } = useWorkspace()
+  const { refreshData, projects } = useWorkspace()
+  const project = projects.find(row => row.id === initialGroup.projectId)
   const token = session?.accessToken ?? ""
-  const projectId = project?.id ?? ""
   const [runtimes, setRuntimes] = React.useState<DeviceRuntimeView[]>([])
-  const [content, setContent] = React.useState("")
-  const [count, setCount] = React.useState(1)
-  const [targets, setTargets] = React.useState<(CandidateTarget | null)[]>([null, null, null])
-  const [groups, setGroups] = React.useState<TaskGroup[]>([])
-  const [current, setCurrent] = React.useState<TaskGroup | null>(null)
+  const [current, setCurrent] = React.useState<TaskGroup>(initialGroup)
   const [forwarded, setForwarded] = React.useState<TaskGroup[]>([])
   const [pending, setPending] = React.useState(false)
   const [error, setError] = React.useState("")
@@ -65,7 +33,6 @@ function TaskGroupsWorkbench({ project }: { project: ProjectView }) {
   const [forward, setForward] = React.useState<{ group: TaskGroup; slot: number; conclusion: string } | null>(null)
   const [forwardTarget, setForwardTarget] = React.useState<CandidateTarget | null>(null)
   const [instructions, setInstructions] = React.useState("")
-  const identity = React.useRef({ signature: "", id: "" })
   const forwardIdentity = React.useRef({ signature: "", id: "" })
   const available = runtimes.filter(r => r.connectorId === project?.connectorId && r.status === "running")
   React.useEffect(() => {
@@ -79,14 +46,14 @@ function TaskGroupsWorkbench({ project }: { project: ProjectView }) {
   const generation = React.useRef(0)
   const observedIds = [current?.id, ...forwarded.map(group => group.id)].filter(Boolean).join(",")
 
+  React.useEffect(() => { setCurrent(initialGroup) }, [initialGroup])
   React.useEffect(() => {
-    const turn = ++generation.current
-    setCurrent(null); setForwarded([]); setForward(null); setDiffs({}); setPaneModes({}); setGroups([]); setError(""); setPending(false)
-    if (projectId && token) void taskGroupsApi.list(token, projectId).then(result => {
-      if (turn === generation.current) setGroups(result.groups)
-    }).catch(e => { if (turn === generation.current) setError(String(e.message ?? e)) })
-    return () => { ++generation.current }
-  }, [projectId, token])
+    let disposed = false
+    void taskGroupsApi.list(token, initialGroup.projectId).then(result => {
+      if (!disposed) setForwarded(result.groups.filter(row => row.request.source?.groupId === initialGroup.id))
+    }).catch(() => {})
+    return () => { disposed = true; ++generation.current }
+  }, [initialGroup.id, initialGroup.projectId, token])
 
   React.useEffect(() => {
     if (!observedIds || !token) return
@@ -114,31 +81,9 @@ function TaskGroupsWorkbench({ project }: { project: ProjectView }) {
     } finally { if (turn === generation.current) setPending(false) }
   }
 
-  function remember(group: TaskGroup) {
-    setGroups(rows => [group, ...rows.filter(row => row.id !== group.id)])
-  }
-
-  function show(group: TaskGroup) {
-    setCurrent(group); setDiffs({})
-    setForwarded(groups.filter(row => row.request.source?.groupId === group.id))
-    remember(group)
-  }
-
-  async function create() {
-    const candidates = targets.slice(0, count)
-    if (candidates.some(row => !row)) throw new Error(t("chooseAgents"))
-    const body = { projectId, content, candidates: candidates as CandidateTarget[] }
-    const signature = JSON.stringify(body)
-    if (identity.current.signature !== signature) identity.current = { signature, id: operationId() }
-    const turn = generation.current
-    const group = await taskGroupsApi.create(token, { ...body, operationId: identity.current.id })
-    if (turn === generation.current) { show(group); await refreshData() }
-  }
-
   function updateGroup(group: TaskGroup) {
     setCurrent(row => row?.id === group.id ? group : row)
     setForwarded(rows => rows.map(row => row.id === group.id ? group : row))
-    remember(group)
   }
 
   async function sendForward() {
@@ -149,11 +94,39 @@ function TaskGroupsWorkbench({ project }: { project: ProjectView }) {
     const turn = generation.current
     const group = await taskGroupsApi.handoff(token, forward.group.id, { ...body, operationId: forwardIdentity.current.id })
     if (turn !== generation.current) return
-    setForwarded(rows => [...rows.filter(row => row.id !== group.id), group]); remember(group)
+    setForwarded(rows => [...rows.filter(row => row.id !== group.id), group])
     setPaneModes(rows => ({ ...rows, [`${group.id}:0`]: "open" }))
     const started = await taskGroupsApi.start(token, group.id, 0)
     if (turn !== generation.current) return
     updateGroup(started); setForward(null); await refreshData()
+  }
+
+  const [broadcast, setBroadcast] = React.useState("")
+  const [sending, setSending] = React.useState(false)
+  const delivery = React.useRef<{ content: string; ids: Map<string, string>; sent: Set<string> } | null>(null)
+  const broadcastReady = current.candidates.every(row => row.phase === "sent" && row.status === "idle" && row.sessionId)
+  async function sendBroadcast() {
+    const sessions = current.candidates.map(row => row.sessionId)
+    if (sending || !broadcastReady || !broadcast.trim() || sessions.some(id => !id)) return
+    if (delivery.current?.content !== broadcast) delivery.current = { content: broadcast, ids: new Map(), sent: new Set() }
+    const batch = delivery.current!
+    setSending(true); setError("")
+    setCurrent(row => ({ ...row, candidates: row.candidates.map(candidate => ({ ...candidate, status: "pending" })) }))
+    try {
+      const results = await Promise.allSettled(sessions.map(async id => {
+        if (!id || batch.sent.has(id)) return
+        if (!batch.ids.has(id)) batch.ids.set(id, createClientId("message"))
+        const result = await dashboardApi.sendSessionMessage(token, id, batch.content, { clientMessageId: batch.ids.get(id) })
+        if (!result.ok) throw new Error(t("broadcastFailed"))
+        batch.sent.add(id)
+      }))
+      if (results.some(row => row.status === "rejected")) throw new Error(t("broadcastFailed"))
+      setBroadcast(""); delivery.current = null
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+    finally {
+      try { updateGroup(await taskGroupsApi.get(token, current.id)) } catch { /* Polling refreshes status after reconnect. */ }
+      setSending(false)
+    }
   }
 
   const panes = current ? [current, ...forwarded].flatMap(group => group.candidates.map((candidate, slot) => ({ group, candidate, slot, key: `${group.id}:${slot}` }))) : []
@@ -165,31 +138,14 @@ function TaskGroupsWorkbench({ project }: { project: ProjectView }) {
     return `${t("candidate", { n: panes.findIndex(item => item.key === pane.key) + 1 })} · ${runtime?.name || runtime?.displayName || configured?.runtime}`
   }
 
-  return <div className="min-w-0 space-y-4">
-    <details open={!current} className="space-y-3">
-      <summary className="cursor-pointer text-sm font-medium">{t("newTask")}</summary>
-      <div className="mt-3">
-        <Label className="grid gap-2">{t("execution")}<NativeSelect aria-label={t("execution")} value={count} disabled={pending} onChange={e => setCount(Number(e.target.value))}>
-          {[1, 2, 3].map(n => <NativeSelectOption key={n} value={n}>{t("agentCount", { n })}</NativeSelectOption>)}
-        </NativeSelect></Label>
-      </div>
-      <Label className="grid gap-2">{t("task")}<Textarea aria-label={t("task")} maxLength={32000} value={content} disabled={pending} onChange={e => setContent(e.target.value)} placeholder={t("taskExample")} /></Label>
-      <div className="grid gap-3 sm:grid-cols-3">{Array.from({ length: count }, (_, slot) => available.length > 0 && <TaskGroupAgentSelect key={slot}
-        token={token} connectorId={project!.connectorId} runtimes={available} label={t("candidate", { n: slot + 1 })} disabled={pending}
-        onChange={value => setTargets(rows => rows.map((row, n) => n === slot ? value : row))} />)}</div>
-      <p className="text-sm text-muted-foreground">{t("limits")}</p>
-      <Button disabled={pending || !projectId || !content.trim() || !available.length || targets.slice(0, count).some(row => !row)} onClick={() => void run(create)}>{t("prepare")}</Button>
-    </details>
-    <Label className="grid gap-2">{t("history")}<NativeSelect disabled={pending} value={current?.id ?? ""} onChange={e => {
-      const row = groups.find(g => g.id === e.target.value)
-      if (row) void run(async () => show(await taskGroupsApi.get(token, row.id)))
-    }}><NativeSelectOption value="">{t("chooseGroup")}</NativeSelectOption>{groups.map(g => <NativeSelectOption key={g.id} value={g.id}>{g.request.content.slice(0, 70)}</NativeSelectOption>)}</NativeSelect></Label>
+  return <div className="min-h-0 min-w-0 flex-1 space-y-3 overflow-auto p-3">
+    <Button variant="ghost" size="sm" disabled={starting} onClick={onBack}>{t("backToComposer")}</Button>
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
     {current && <section className="min-w-0 space-y-3 border-t pt-3">
       <p className="whitespace-pre-wrap text-sm">{current.request.content}</p>
       <details><summary className="cursor-pointer text-xs text-muted-foreground">{t("base")}</summary><p className="break-all text-xs">{current.base ?? t("preparing")}</p></details>
       {current.handoffBrief && <details><summary className="cursor-pointer text-sm">{t("handoffPreview")}</summary><pre className="max-h-60 overflow-auto whitespace-pre-wrap text-xs">{current.handoffBrief}</pre></details>}
-      {current.candidates.some(candidate => candidate.phase === "pending") && <Button disabled={pending || current.phase !== "ready"} onClick={() => void run(async () => {
+      {!starting && current.candidates.some(candidate => candidate.phase === "pending") && <Button disabled={pending || current.phase !== "ready"} onClick={() => void run(async () => {
         const id = current.id
         const turn = generation.current
         const results = await Promise.allSettled(current.candidates.map((candidate, slot) => candidate.phase === "pending" ? taskGroupsApi.start(token, id, slot) : Promise.resolve(null)))
@@ -209,6 +165,13 @@ function TaskGroupsWorkbench({ project }: { project: ProjectView }) {
             onInspect={() => void run(async () => { const turn = generation.current; const result = await taskGroupsApi.diff(token, pane.group.id, pane.slot); if (turn === generation.current) setDiffs(rows => ({ ...rows, [pane.key]: result })) })}
             onSelect={() => void run(async () => updateGroup(await taskGroupsApi.select(token, pane.group.id, pane.slot)))} />)}
         </div></div>
+        <div className="space-y-2 rounded-xl border bg-card p-3">
+          <Label className="grid gap-2">{t("broadcastLabel", { n: current.candidates.length })}<Textarea aria-label={t("broadcastLabel", { n: current.candidates.length })}
+            value={broadcast} disabled={sending} onChange={e => setBroadcast(e.target.value)} placeholder={t("broadcastPlaceholder")} maxLength={32000}
+            onKeyDown={e => { if (!e.nativeEvent.isComposing && e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void sendBroadcast() } }} /></Label>
+          {!broadcastReady && <p className="text-xs text-muted-foreground">{t("broadcastWait")}</p>}
+          <Button disabled={sending || !broadcastReady || !broadcast.trim()} onClick={() => void sendBroadcast()}>{t("broadcastSend")}</Button>
+        </div>
       </>}
     </section>}
     <Dialog open={Boolean(forward)} onOpenChange={open => { if (!open && !pending) setForward(null) }}>

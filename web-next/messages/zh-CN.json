@@ -2602,23 +2602,13 @@
     "resumeTitle": "恢复此目标？"
   },
   "taskGroups": {
-    "entry": "多 AI 协作",
-    "title": "多 AI 协作",
-    "description": "在当前项目中选择 1～3 个 AI 独立执行同一任务，可分别对话、比较结果或转发继续处理。",
-    "execution": "参与 AI 数量",
-    "task": "任务说明",
     "candidate": "AI {n}",
     "chooseAgents": "请选择一个可用的 AI",
-    "limits": "使用当前项目，请先保存并提交已有改动。多个 AI 共享账号额度。",
-    "prepare": "下一步：确认任务",
-    "history": "之前的任务",
-    "chooseGroup": "选择一个任务",
     "base": "查看这次任务使用的代码版本",
     "preparing": "正在准备",
     "start": "开始执行",
     "checkBeforeRetry": "部分消息的发送结果还没确认，请先查看对应聊天，不要重复发起新任务。",
     "selected": "已选中",
-    "openSession": "打开聊天",
     "inspect": "看代码改动",
     "select": "选这个结果",
     "diff": "代码差异",
@@ -2643,9 +2633,6 @@
       "limited": "额度限制",
       "unavailable": "原会话不可用"
     },
-    "agentCount": "{n} 个 AI",
-    "taskExample": "例如：帮我修复登录问题，修好后能正常登录。直接像聊天一样描述就行。",
-    "newTask": "填写新任务",
     "readyToStart": "已为 {n} 个 AI 准备好任务，点击“开始执行”后才会发送。",
     "forward": "转发给其他 AI",
     "forwardDescription": "发送你的指令、原始任务、当前代码快照和最近一段对话文字（可能截断）。接收方会新建独立会话，不会继承完整历史或原 AI 的隐藏上下文。",
@@ -2664,7 +2651,17 @@
     "permission": "权限",
     "loadingAgent": "正在读取 AI 配置…",
     "retry": "重试",
-    "workspaceRequired": "请先在输入框下方选择工作目录，再打开多 AI 协作。",
-    "resolvingProject": "正在读取当前项目…"
+    "reasoning": "思考强度",
+    "settings": "设置",
+    "settingsDescription": "分别设置已选 Agent 的模型、思考强度和权限。仅显示各 Agent 支持的选项。",
+    "selectionHint": "可选 1～3 个 Agent；多选后，同一条任务会分别发送并自动分屏。",
+    "multiAttachments": "多选时请发送文字任务；附件可在各分屏会话中添加。请先移除当前附件。",
+    "backToComposer": "新建对话",
+    "broadcastLabel": "同时发送给原选中的 {n} 个 AI",
+    "broadcastPlaceholder": "输入后续指令，各 AI 会在自己的会话中接收。",
+    "broadcastSend": "同时发送",
+    "broadcastFailed": "部分消息发送未确认。再次发送会沿用原消息标识，并跳过已确认的接收方。",
+    "checkSettings": "正在读取 Agent 配置；若持续未就绪，请打开「设置」检查。",
+    "broadcastWait": "所有原选 AI 停止后可统一发送；执行中可在各栏单独输入并排队。"
   }
 }

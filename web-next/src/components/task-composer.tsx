@@ -4,12 +4,14 @@ import { runtimeFailureOf, useRuntimeErrorText, type RuntimeFailure } from "@/li
 import { RuntimeWorkflowPanel } from "@/components/session/runtime-workflow-panel"
 import { useWorkspacePreparation } from "@/components/session/use-workspace-preparation"
 import { RuntimeCreationStatus } from "@/components/session/runtime-creation-status"
-import { TaskGroupsButton } from "@/components/task-groups"
+import { TaskGroupConversation } from "@/components/task-groups"
+import { MultiAgentSettings } from "@/components/session/multi-agent-settings"
+import { taskGroupsApi, type CandidateTarget, type TaskGroup } from "@/features/task-groups/api"
 import { creationConfigurationDefaults } from "@/features/dashboard/runtime-forms"
 
 import * as React from "react"
 import { parsePlanningCommand } from "@/features/planning/commands"
-import { X, Monitor, ChevronDown, ArrowUp, Loader2, Check } from "lucide-react"
+import { X, ChevronDown, ArrowUp, Loader2, Check } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -30,7 +32,6 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
 } from "@/components/ui/dropdown-menu"
-import { CascadingSelector } from "@/components/cascading-selector"
 import { useSessionToolSidebarStore } from "@/components/session-tool-sidebar-state"
 import { AgentSelectionDrawer } from "@/components/session/agent-selection-drawer"
 import { SelectionSettingsDrawer } from "@/components/session/selection-settings-drawer"
@@ -148,10 +149,12 @@ export function TaskComposer() {
     newSessionProject,
     projects,
     resolveProject,
+    refreshData,
     sidebarShowsSessions,
     updateProject,
   } = useWorkspace()
   const t = useTranslations("dashboard.new")
+  const tGroups = useTranslations("taskGroups")
   const tPlanning = useTranslations("planning")
   const tGoal = useTranslations("goal")
   const [goalCreation,setGoalCreation]=React.useState(Boolean(creationEditorDraft?.request.goalIntent))
@@ -250,6 +253,14 @@ export function TaskComposer() {
   )
 
   const [selectedAgent, setSelectedAgent] = React.useState(creationEditorDraft?.request.runtimeId ?? agentOptions[0]?.id ?? "")
+  const [additionalAgents, setAdditionalAgents] = React.useState<string[]>([])
+  const selectedAgents = [selectedAgent, ...additionalAgents].filter(Boolean)
+  const multiAgent = selectedAgents.length > 1
+  const multiRuntimes = selectedAgents.map(id => runtimeInventory[selectedConnectorId]?.find(row => row.runtimeId === id)).filter((row): row is DeviceRuntimeView => Boolean(row))
+  const [agentTargets, setAgentTargets] = React.useState<Record<string, CandidateTarget | null>>({})
+  const [conversation, setConversation] = React.useState<TaskGroup | null>(null)
+  const groupCreation = React.useRef({ signature: "", id: "" })
+  React.useEffect(() => { setAdditionalAgents([]); setAgentTargets({}) }, [selectedConnectorId])
   const selectedRuntime = activeRuntimes(runtimeInventory[selectedConnectorId])
     .find((runtime) => runtime.runtimeId === selectedAgent) ?? null
   const selectedRuntimeScope = selectedRuntime
@@ -689,6 +700,7 @@ export function TaskComposer() {
   const selectedPermissionSelection = selectionIdForPermissionCatalog(permissionCatalog, selectedPermissionMode)
 
   const handleDeviceChange = React.useCallback((connectorId: string) => {
+    if (connectorId === selectedConnectorId) return
     setRecoveryTargetChanged(true)
     const targetOptions = activeRuntimes(runtimeInventory[connectorId])
     const preferredAgent = preferenceRef.current?.connectorId === connectorId
@@ -702,7 +714,7 @@ export function TaskComposer() {
       setSelectedAgent(nextAgent)
       persistTargetPreference(connectorId, nextAgent)
     }
-  }, [persistTargetPreference, runtimeInventory])
+  }, [persistTargetPreference, runtimeInventory, selectedConnectorId])
 
   const createAndSelectProject = React.useCallback(async (payload: ProjectCreateRequest) => {
     const project = await createProject(payload)
@@ -723,6 +735,17 @@ export function TaskComposer() {
     setSelectedAgent(agent)
     persistTargetPreference(selectedConnectorId, agent)
   }, [agentOptions, persistTargetPreference, selectedConnectorId])
+
+  const toggleAgent = (id: string) => {
+    if (creating || !agentOptions.some(row => row.id === id)) return
+    if (selectedAgents.includes(id)) {
+      if (selectedAgents.length === 1) return
+      if (id === selectedAgent) {
+        handleAgentChange(additionalAgents[0]!)
+        setAdditionalAgents(rows => rows.slice(1))
+      } else setAdditionalAgents(rows => rows.filter(row => row !== id))
+    } else if (selectedAgents.length < 3) setAdditionalAgents(rows => [...rows, id])
+  }
 
   const handlePermissionChange = React.useCallback((permission: string) => {
     if (!selectedConnectorId || !selectedAgent) return
@@ -769,7 +792,8 @@ export function TaskComposer() {
   const recoveryTargetUnavailable = Boolean(creationEditorDraft && !recoveryTargetChanged && !runtimeInventoryLoading
     && (selectedConnectorId !== creationEditorDraft.request.connectorId || selectedAgent !== creationEditorDraft.request.runtimeId))
   const capabilitiesReady = loadedCatalogScope === catalogScope && runtimeCapabilities !== null && selectedRuntime?.status === "running"
-  const canCreate =
+  const canCreate = multiAgent ? Boolean(authSession?.accessToken && selectedConnector && workspace?.path && workspace.connectorId === selectedConnectorId
+    && !creating && prompt.trim() && attachments.length === 0 && multiRuntimes.length === selectedAgents.length && multiRuntimes.every(row => row.status === "running" && agentTargets[row.runtimeId])) :
     capabilitiesReady &&
     !recoveryTargetUnavailable &&
     Boolean(authSession?.accessToken && selectedConnector && selectedRuntime && workspace?.path) &&
@@ -785,7 +809,7 @@ export function TaskComposer() {
   const selectorsLoading = runtimeInventoryLoading
   const catalogFailure = catalogError?.scope === catalogScope ? catalogError.failure : null
   const runtimeStarting = selectedRuntime?.status === "starting"
-  const showCatalogStatus = Boolean(hasOnlineDevice && selectedRuntime && !needsPreparation && (
+  const showCatalogStatus = !multiAgent && Boolean(hasOnlineDevice && selectedRuntime && !needsPreparation && (
     runtimeStarting || catalogsLoading || !capabilitiesReady || (requiresModelSelection && models.length === 0)
   ))
   const catalogStatusLabel = runtimeStarting
@@ -802,6 +826,26 @@ export function TaskComposer() {
   const showCollapsedBrand = isMobile || sidebarState === "collapsed"
 
   const handleCreate = async () => {
+    if (multiAgent) {
+      if (!canCreate || !authSession || !workspace || creatingRef.current) return
+      creatingRef.current = true; setCreating(true)
+      try {
+        const project = await resolveProject({ connectorId: selectedConnectorId, workspacePath: workspace.path })
+        const body = { projectId: project.id, content: prompt, candidates: selectedAgents.map(id => agentTargets[id]!) }
+        const signature = JSON.stringify(body)
+        if (groupCreation.current.signature !== signature) groupCreation.current = { signature, id: createClientId("group").replaceAll("_", "-") }
+        const group = await taskGroupsApi.create(authSession.accessToken, { ...body, operationId: groupCreation.current.id })
+        setConversation(group)
+        const results = await Promise.allSettled(group.candidates.map((candidate, slot) => candidate.phase === "pending" ? taskGroupsApi.start(authSession.accessToken, group.id, slot) : Promise.resolve(group)))
+        setConversation(await taskGroupsApi.get(authSession.accessToken, group.id))
+        await refreshData()
+        if (results.some(row => row.status === "rejected")) toast.error(tGroups("checkBeforeRetry"))
+        setPrompt("")
+      } catch (e) { toast.error(e instanceof Error ? e.message : t("createFailed")) }
+      finally { creatingRef.current = false; setCreating(false) }
+      return
+    }
+
     const planIntent = parsePlanningCommand(prompt)
     if (planIntent && planIntent.command !== "submit_task") {
       if (attachments.length) { toast.error(tPlanning("attachmentTask")); return }
@@ -1022,6 +1066,8 @@ export function TaskComposer() {
     )
   }
 
+  if (conversation) return <TaskGroupConversation key={conversation.id} initialGroup={conversation} starting={creating} onBack={() => { setConversation(null); groupCreation.current = { signature: "", id: "" } }} />
+
   return (
     <div
       className="relative flex flex-1 flex-col items-center justify-center px-6"
@@ -1050,14 +1096,14 @@ export function TaskComposer() {
         </h1>
 
         <RuntimeCreationStatus />
-        {needsPreparation && preparationNeedsAttention ? (
+        {!multiAgent && needsPreparation && preparationNeedsAttention ? (
           <div className="mb-4">
             {preparation.operation ? <RuntimeWorkflowPanel operation={preparation.operation} pending={preparation.pending} error={preparation.error} onRespond={preparation.respond} onCancel={preparation.cancel} />
               : <div role="alert" className="flex items-center gap-2 text-sm"><span>{errorText(preparation.error, tCommon("loadFailed"))}</span><Button variant="outline" size="sm" disabled={preparation.pending} onClick={preparation.retry}>{tCommon("retry")}</Button></div>}
             {preparation.operation && (preparation.error || preparationStopped) ? <Button variant="outline" size="sm" disabled={preparation.pending} onClick={preparation.retry}>{tCommon("retry")}</Button> : null}
           </div>
         ) : null}
-        {preparingWorkspace ? <p role="status" className="mb-3 text-sm text-muted-foreground">{tCommon("loading")}</p> : null}
+        {!multiAgent && preparingWorkspace ? <p role="status" className="mb-3 text-sm text-muted-foreground">{tCommon("loading")}</p> : null}
         <div
           ref={composerRef}
           className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/20"
@@ -1077,6 +1123,8 @@ export function TaskComposer() {
             {goalCreation && <Badge variant="outline">{tGoal("title")}<Button type="button" size="icon-sm" variant="ghost" aria-label={tGoal("clearMode")} onClick={()=>setGoalCreation(false)}><X/></Button></Badge>}
             {planningCreation && <Badge variant="outline">{tPlanning("creationIntent")}</Badge>}
             <AttachmentPreviewList attachments={attachments} onRemove={remove} />
+            {multiAgent && selectedAgents.some(id => !agentTargets[id]) && <p role="status" className="text-xs text-muted-foreground">{tGroups("checkSettings")}</p>}
+            {multiAgent && attachments.length > 0 && <p role="alert" className="text-xs text-destructive">{tGroups("multiAttachments")}</p>}
             {attachmentError ? <p role="alert" className="text-xs text-destructive">{attachmentError}</p> : null}
             <Textarea
               value={prompt}
@@ -1106,7 +1154,7 @@ export function TaskComposer() {
               onAttach={add}
               isDragging={isDragging}
               allowedMimeTypes={allowedMimeTypes}
-              disabled={!canUseAttachments}
+              disabled={multiAgent || !canUseAttachments}
             />
 
             {selectorsLoading ? (
@@ -1117,33 +1165,16 @@ export function TaskComposer() {
               </>
             ) : (
               <>
-                {hasOnlineDevice && compactSelectors ? (
-                  <AgentSelectionDrawer
-                    buttonLabel={t("agent")}
-                    title={t("deviceAndAgent")}
-                    deviceLabel={t("device")}
-                    agentLabel={t("agent")}
-                    deviceItems={deviceOptions}
-                    selectedDevice={selectedDevice}
-                    onDeviceChange={handleDeviceChange}
-                    agentItems={agentOptions}
-                    selectedAgent={selectedAgent}
-                    onAgentChange={handleAgentChange}
-                  />
-                ) : hasOnlineDevice ? (
-                  <CascadingSelector
-                    icon={<Monitor className="size-4" />}
-                    primaryOptions={deviceOptions}
-                    secondaryOptions={agentOptions}
-                    selectedPrimary={selectedDevice}
-                    selectedSecondary={selectedAgent}
-                    onPrimaryChange={handleDeviceChange}
-                    onSecondaryChange={handleAgentChange}
-                    secondaryLabel={t("agent")}
-                  />
-                ) : null}
+                {hasOnlineDevice && <AgentSelectionDrawer
+                  disabled={creating} compact={compactSelectors}
+                  buttonLabel={t("agent")} title={t("deviceAndAgent")} deviceLabel={t("device")} agentLabel={t("agent")}
+                  deviceItems={deviceOptions} selectedDevice={selectedDevice} onDeviceChange={handleDeviceChange}
+                  agentItems={agentOptions} selectedAgent={selectedAgent} selectedAgents={selectedAgents} onAgentChange={toggleAgent}
+                  agentSelectionHint={tGroups("selectionHint")} />}
 
-                {compactSelectors && hasSelectionSettings ? (
+                {multiAgent ? <MultiAgentSettings token={authSession?.accessToken ?? ""} connectorId={selectedConnectorId}
+                  runtimes={multiRuntimes} disabled={creating} onChange={(id, target) => setAgentTargets(rows => ({ ...rows, [id]: target }))} /> :
+                compactSelectors && hasSelectionSettings ? (
                   <SelectionSettingsDrawer
                     disabled={selectorsLoading}
                     onOpenChange={(open) => { if (open) setPermissionRefreshKey((key) => key + 1) }}
@@ -1229,8 +1260,6 @@ export function TaskComposer() {
                 ) : null}
               </>
             )}
-
-            <TaskGroupsButton workspace={workspace?.path && workspace.connectorId === selectedConnectorId ? { connectorId: selectedConnectorId, path: workspace.path } : null} />
 
             {showCatalogStatus ? (
               <div className="flex min-w-0 items-center gap-1">
