@@ -18,6 +18,7 @@ from connector.runtimes.claude.sdk.client import (
 )
 from connector.runtimes.claude.sdk.events import (
     is_result_message,
+    native_usage_from_message,
     terminal_event_from_message,
 )
 from connector.runtimes.claude.timeline.messages import message_id, message_role
@@ -108,6 +109,7 @@ class ClaudeConnection:
     on_idle: Callable[[ClaudeConnection], Awaitable[None]]
     on_background_done: Callable[[ClaudeConnection], Awaitable[None]]
     cleanup: Callable[[], None]
+    on_native_usage: Callable[[str, float | None, int | None], Awaitable[None]] | None = None
     idle_timeout_seconds: float = 600.0
     task: asyncio.Task[None] | None = None
     idle_task: asyncio.Task[None] | None = None
@@ -277,6 +279,11 @@ class ClaudeConnection:
             await self.queried.wait()
             preamble = []
             async for message in receive_response_messages(self.client):
+                usage = native_usage_from_message(message)
+                if usage is not None:
+                    if self.on_native_usage is not None:
+                        await self.on_native_usage(*usage)
+                    continue
                 had_background = bool(self.background.active_ids)
                 task_event = self.background.observe(message)
                 if task_event:

@@ -14,10 +14,9 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-import httpx
 
 from connector.core.fork_profile import fork_enabled
-from connector.native_cli import claude_command, codex_command
+from connector.native_cli import codex_command
 
 MINIMUM = {"codex": 60, "claude_code": 300}
 PLANS = {"free", "plus", "pro", "max", "team", "business", "enterprise", "edu", "go"}
@@ -86,50 +85,6 @@ def codex_windows(payload):
         result.append(
             window(kind, value.get("usedPercent"), value.get("resetsAt"), duration)
         )
-    if not result:
-        raise UsageUnavailable("invalid_response")
-    return result
-
-
-def claude_windows(payload):
-    result = []
-    if isinstance(payload.get("limits"), list):
-        for value in payload["limits"]:
-            kind = {
-                "session": "five_hour",
-                "weekly_all": "seven_day",
-                "weekly_scoped": "weekly_scoped",
-            }.get(value.get("kind"))
-            if kind is None:
-                continue
-            scope = None
-            if kind == "weekly_scoped":
-                raw = str(value.get("model_scope") or value.get("model") or "").lower()
-                scope = next(
-                    (name for name in ("opus", "sonnet", "haiku") if name in raw),
-                    "unknown",
-                )
-            result.append(
-                window(
-                    kind,
-                    value.get("percent"),
-                    value.get("resets_at"),
-                    300 if kind == "five_hour" else 10080,
-                    scope,
-                )
-            )
-    else:
-        for name, kind, minutes in (
-            ("five_hour", "five_hour", 300),
-            ("seven_day", "seven_day", 10080),
-        ):
-            value = payload.get(name)
-            if isinstance(value, dict):
-                result.append(
-                    window(
-                        kind, value.get("utilization"), value.get("resets_at"), minutes
-                    )
-                )
     if not result:
         raise UsageUnavailable("invalid_response")
     return result
@@ -231,21 +186,6 @@ async def codex_process(executable=None):
                 await process.wait()
 
 
-async def local_output(*args):
-    child = await asyncio.create_subprocess_exec(
-        *args,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.DEVNULL,
-    )
-    try:
-        output, _ = await asyncio.wait_for(child.communicate(), 5)
-        return output, child.returncode
-    finally:
-        if child.returncode is None:
-            child.kill()
-            await child.wait()
-
-
 class LocalAccountUsage:
     def __init__(
         self,
@@ -255,11 +195,10 @@ class LocalAccountUsage:
         platform=None,
         clock=time.time,
         codex_factory=codex_process,
-        http_factory=httpx.AsyncClient,
     ):
         self.kv, self.home = kv, Path(home) if home is not None else Path.home()
         self.platform, self.clock = platform or sys.platform, clock
-        self.codex_factory, self.http_factory = codex_factory, http_factory
+        self.codex_factory = codex_factory
         self._lock = asyncio.Lock()
 
     def claude_identity(self):
@@ -305,54 +244,41 @@ class LocalAccountUsage:
                 else "unavailable",
             }
 
-    async def _claude_token(self):
-        if self.platform == "darwin":
-            service = "Claude Code-credentials"
-            directory = os.environ.get("CLAUDE_SECURESTORAGE_CONFIG_DIR", os.environ.get("CLAUDE_CONFIG_DIR", ""))
-            if directory:
-                service += "-" + hashlib.sha256(directory.encode()).hexdigest()[:8]
-            raw, code = await local_output(
-                "security",
-                "find-generic-password",
-                "-s",
-                service,
-                "-w",
-            )
-            if code:
-                raise UsageUnavailable("account_unavailable")
-            credentials = json.loads(raw)
-        else:
-            config = Path(os.environ.get("CLAUDE_CONFIG_DIR", self.home / ".claude"))
-            credentials = json.loads((config / ".credentials.json").read_text())
-        token = (credentials.get("claudeAiOauth") or {}).get("accessToken")
-        if not isinstance(token, str) or not token:
-            raise UsageUnavailable("unsupported_auth")
-        return token
-
-    async def _claude_usage(self, executable):
-        command = await asyncio.to_thread(claude_command, ["--version"], executable)
-        output, code = await local_output(*command)
-        match = re.search(rb"\b(\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?)\b", output)
-        if code or not match:
-            raise UsageUnavailable("unavailable")
-        token = await self._claude_token()
+    def observe_claude_window(self, expected_key, kind, utilization, resets_at):
+        """Accept only normalized native metadata; never read a credential or make a request."""
         try:
-            async with self.http_factory(timeout=20, follow_redirects=False) as client:
-                response = await client.get(
-                    "https://api.anthropic.com/api/oauth/usage",
-                    headers={
-                        "Authorization": "Bearer " + token,
-                        "anthropic-beta": "oauth-2025-04-20",
-                        "User-Agent": "claude-code/" + match.group(1).decode(),
-                    },
-                )
-                if response.status_code != 200:
-                    raise UsageUnavailable(
-                        "rate_limited" if response.status_code == 429 else "unavailable"
-                    )
-                return claude_windows(response.json())
-        finally:
-            token = ""
+            info = self.claude_identity()
+            if info["account_key"] != expected_key:
+                return False
+            if isinstance(utilization, bool) or not isinstance(utilization, (int, float)) or not math.isfinite(utilization) or not 0 <= utilization <= 1:
+                return False
+            if isinstance(resets_at, bool) or not isinstance(resets_at, int) or resets_at <= self.clock():
+                return False
+            normalized_kind, scope, minutes = {
+                "five_hour": ("five_hour", None, 300),
+                "seven_day": ("seven_day", None, 10080),
+                "seven_day_opus": ("weekly_scoped", "opus", 10080),
+                "seven_day_sonnet": ("weekly_scoped", "sonnet", 10080),
+            }[kind]
+            value = window(normalized_kind, utilization * 100, resets_at, minutes, scope)
+            key = "native-claude-usage/" + expected_key
+            cached = dict(self.kv.get(key) or {})
+            windows = dict(cached.get("windows") or {})
+            windows[kind] = {"window": value, "observed_at": self.clock()}
+            self.kv.set(key, {"windows": windows})
+            return True
+        except Exception:  # Metadata collection must never fail the user's task.
+            return False
+
+    def _claude_cached_usage(self, account_key):
+        value = self.kv.get("native-claude-usage/" + account_key) or {}
+        observations = list((value.get("windows") or {}).values())
+        if not observations:
+            raise UsageUnavailable("unavailable")
+        windows = [item["window"] for item in observations]
+        observed_at = min(item["observed_at"] for item in observations)
+        stale = self.clock() - observed_at >= MINIMUM["claude_code"] or any(datetime.fromisoformat(w["resets_at"]).timestamp() <= self.clock() for w in windows)
+        return windows, observed_at, stale
 
     async def collect(self, runtime, expected_account_key, executable=None):
         async with self._lock:
@@ -390,11 +316,11 @@ class LocalAccountUsage:
                             await request("account/rateLimits/read")
                         )
                 else:
-                    windows = await self._claude_usage(executable)
+                    windows, observed_at, native_stale = self._claude_cached_usage(expected_account_key)
                 cached = {
                     "windows": windows,
-                    "fetched_at": datetime.fromtimestamp(now, UTC).isoformat(),
-                    "stale": False,
+                    "fetched_at": datetime.fromtimestamp(observed_at if runtime == "claude_code" else now, UTC).isoformat(),
+                    "stale": native_stale if runtime == "claude_code" else False,
                     "error_code": None,
                     "failures": 0,
                     "next_attempt_at": now + MINIMUM[runtime],
@@ -407,7 +333,7 @@ class LocalAccountUsage:
                     error_code=exc.code
                     if isinstance(exc, UsageUnavailable)
                     else "unavailable",
-                    next_attempt_at=now + (300, 900, 1800)[min(failures - 1, 2)],
+                    next_attempt_at=now + (MINIMUM[runtime] if runtime == "claude_code" else (300, 900, 1800)[min(failures - 1, 2)]),
                 )
             self.kv.set(key, cached)
             return {**info, **cached, "windows": cached.get("windows", [])}
@@ -441,7 +367,7 @@ class AccountUsageRpc:
                 "accountKey": None,
             }
         if self.collector is None:
-            self.collector = LocalAccountUsage(self.host.runtime_kv)
+            self.collector = LocalAccountUsage(getattr(self.host, "account_usage_kv", self.host.runtime_kv))
         executable = values.get(
             "codexExecutablePath" if runtime == "codex" else "executablePath"
         )

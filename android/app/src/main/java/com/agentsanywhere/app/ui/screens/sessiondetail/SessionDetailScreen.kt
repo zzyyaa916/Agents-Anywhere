@@ -1558,16 +1558,20 @@ fun SessionDetailScreen(
         queueItems = queue.messages; queueVersion++
         scope.launch {
             var accepted = false
+            var pendingState: SessionDetailState? = null
+            val beforeRuntimeSequence = state.runtime.updatedSeq
             try {
                 state = controller.addOptimisticMessage(current, state, item.text, item.id, item.attachments)
-                if (!steer) state = state.copy(runtime = state.runtime.copy(status = SessionRuntimeStatus.Waiting))
+                pendingState = state
                 val result = controller.sendMessage(current, item.text, item.id, uploadedAttachments = item.attachments, steer = steer, expectedScope = queueScope)
                 accepted = result.isSuccess
                 if (planningSession == current && controller.queueScope() == queueScope) {
+                    if (accepted && !steer && state.runtime.updatedSeq <= beforeRuntimeSequence && state.runtime.status in setOf(SessionRuntimeStatus.Idle, SessionRuntimeStatus.Error, SessionRuntimeStatus.Unknown)) state = state.copy(runtime = state.runtime.copy(status = SessionRuntimeStatus.Waiting))
                     state = controller.markOptimisticMessage(current, state, item.id, if (accepted) "running" else "failed", item.attachments,
                         errorMessage = if (accepted) null else context.getString(R.string.fork_queue_failed))
                 }
             } finally {
+                if (!accepted) pendingState?.let { controller.markOptimisticMessage(current, it, item.id, "failed", item.attachments) }
                 queue.finish(item.id, accepted)
                 queueItems = queue.messages; queueVersion++
             }

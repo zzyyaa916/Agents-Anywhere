@@ -103,3 +103,18 @@ def _attr(value: Any, name: str) -> Any:
     if isinstance(value, Mapping):
         return value.get(name)
     return getattr(value, name, None)
+
+
+def native_usage_from_message(message: Any) -> tuple[str, float | None, int | None] | None:
+    """Normalize only native rate-limit events, never assistant text or raw payloads."""
+    if message.__class__.__name__ != "RateLimitEvent" and _attr(message, "type") != "rate_limit_event":
+        return None
+    info = _attr(message, "rate_limit_info") or _attr(message, "rate_limitInfo")
+    if info is None:
+        return None
+    kind = _string_attr(info, "rate_limit_type", "rateLimitType")
+    if kind not in {"five_hour", "seven_day", "seven_day_opus", "seven_day_sonnet"}:
+        return None
+    utilization = _attr(info, "utilization")
+    resets_at = _attr(info, "resets_at") or _attr(info, "resetsAt")
+    return kind, utilization, resets_at

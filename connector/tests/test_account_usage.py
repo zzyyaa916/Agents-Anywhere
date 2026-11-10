@@ -5,7 +5,6 @@ import pytest
 from connector.account_usage import (
     LocalAccountUsage,
     UsageUnavailable,
-    claude_windows,
     codex_windows,
     identity,
 )
@@ -59,36 +58,6 @@ def test_codex_duration_not_position():
         )[0]["kind"]
         == "other"
     )
-
-
-def test_claude_priority_legacy_and_scoped():
-    reset = "2030-01-01T12:00:00Z"
-    current = claude_windows(
-        {
-            "limits": [
-                {"kind": "session", "percent": 30, "resets_at": reset},
-                {
-                    "kind": "weekly_scoped",
-                    "model": "Claude Opus",
-                    "percent": 50,
-                    "resets_at": reset,
-                },
-            ],
-            "five_hour": {"utilization": 99, "resets_at": reset},
-        }
-    )
-    assert current[0]["remaining_percent"] == 70
-    assert current[1]["model_scope"] == "opus"
-    assert (
-        claude_windows({"seven_day": {"utilization": 25, "resets_at": reset}})[0][
-            "remaining_percent"
-        ]
-        == 75
-    )
-    with pytest.raises(UsageUnavailable):
-        claude_windows(
-            {"limits": [], "five_hour": {"utilization": 99, "resets_at": reset}}
-        )
 
 
 @pytest.mark.parametrize("bad", [-1, 101, float("nan"), True, "20"])
@@ -170,24 +139,19 @@ async def test_codex_readonly_gate_restart_backoff_and_identity(tmp_path):
 @pytest.mark.anyio
 async def test_claude_local_identity_and_five_minute_gate(tmp_path, monkeypatch):
     monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
-    (tmp_path / ".claude.json").write_text(
-        json.dumps({"oauthAccount": {"accountUuid": "synthetic-account"}})
-    )
-    service = LocalAccountUsage(KV(), home=tmp_path, clock=lambda: 2000000000)
-    calls = []
-
-    async def usage(executable):
-        calls.append(1)
-        return claude_windows(
-            {"five_hour": {"utilization": 20, "resets_at": "2033-05-18T03:33:20Z"}}
-        )
-
-    monkeypatch.setattr(service, "_claude_usage", usage)
+    (tmp_path / ".claude.json").write_text(json.dumps({"oauthAccount": {"accountUuid": "synthetic-account"}}))
+    now = [2000000000]
+    service = LocalAccountUsage(KV(), home=tmp_path, clock=lambda: now[0])
     info = await service.identify("claude_code")
+    assert service.observe_claude_window(info["account_key"], "five_hour", .2, now[0] + 7200)
     first = await service.collect("claude_code", info["account_key"])
-    await service.collect("claude_code", info["account_key"])
-    assert len(calls) == 1 and first["next_attempt_at"] == 2000000300
+    assert first["windows"][0]["remaining_percent"] == 80
+    assert first["next_attempt_at"] == now[0] + 300
     assert "synthetic-account" not in json.dumps(first)
+    now[0] += 60
+    service.observe_claude_window(info["account_key"], "five_hour", .3, now[0] + 7200)
+    assert (await service.collect("claude_code", info["account_key"]))["windows"][0]["remaining_percent"] == 80
+
 
 
 @pytest.fixture
@@ -196,74 +160,29 @@ def anyio_backend():
 
 
 @pytest.mark.anyio
-async def test_claude_request_credentials_stay_local(tmp_path, monkeypatch):
+async def test_claude_native_cache_never_reads_credentials_or_starts_process(tmp_path, monkeypatch):
     import connector.account_usage as module
-
-    monkeypatch.setattr(module, "claude_command", lambda args, executable: [executable or "claude", *args])
-
     monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
-    credentials = tmp_path / ".claude"
-    credentials.mkdir()
-    (credentials / ".credentials.json").write_text(
-        json.dumps({"claudeAiOauth": {"accessToken": "synthetic-local-only"}})
-    )
-    (tmp_path / ".claude.json").write_text(
-        json.dumps({"oauthAccount": {"accountUuid": "account"}})
-    )
-
-    class Child:
-        returncode = 0
-
-        async def communicate(self):
-            return b"2.1.0 (Claude Code)", b""
-
-    async def spawn(*args, **kwargs):
-        assert args == ("claude", "--version")
-        assert kwargs["stderr"] == module.asyncio.subprocess.DEVNULL
-        return Child()
-
-    monkeypatch.setattr(module.asyncio, "create_subprocess_exec", spawn)
-
-    class Response:
-        status_code = 200
-
-        def json(self):
-            return {
-                "five_hour": {"utilization": 20, "resets_at": "2030-01-01T00:00:00Z"},
-                "accessToken": "synthetic-upstream-secret",
-            }
-
-    class Http:
-        def __init__(self, **kwargs):
-            assert kwargs == {"timeout": 20, "follow_redirects": False}
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            pass
-
-        async def get(self, url, *, headers):
-            assert url == "https://api.anthropic.com/api/oauth/usage"
-            assert headers == {
-                "Authorization": "Bearer synthetic-local-only",
-                "anthropic-beta": "oauth-2025-04-20",
-                "User-Agent": "claude-code/2.1.0",
-            }
-            return Response()
-
-    kv = KV()
-    collector = LocalAccountUsage(
-        kv, home=tmp_path, platform="linux", http_factory=Http
-    )
-    info = await collector.identify("claude_code")
-    result = await collector.collect("claude_code", info["account_key"])
-    serialized = json.dumps([result, kv.data])
-    assert (
-        "synthetic-local-only" not in serialized
-        and "synthetic-upstream-secret" not in serialized
-    )
+    (tmp_path / ".claude.json").write_text(json.dumps({"oauthAccount": {"accountUuid": "account"}}))
+    async def forbidden(*args, **kwargs):
+        raise AssertionError("No subprocess or network call allowed")
+    monkeypatch.setattr(module.asyncio, "create_subprocess_exec", forbidden)
+    from pathlib import Path
+    original = Path.read_text
+    reads = []
+    def guarded(path, *args, **kwargs):
+        reads.append(str(path))
+        assert path.name != ".credentials.json"
+        return original(path, *args, **kwargs)
+    monkeypatch.setattr(Path, "read_text", guarded)
+    kv = KV(); service = LocalAccountUsage(kv, home=tmp_path, clock=lambda: 2000000000)
+    info = await service.identify("claude_code")
+    service.observe_claude_window(info["account_key"], "five_hour", .2, 2000007200)
+    result = await service.collect("claude_code", info["account_key"])
     assert result["windows"][0]["remaining_percent"] == 80
+    assert all("credentials" not in name for name in reads)
+    assert set(kv.data["native-claude-usage/" + info["account_key"]]) == {"windows"}
+
 
 
 @pytest.mark.anyio
@@ -312,45 +231,6 @@ async def test_rpc_whitelist_strips_credentials_and_internal_fields():
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("cancelled", [False, True])
-async def test_local_command_failure_reaps_child(monkeypatch, cancelled):
-    import asyncio
-    from unittest.mock import AsyncMock
-
-    import connector.account_usage as module
-
-    class Child:
-        returncode = None
-        killed = False
-        waited = False
-
-        async def communicate(self):
-            return b"", b""
-
-        def kill(self):
-            self.killed = True
-
-        async def wait(self):
-            self.waited = True
-            self.returncode = -9
-
-    child = Child()
-    monkeypatch.setattr(
-        module.asyncio, "create_subprocess_exec", AsyncMock(return_value=child)
-    )
-    error = asyncio.CancelledError if cancelled else TimeoutError
-
-    async def fail(awaitable, timeout):
-        await awaitable
-        assert timeout == 5
-        raise error()
-
-    monkeypatch.setattr(module.asyncio, "wait_for", fail)
-    with pytest.raises(error):
-        await module.local_output("synthetic-command")
-    assert child.killed and child.waited
-
-
 @pytest.mark.anyio
 async def test_usage_cancellation_propagates(tmp_path):
     import asyncio

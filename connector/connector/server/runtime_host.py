@@ -68,11 +68,13 @@ class ConnectorRuntimeHost(RuntimeHostClient):
         self._defer_payload_projection = defer_payload_projection
         self._runtime_storage = RuntimeStorageManager(sync_state_store) if isinstance(sync_state_store, JsonSyncStateStore) else None
         self._runtime_kv = None
+        self._account_usage_kv = None
 
     async def prepare_runtime_host(self, runtime_id: str) -> ConnectorRuntimeHost:
         if self._runtime_storage is None:
             return self
         state, kv = await asyncio.to_thread(self._runtime_storage.prepare, self.connector_id, runtime_id)
+        _ = self.account_usage_kv
         bound = copy.copy(self)
         bound._sync_state_store = state
         bound._runtime_kv = kv
@@ -81,6 +83,23 @@ class ConnectorRuntimeHost(RuntimeHostClient):
     @property
     def runtime_kv(self):
         return self._runtime_kv if self._runtime_kv is not None else super().runtime_kv
+
+    @property
+    def account_usage_kv(self):
+        if self._account_usage_kv is None:
+            self._account_usage_kv = super().runtime_kv
+        return self._account_usage_kv
+
+    def claude_usage_observer(self):
+        from connector.account_usage import LocalAccountUsage
+        try:
+            collector = LocalAccountUsage(self.account_usage_kv)
+            account_key = collector.claude_identity()["account_key"]
+        except Exception:
+            return None
+        async def observe(kind, utilization, resets_at):
+            collector.observe_claude_window(account_key, kind, utilization, resets_at)
+        return observe
 
     def flush_runtime_storage(self) -> bool:
         return self._runtime_storage.flush() if self._runtime_storage is not None else False

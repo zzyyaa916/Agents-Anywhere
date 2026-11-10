@@ -1,7 +1,7 @@
 package com.agentsanywhere.app.feature.fork
 
 import android.content.Context
-import androidx.test.core.app.ApplicationProvider
+import org.robolectric.RuntimeEnvironment
 import com.agentsanywhere.app.feature.sessiondetail.*
 import org.junit.Assert.*
 import org.junit.Test
@@ -10,7 +10,21 @@ import org.robolectric.RobolectricTestRunner
 
 @RunWith(RobolectricTestRunner::class)
 class SessionMessageQueueTest {
-    private fun prefs() = ApplicationProvider.getApplicationContext<Context>().getSharedPreferences(java.util.UUID.randomUUID().toString(), 0)
+    private fun prefs() = RuntimeEnvironment.getApplication<android.app.Application>().getSharedPreferences(java.util.UUID.randomUUID().toString(), 0)
+    @Test fun storageFailureDoesNotAcceptOrClearDraft() {
+        val backing = prefs()
+        val blocked = object : android.content.SharedPreferences by backing {
+            override fun edit(): android.content.SharedPreferences.Editor {
+                val editor = backing.edit()
+                return object : android.content.SharedPreferences.Editor by editor {
+                    override fun commit(): Boolean = false
+                }
+            }
+        }
+        val queue = SessionMessageQueue(blocked, "full")
+        assertFalse(queue.enqueue("keep my draft", emptyList()))
+        assertTrue(queue.messages.isEmpty())
+    }
     @Test fun restoredQueueIsPausedAndInFlightBecomesUnknownWithoutChangingId() {
         val prefs = prefs(); val queue = SessionMessageQueue(prefs, "server/user/session")
         assertTrue(queue.enqueue("hello", emptyList())); val id = queue.messages.single().id

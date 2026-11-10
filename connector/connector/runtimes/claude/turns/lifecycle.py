@@ -32,6 +32,7 @@ from connector.runtimes.claude.sdk.client import (
 from connector.runtimes.claude.sdk.connection import ClaudeConnection, ClaudeResponse
 from connector.runtimes.claude.sdk.events import (
     ClaudeTerminalEvent,
+    native_usage_from_message,
     failed_terminal_event,
     interrupted_terminal_event,
     terminal_event_from_message,
@@ -288,12 +289,19 @@ class ClaudeTurnRunner:
                 session, current
             ),
             cleanup=cleanup,
+            on_native_usage=self.native_usage_observer(),
             idle_timeout_seconds=self.config.values.get("idleTimeoutSeconds", 600),
             selections=dict(session.selections),
             task_ids=set(existing.task_ids) if existing is not None else set(),
         )
         self.connections[session.session_id] = connection
         return connection
+
+    def native_usage_observer(self):
+        if self.config.values.get("environment") or self.config.values.get("modelGateway"):
+            return None
+        factory = getattr(self.host, "claude_usage_observer", None)
+        return factory() if callable(factory) else None
 
     async def refresh_idle_connection(self, session: ClaudeSession) -> None:
         async with session.execution_lock:
@@ -399,7 +407,13 @@ class ClaudeTurnRunner:
 
             emitted_final_assistant_content = False
             stream_accumulator = ClaudeStreamAccumulator()
+            usage_observer = self.native_usage_observer()
             async for message in receive_response_messages(client):
+                usage = native_usage_from_message(message)
+                if usage is not None:
+                    if usage_observer is not None:
+                        await usage_observer(*usage)
+                    continue
                 retry_item = self.timeline.retry_item_for_message(session, turn_id, message)
                 if retry_item is not None:
                     await self.notifications.timeline_activity.timeline_item_upsert(retry_item)

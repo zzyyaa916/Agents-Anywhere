@@ -8,6 +8,10 @@ TESTS_PACKAGE = Path(__file__).resolve().parents[1] / "tests"
 
 ALLOWED_ROOT_MODULES = {
     "__init__.py",
+    "account_usage.py",
+    "native_cli.py",
+    "native_login.py",
+    "quota_errors.py",
     "cli.py",
     "control.py",
     "launch.py",

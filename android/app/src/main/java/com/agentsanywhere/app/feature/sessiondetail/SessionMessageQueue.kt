@@ -46,7 +46,7 @@ class SessionMessageQueue(private val preferences: SharedPreferences, private va
     fun pause() { paused = true }
     fun resume() { paused = false }
     fun remove(id: String): Boolean {
-        if (messages.any { it.id == id && it.status == "sending" }) return false
+        if (messages.any { it.id == id && it.status == "sending" } || synchronized(active) { active[key] == id }) return false
         val next = messages.filterNot { it.id == id }
         if (!persist(next)) return false
         messages = next
@@ -57,7 +57,7 @@ class SessionMessageQueue(private val preferences: SharedPreferences, private va
         val item = messages.find { it.id == id && it.status != "sending" } ?: return null
         val next = messages.map { if (it.id == id) it.copy(status = "sending") else it }
         if (!persist(next)) return null
-        active.add(key)
+        active[key] = id
         messages = next
         item
     }
@@ -68,5 +68,5 @@ class SessionMessageQueue(private val preferences: SharedPreferences, private va
         if (!accepted || !saved) paused = true
         active.remove(key)
     }
-    companion object { private val active = mutableSetOf<String>() }
+    companion object { private val active = mutableMapOf<String, String>() }
 }

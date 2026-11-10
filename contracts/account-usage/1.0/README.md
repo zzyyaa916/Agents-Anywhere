@@ -10,3 +10,5 @@ Identity discovery is not quota collection. Server persists a 5 minute discovery
 Codex uses a short-lived stdio app-server: initialize, initialized, account/read with refreshToken:false, account/rateLimits/read; no login/logout/turn requests. Windows are classified by duration, never position. Verified against [official app-server docs](https://developers.openai.com/codex/app-server).
 
 Claude uses local OAuth credentials (JSON on Linux/Windows; the Claude Code Keychain item on macOS), the specified GET endpoint, beta header and local CLI version User-Agent. `limits` has priority over legacy five_hour/seven_day. This is an undocumented upstream interface: unknown structures or unavailable identity degrade to unavailable/stale. No real account probes are part of development tests.
+
+后续用户修订：新 Connector 的 Claude 来源改为正常任务的原生 SDK 限额事件缓存，停用私有接口及 OAuth 凭据读取，wire schema 不变；缺字段或过期仍降级。详见 [原生来源说明](../../../docs/fork/claude-native-usage.md)。上段 Claude 私有接口描述仅适用于旧实现。
