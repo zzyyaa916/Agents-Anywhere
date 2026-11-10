@@ -49,14 +49,14 @@
     <string name="auth_password_login">Account Password Login</string>
     <string name="auth_continue_qr">Scan to Login</string>
     <string name="auth_host_choice_title">Choose a login service</string>
-    <string name="auth_official_service">Sign in to Agents Anywhere Cloud</string>
-    <string name="auth_official_service_description">Use the Agents Anywhere online service</string>
+    <string name="auth_official_service">Sign in to the Fork server</string>
+    <string name="auth_official_service_description">Use the configured Agents Anywhere Fork service</string>
     <string name="auth_self_host_service">Connect to your own server instance</string>
     <string name="auth_or">OR</string>
     <string name="auth_connect_server">Connect to server</string>
     <string name="auth_self_host_service_description">Connect to a server you deployed</string>
     <string name="auth_coming_soon">Coming soon</string>
-    <string name="auth_host_choice_hint">If you do not have a privately deployed backend, sign in to Cloud.</string>
+    <string name="auth_host_choice_hint">Use the Fork server above, or enter another self-hosted address.</string>
     <string name="auth_self_host_login_title">Self-host Login</string>
     <string name="auth_web_login_subtitle">Enter your backend address. We will check the connection and open the sign-in page.</string>
     <string name="auth_backend_url">Backend address</string>

@@ -8,7 +8,7 @@
 
 - Android 分叉版可与官方版并排安装，连接自托管服务，账号由管理员创建，更新只下载 Fork 签名安装包。
 - 手机端支持删除项目和会话（含归档记录）、圆形账号用量入口、限额到点后原会话续聊，以及运行中消息排队和支持时立即补充。
-- 新 Connector 从 Claude 正常任务的原生限额事件更新缓存，用量采集不再读取 OAuth 凭据或请求 Claude 私有接口；设备需要升级 Connector 才生效。
+- 新 Connector 从 Claude 正常任务的原生限额事件更新缓存，用量采集不再读取 OAuth 凭据或请求 Claude 私有接口；设备需要升级 Connector 才生效。（[发布说明](docs/releases/2.5.4-fork-android.md)）
 
 
 ### 分叉桌面版消息与项目选择

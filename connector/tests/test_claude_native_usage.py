@@ -19,6 +19,9 @@ def test_strict_native_event_shape():
     assert native_usage_from_message({"type": "assistant", "rate_limit_info": {"rate_limit_type": "five_hour"}}) is None
     message = {"type": "rate_limit_event", "rate_limit_info": {"rate_limit_type": "five_hour", "utilization": .5, "resets_at": 2000007200, "raw": {"token": "synthetic-not-forwarded"}}}
     assert native_usage_from_message(message) == ("five_hour", .5, 2000007200)
+    message["rate_limit_info"]["utilization"] = {"token": "synthetic-not-forwarded"}
+    message["rate_limit_info"]["resets_at"] = {"token": "synthetic-not-forwarded"}
+    assert native_usage_from_message(message) == ("five_hour", None, None)
     message["rate_limit_info"]["rate_limit_type"] = "unknown"
     assert native_usage_from_message(message) is None
 

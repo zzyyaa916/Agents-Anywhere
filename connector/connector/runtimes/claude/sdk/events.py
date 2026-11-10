@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+import math
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -117,4 +118,8 @@ def native_usage_from_message(message: Any) -> tuple[str, float | None, int | No
         return None
     utilization = _attr(info, "utilization")
     resets_at = _attr(info, "resets_at") or _attr(info, "resetsAt")
+    if isinstance(utilization, bool) or not isinstance(utilization, (int, float)) or not math.isfinite(utilization) or not 0 <= utilization <= 1:
+        utilization = None
+    if isinstance(resets_at, bool) or not isinstance(resets_at, int):
+        resets_at = None
     return kind, utilization, resets_at
