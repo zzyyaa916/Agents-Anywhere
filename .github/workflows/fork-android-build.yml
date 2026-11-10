@@ -2,7 +2,11 @@ name: Fork Android APK
 on:
   workflow_dispatch:
   push:
-    branches: ['feat/apk+con/fork-android']
+    branches: ['feat/**']
+    paths: ['android/**', '.github/workflows/fork-android-build.yml']
+concurrency:
+  group: fork-android-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
