@@ -45,4 +45,5 @@
     <string name="fork_stop">Stop task</string>
     <string name="fork_stop_wait">Stop waiting</string>
     <string name="fork_other_window">Other limit</string>
+    <string name="fork_low_usage">%1$s · %2$s: 5-hour quota %3$d%% remaining · resets %4$s</string>
 </resources>

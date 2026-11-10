@@ -29,6 +29,9 @@ data class UsageWindow(val kind: String, val remaining: Double, val resetsAt: St
 }
 data class UsageAccount(val runtime: String, val label: String, val stale: Boolean, val fetchedAt: String?, val windows: List<UsageWindow>)
 data class UsageCache(val accounts: List<UsageAccount>, val unavailable: List<String>) {
+    fun lowFiveHour(runtime: String, now: Instant = Instant.now()): List<Pair<UsageAccount, UsageWindow>> = accounts
+        .filter { it.runtime == runtime && !it.stale }
+        .flatMap { account -> account.windows.filter { it.kind == "five_hour" && it.remaining <= 20 && !it.expired(now) }.map { account to it } }
     companion object {
         fun parse(value: JSONObject): UsageCache {
             val snapshots = value.optJSONArray("snapshots")

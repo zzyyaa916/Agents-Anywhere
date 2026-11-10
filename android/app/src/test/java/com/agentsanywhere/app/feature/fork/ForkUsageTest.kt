@@ -20,6 +20,15 @@ class ForkUsageTest {
         assertEquals(12.0, cache.accounts.single().windows.single().remaining, 0.0)
         assertEquals(listOf("codex"), cache.unavailable)
     }
+    @Test fun lowReminderRequiresMatchingRuntimeFreshFiveHourWindow() {
+        val now = Instant.parse("2026-11-10T00:00:00Z")
+        val future = "2026-11-10T01:00:00Z"
+        val a = UsageAccount("codex", "abc", false, null, listOf(UsageWindow("five_hour", 20.0, future, null), UsageWindow("seven_day", 0.0, future, null)))
+        assertEquals(1, UsageCache(listOf(a), emptyList()).lowFiveHour("codex", now).size)
+        assertTrue(UsageCache(listOf(a.copy(stale = true)), emptyList()).lowFiveHour("codex", now).isEmpty())
+        assertTrue(UsageCache(listOf(a), emptyList()).lowFiveHour("claude_code", now).isEmpty())
+        assertTrue(UsageCache(listOf(a), emptyList()).lowFiveHour("codex", Instant.parse("2026-11-10T02:00:00Z")).isEmpty())
+    }
     @Test fun emptyCacheDoesNotInventUsage() {
         assertEquals(listOf("codex", "claude_code"), UsageCache.parse(JSONObject()).unavailable)
     }

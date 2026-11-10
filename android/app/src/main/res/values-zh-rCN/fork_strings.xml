@@ -45,4 +45,5 @@
     <string name="fork_stop">停止任务</string>
     <string name="fork_stop_wait">停止等待</string>
     <string name="fork_other_window">其他额度窗口</string>
+    <string name="fork_low_usage">%1$s · %2$s：5 小时额度剩余 %3$d%% · %4$s 重置</string>
 </resources>

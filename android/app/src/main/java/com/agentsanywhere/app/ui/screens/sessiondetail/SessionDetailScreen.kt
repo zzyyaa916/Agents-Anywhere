@@ -287,6 +287,7 @@ fun SessionDetailScreen(
     var queueVersion by remember(sessionId, queueScope) { mutableStateOf(0) }
     val queuePaused = queueVersion.let { queueStore?.paused ?: true }
     var quotaWait by remember(sessionId, queueScope) { mutableStateOf<com.agentsanywhere.app.feature.fork.QuotaWait?>(null) }
+    var usageCache by remember(sessionId, queueScope) { mutableStateOf<com.agentsanywhere.app.feature.fork.UsageCache?>(null) }
     var quotaBusy by remember(sessionId) { mutableStateOf(false) }
     var quotaError by remember(sessionId) { mutableStateOf(false) }
 
@@ -1314,7 +1315,9 @@ fun SessionDetailScreen(
     val canQueue = !isPreparedSession && connectorOnline && takeoverEnabled && state.session?.archived != true && capabilityFactsFresh && sendFact?.supported == true && sendFact.allowed && busyForQueue
     LaunchedEffect(sessionId, appVisible, queueScope) {
         val id = sessionId
+        var ticks = 0
         if (id != null && forkController != null && appVisible) while (true) {
+            if (ticks++ % 12 == 0) forkController.usage().onSuccess { usageCache = it }.onFailure { usageCache = null }
             forkController.quota(id).onSuccess { value ->
                 val becameReady = quotaWait?.state == "limited" && value?.state == "ready"
                 quotaWait = value
@@ -1985,6 +1988,11 @@ fun SessionDetailScreen(
                                 if(goalMode) androidx.compose.material3.TextButton(onClick={goalMode=false}) {androidx.compose.material3.Text(stringResource(R.string.goal_exit_mode))}
                                 goalReplacement?.let { replacement ->
                                     androidx.compose.material3.AlertDialog(onDismissRequest={goalReplacement=null},title={androidx.compose.material3.Text(stringResource(R.string.goal_replace_title))},text={androidx.compose.material3.Text(replacement.first,maxLines=4)},confirmButton={androidx.compose.material3.TextButton(onClick={goalReplacement=null;goalAction("set",replacement.first,replacement.second,true)}){androidx.compose.material3.Text(stringResource(R.string.goal_replace))}},dismissButton={androidx.compose.material3.TextButton(onClick={goalReplacement=null}){androidx.compose.material3.Text(stringResource(R.string.goal_cancel))}})
+                                }
+                                usageCache?.lowFiveHour(runtimeType)?.forEach { (account, window) ->
+                                    androidx.compose.material3.Surface(tonalElevation = 3.dp) {
+                                        Text(stringResource(R.string.fork_low_usage, if (account.runtime == "codex") "Codex" else "Claude Code", account.label, window.remaining.toInt(), com.agentsanywhere.app.ui.screens.fork.localUsageTime(window.resetsAt)), Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), color = if (window.remaining == 0.0) androidx.compose.material3.MaterialTheme.colorScheme.error else androidx.compose.material3.MaterialTheme.colorScheme.onSurface)
+                                    }
                                 }
                                 quotaWait?.takeIf { it.state in listOf("limited", "ready") }?.let { limit ->
                                     androidx.compose.material3.Surface(tonalElevation = 3.dp) {
