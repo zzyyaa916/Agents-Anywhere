@@ -141,6 +141,13 @@ fun HomeScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+    var deletedSessionIds by remember(forkController?.scopeKey) { mutableStateOf<Set<String>>(emptySet()) }
+    var deletedProjectIds by remember(forkController?.scopeKey) { mutableStateOf<Set<String>>(emptySet()) }
+    val visibleState = state.copy(
+        sessions = state.sessions.filterNot { it.id in deletedSessionIds || it.projectId in deletedProjectIds },
+        archivedSessions = state.archivedSessions.filterNot { it.id in deletedSessionIds || it.projectId in deletedProjectIds },
+        projects = state.projects.filterNot { it.id in deletedProjectIds },
+    )
     var deletingSession by remember { mutableStateOf<AgentSession?>(null) }
     var deletingProject by remember { mutableStateOf<AgentProject?>(null) }
     var actionMenu by remember { mutableStateOf<HomeSessionActionMenu?>(null) }
@@ -202,11 +209,11 @@ fun HomeScreen(
         ) {
             HomeContent(
                 navigate = navigate,
-                state = state,
+                state = visibleState,
                 selectedTab = selectedTab,
                 sidebarViewMode = sidebarViewMode,
                 isRefreshing = isRefreshing,
-                projectSessionsById = projectSessionsById,
+                projectSessionsById = projectSessionsById.filterKeys { it !in deletedProjectIds }.mapValues { (_, sessions) -> sessions.filterNot { it.id in deletedSessionIds } },
                 loadingProjectIds = loadingProjectIds,
                 expandedProjectIds = expandedProjectIds,
                 projectPreferences = projectPreferences,
@@ -247,8 +254,8 @@ fun HomeScreen(
             )
             forkController?.let { fork ->
                 com.agentsanywhere.app.ui.screens.fork.ForkUsageButton(fork, Modifier.align(Alignment.BottomStart).padding(start = 16.dp, bottom = 24.dp))
-                deletingSession?.let { target -> com.agentsanywhere.app.ui.screens.fork.ForkDeleteDialog(fork, target.id, target.title, false, { deletingSession = null }, { deletingSession = null; onRefresh() }) }
-                deletingProject?.let { target -> com.agentsanywhere.app.ui.screens.fork.ForkDeleteDialog(fork, target.id, target.name, true, { deletingProject = null }, { deletingProject = null; onRefresh() }) }
+                deletingSession?.let { target -> com.agentsanywhere.app.ui.screens.fork.ForkDeleteDialog(fork, target.id, target.title, false, { deletingSession = null }, { deletedSessionIds = deletedSessionIds + target.id; deletingSession = null; onRefresh() }) }
+                deletingProject?.let { target -> com.agentsanywhere.app.ui.screens.fork.ForkDeleteDialog(fork, target.id, target.name, true, { deletingProject = null }, { deletedProjectIds = deletedProjectIds + target.id; deletingProject = null; onRefresh() }) }
             }
             actionMenu?.let { menu ->
                 HomeSessionActionOverlay(

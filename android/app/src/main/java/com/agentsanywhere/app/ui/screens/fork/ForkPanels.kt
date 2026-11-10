@@ -10,6 +10,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import com.agentsanywhere.app.R
 import com.agentsanywhere.app.api.ApiException
 import com.agentsanywhere.app.feature.fork.*
@@ -38,8 +40,9 @@ fun ForkUsageButton(controller: ForkController, modifier: Modifier = Modifier) {
             busy = false
         }
     }
+    val usageDescription = stringResource(R.string.fork_usage)
     val remaining = usage?.accounts?.flatMap { account -> if (account.stale) emptyList() else account.windows.filterNot { it.expired() } }?.minOfOrNull { it.remaining }
-    FilledTonalIconButton(onClick = { open = true; load(false) }, modifier = modifier.size(46.dp)) {
+    FilledTonalIconButton(onClick = { open = true; load(false) }, modifier = modifier.size(46.dp).semantics { contentDescription = usageDescription }) {
         Box {
             CircularProgressIndicator(progress = { ((remaining ?: 0.0) / 100).toFloat() }, modifier = Modifier.size(28.dp), strokeWidth = 3.dp)
             Text("◉", modifier = Modifier.padding(6.dp), style = MaterialTheme.typography.labelSmall)

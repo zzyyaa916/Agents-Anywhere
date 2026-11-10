@@ -11,7 +11,7 @@
     <string name="fork_expired">数据已过期 · 等待原生更新</string>
     <string name="fork_five_hour">5 小时</string>
     <string name="fork_weekly">每周</string>
-    <string name="fork_no_probe">Claude 随原生任务更新；刷新不会启动任务，采集仍遵守间隔限制。</string>
+    <string name="fork_no_probe">Claude 被动缓存需设备升级 Connector 2.5.4 或更新版。刷新读取已有观测，不启动任务，仍遵守采集间隔。</string>
     <string name="fork_delete">永久删除</string>
     <string name="fork_delete_session">删除会话？</string>
     <string name="fork_delete_project">删除项目？</string>

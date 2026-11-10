@@ -75,6 +75,7 @@ internal fun ArchivedProjectHeader(
     restoring: Boolean,
     enabled: Boolean,
     onRestore: () -> Unit,
+    onDelete: (() -> Unit)? = null,
 ) {
     val colors = LocalAAColors.current
     val name = project?.name ?: stringResource(R.string.archived_unknown_project)
@@ -97,6 +98,7 @@ internal fun ArchivedProjectHeader(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            onDelete?.let { remove -> IconButton(onClick = remove, enabled = enabled && !restoring) { Icon(Lucide.Trash2, stringResource(R.string.fork_delete), tint = MaterialTheme.colorScheme.error) } }
             if (project != null) ArchiveActionButton(
                 label = stringResource(R.string.archived_restore_project),
                 busy = restoring,
@@ -129,6 +131,7 @@ internal fun ArchivedSessionRow(
     restoring: Boolean,
     enabled: Boolean,
     onRestore: () -> Unit,
+    onDelete: (() -> Unit)? = null,
 ) {
     val colors = LocalAAColors.current
     val shape = RoundedCornerShape(
@@ -152,6 +155,7 @@ internal fun ArchivedSessionRow(
                 Text(stringResource(R.string.archive_archived_at, archivedTime), color = archiveSecondaryInk(),
                     fontSize = 11.sp, lineHeight = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
+            onDelete?.let { remove -> IconButton(onClick = remove, enabled = enabled && !restoring) { Icon(Lucide.Trash2, stringResource(R.string.fork_delete), tint = MaterialTheme.colorScheme.error) } }
             ArchiveActionButton(
                 label = stringResource(R.string.archived_restore),
                 busy = restoring,

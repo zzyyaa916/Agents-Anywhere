@@ -11,7 +11,7 @@
     <string name="fork_expired">Expired · waiting for native update</string>
     <string name="fork_five_hour">5 hours</string>
     <string name="fork_weekly">Weekly</string>
-    <string name="fork_no_probe">Claude updates from native tasks; refresh never starts a task. Collection limits still apply.</string>
+    <string name="fork_no_probe">Passive Claude usage needs Connector 2.5.4 or newer. Refresh reads observed data and does not start a task. Collection limits still apply.</string>
     <string name="fork_delete">Delete permanently</string>
     <string name="fork_delete_session">Delete session?</string>
     <string name="fork_delete_project">Delete project?</string>

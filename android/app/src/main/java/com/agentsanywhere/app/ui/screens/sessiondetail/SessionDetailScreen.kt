@@ -1316,7 +1316,7 @@ fun SessionDetailScreen(
         val id = sessionId
         if (id != null && forkController != null && appVisible) while (true) {
             forkController.quota(id).onSuccess { value ->
-                val becameReady = quotaWait?.waiting() == true && value?.waiting() == false
+                val becameReady = quotaWait?.state == "limited" && value?.state == "ready"
                 quotaWait = value
                 if (becameReady) loadInitialSnapshot()
             }

@@ -33,12 +33,15 @@ import java.time.format.DateTimeFormatter
 
 @Composable
 fun ArchivedSessionsScreen(
+    forkController: com.agentsanywhere.app.feature.fork.ForkController? = null,
     projects: List<AgentProject>,
     onLoadPage: suspend (String?, String?) -> Result<SessionPageAppend>,
     onRestoreSession: suspend (String) -> Result<AgentSession>,
     onRestoreProject: suspend (String) -> Result<List<AgentSession>>,
     onBack: () -> Unit,
 ) {
+    var deletingSession by remember { mutableStateOf<AgentSession?>(null) }
+    var deletingProject by remember { mutableStateOf<AgentProject?>(null) }
     val colors = LocalAAColors.current
     val scope = rememberCoroutineScope()
     val toastHostState = remember { SnackbarHostState() }
@@ -159,6 +162,7 @@ fun ArchivedSessionsScreen(
                                 item("group:${group.projectId}", contentType = "project") {
                                     ArchivedProjectHeader(
                                         project = group.project,
+                                        onDelete = if (forkController == null || group.project == null) null else ({ deletingProject = group.project }),
                                         restoring = restoringProjectId != null && restoringProjectId == group.projectId,
                                         enabled = !mutating,
                                         onRestore = {
@@ -175,6 +179,7 @@ fun ArchivedSessionsScreen(
                                     }
                                     ArchivedSessionRow(
                                         session = session,
+                                        onDelete = if (forkController == null) null else ({ deletingSession = session }),
                                         archivedTime = time,
                                         first = index == 0,
                                         last = index == group.sessions.lastIndex,
@@ -204,6 +209,12 @@ fun ArchivedSessionsScreen(
                 modifier = Modifier.align(Alignment.TopCenter).padding(top = 8.dp, start = 22.dp, end = 22.dp),
             )
         }
+    }
+    forkController?.let { fork ->
+        deletingSession?.let { target -> com.agentsanywhere.app.ui.screens.fork.ForkDeleteDialog(fork, target.id, target.title, false,
+            { deletingSession = null }, { deletingSession = null; state = state.copy(sessions = state.sessions.filterNot { it.id == target.id }); scope.launch { load(true) } }) }
+        deletingProject?.let { target -> com.agentsanywhere.app.ui.screens.fork.ForkDeleteDialog(fork, target.id, target.name, true,
+            { deletingProject = null }, { deletingProject = null; projectId = null; state = state.copy(sessions = state.sessions.filterNot { it.projectId == target.id }); scope.launch { load(true) } }) }
     }
     if (filterOpen && filterBounds != Rect.Zero) ArchivedProjectPicker(
         projects = projects,

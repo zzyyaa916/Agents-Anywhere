@@ -33,3 +33,10 @@ jobs:
           path: android/app/build/outputs/apk/release/*-unsigned.apk
           if-no-files-found: error
           retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fork-android-test-results
+          path: android/app/build/test-results/
+          if-no-files-found: ignore
+          retention-days: 7

@@ -418,6 +418,7 @@ internal fun AgentsAnywhereNavHost(
                 }
                 AppDestination.ArchivedSessions -> androidx.compose.runtime.key(serverUrl, userId) {
                     ArchivedSessionsScreen(
+                        forkController = forkController,
                         projects = sessionsState.projects,
                         onLoadPage = onLoadArchivedPage,
                         onRestoreSession = { onSetSessionArchived(it, false) },
