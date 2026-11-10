@@ -208,6 +208,8 @@ class TaskGroupService:
                 "mode": payload.mode,
             },
         }
+        if payload.instructions.strip():
+            request["source"]["instructions"] = payload.instructions.strip()
         await self.store.put_task_group(
             next_id,
             user_id=user_id,
@@ -247,7 +249,7 @@ class TaskGroupService:
                     if isinstance(text, str):
                         messages.append(f"[{item.role}] {text[:4000]}")
             transcript = "\n\n".join(messages)[-24_000:]
-            instruction = (
+            instruction = payload.instructions.strip() or (
                 "审查以下任务的代码结果，指出问题、文件和行号；不要修改代码。"
                 if payload.mode == "review"
                 else "从当前代码快照继续以下任务，先检查现有实现和测试，再完成剩余工作。"

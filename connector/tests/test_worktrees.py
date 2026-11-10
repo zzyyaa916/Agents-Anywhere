@@ -20,6 +20,18 @@ def params(repo, group="a" * 40, count=3):
     return {"root": str(repo), "groupId": group, "count": count}
 
 
+@pytest.mark.parametrize("count", [1, 2, 3])
+def test_any_count_from_one_to_three(repo, count):
+    result = wt.prepare(params(repo, count=count))
+    assert len(result["paths"]) == len(set(result["paths"])) == count
+
+
+@pytest.mark.parametrize("count", [0, 4, -1, True, "2"])
+def test_invalid_counts_do_not_create_worktrees(repo, count):
+    with pytest.raises(ValueError, match="one to three"):
+        wt.prepare(params(repo, count=count))
+
+
 def test_three_worktrees_share_baseline_and_concurrent_retries_are_idempotent(repo):
     request = params(repo)
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:

@@ -21,8 +21,8 @@ class TaskGroupCreate(BaseModel):
 
     @model_validator(mode="after")
     def valid_candidates(self):
-        if len(self.candidates) not in (1, 3) or not self.content.strip():
-            raise ValueError("Choose one or three candidates and enter a task")
+        if not self.content.strip():
+            raise ValueError("Enter what you want the AI to do")
         return self
 
 
@@ -35,3 +35,4 @@ class TaskGroupHandoff(TaskGroupSelection):
     operationId: str = Field(pattern=r"^[a-zA-Z0-9-]{8,80}$")
     mode: Literal["review", "continue"]
     target: CandidateTarget
+    instructions: str = Field(default="", max_length=8000)

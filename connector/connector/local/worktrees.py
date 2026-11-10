@@ -123,8 +123,8 @@ def workspace(repo: Path, directory: Path, slot: int, base: str) -> Path:
 def prepare(params: dict[str, Any]) -> dict[str, Any]:
     repo, directory = managed(params["root"], params["groupId"])
     count = params["count"]
-    if type(count) is not int or count not in (1, 3):
-        raise ValueError("Choose one or three candidates")
+    if type(count) is not int or not 1 <= count <= 3:
+        raise ValueError("Choose one to three AI agents")
     with locked(directory):
         if (directory / "manifest.json").exists():
             manifest = load(directory)

@@ -195,10 +195,40 @@ def test_running_candidate_and_active_run_refuse_selection_and_handoff(setup):
     )
 
 
+@pytest.mark.parametrize("count", [1, 2, 3])
+def test_one_two_and_three_candidates_can_prepare_and_start(setup, count):
+    s = setup
+    s.request["candidates"] = s.request["candidates"][:count]
+    row = create(s)
+    assert len(row["paths"]) == count
+    for slot in range(count):
+        result = asyncio.run(s.svc.start(row["id"], slot, user_id=s.user_id))
+        assert result["candidates"][slot]["phase"] == "sent"
+    assert len(s.runs.calls) == count
+
+
+def test_custom_forward_instructions_are_preserved_and_idempotent(setup):
+    s = setup
+    row = create(s)
+    asyncio.run(s.svc.start(row["id"], 0, user_id=s.user_id))
+    payload = TaskGroupHandoff(operationId="forward-custom-001", slot=0, mode="continue",
+        instructions="请检查这个结果是否正确，先不要修改代码。", target={"runtime":"claude", "runtimeId":"claude"})
+    first = asyncio.run(s.svc.handoff(row["id"], payload, user_id=s.user_id))
+    repeated = asyncio.run(s.svc.handoff(row["id"], payload, user_id=s.user_id))
+    assert first["id"] == repeated["id"]
+    assert first["handoffBrief"].startswith(payload.instructions)
+    assert "从当前代码快照继续以下任务" not in first["handoffBrief"]
+    asyncio.run(s.svc.start(first["id"], 0, user_id=s.user_id))
+    assert payload.instructions in s.runs.calls[-1].content
+    changed = payload.model_copy(update={"instructions":"Another instruction"})
+    with pytest.raises(ValueError, match="another request"):
+        asyncio.run(s.svc.handoff(row["id"], changed, user_id=s.user_id))
+
+
 def test_candidate_count_and_empty_tasks_are_rejected():
     from pydantic import ValidationError
 
-    for content, count in [(" ", 3), ("task", 2)]:
+    for content, count in [(" ", 3), ("task", 0), ("task", 4)]:
         with pytest.raises(ValidationError):
             TaskGroupCreate(
                 operationId="validation-001",
