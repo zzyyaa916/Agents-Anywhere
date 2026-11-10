@@ -484,6 +484,7 @@ class SessionsApi(
         content: String,
         clientMessageId: String,
         attachments: List<RemoteAttachmentRef> = emptyList(),
+        steer: Boolean = false,
     ): RemoteRpcResponse {
         val body = JSONObject()
             .put("content", content)
@@ -496,7 +497,7 @@ class SessionsApi(
         }
         return client.postJson(
             serverUrl = serverUrl,
-            path = "/sessions/${sessionId.urlEncode()}/runtime/messages",
+            path = "/sessions/${sessionId.urlEncode()}/runtime/${if (steer) "steer" else "messages"}",
             body = body,
             authorizationToken = authorizationToken,
         ).toRemoteRpcResponse()
@@ -998,9 +999,10 @@ class SessionsApi(
     }
 
     private fun JSONObject.toRemoteRpcResponse(): RemoteRpcResponse {
-        val error = optJSONObject("error")
+        val nested = optJSONObject("result")
+        val error = optJSONObject("error") ?: nested?.optJSONObject("error")
         return RemoteRpcResponse(
-            ok = optBoolean("ok", false),
+            ok = optBoolean("ok", false) && nested?.optBoolean("ok", true) != false,
             errorCode = error?.optNullableString("code"),
             errorMessage = error?.optNullableString("message"),
         )

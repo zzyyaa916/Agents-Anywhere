@@ -281,6 +281,15 @@ fun SessionDetailScreen(
         )
     }
 
+    val queueScope = controller.queueScope()
+    val queueStore = remember(sessionId, queueScope) { sessionId?.let { com.agentsanywhere.app.feature.sessiondetail.SessionMessageQueue(context.applicationContext, queueScope, it) } }
+    var queueItems by remember(sessionId, queueScope) { mutableStateOf(queueStore?.messages.orEmpty()) }
+    var queueVersion by remember(sessionId, queueScope) { mutableStateOf(0) }
+    val queuePaused = queueVersion.let { queueStore?.paused ?: true }
+    var quotaWait by remember(sessionId, queueScope) { mutableStateOf<com.agentsanywhere.app.feature.fork.QuotaWait?>(null) }
+    var quotaBusy by remember(sessionId) { mutableStateOf(false) }
+    var quotaError by remember(sessionId) { mutableStateOf(false) }
+
     fun showError(message: String) {
         scope.launch {
             snackbarHostState.showSnackbar(
@@ -908,6 +917,7 @@ fun SessionDetailScreen(
     }
 
     fun interrupt() {
+        queueStore?.pause(); queueVersion++
         val id = sessionId ?: return
         if (state.interrupting) return
         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -1175,7 +1185,7 @@ fun SessionDetailScreen(
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_START -> appVisible = true
-                Lifecycle.Event.ON_STOP -> appVisible = false
+                Lifecycle.Event.ON_STOP -> { appVisible = false; queueStore?.pause(); queueVersion++ }
                 else -> Unit
             }
         }
@@ -1297,7 +1307,22 @@ fun SessionDetailScreen(
     val canUseCommands = state.capabilities.isUsable(SESSION_COMMANDS_CAPABILITY, runtimeId, runtimeType) ||
         state.capabilities.isUsable(SESSION_COMMAND_EXECUTE_CAPABILITY, runtimeId, runtimeType)
     val capabilityFactsFresh = state.capabilities.isLoaded && state.capabilities.errorMessage == null
-    val runtimeStatus = state.effectiveRuntimeStatus()
+    val observedRuntimeStatus = state.effectiveRuntimeStatus()
+    val runtimeStatus = if (quotaWait?.state in listOf("limited", "ready") && quotaWait?.waiting() == false && observedRuntimeStatus in setOf(SessionRuntimeStatus.Error, SessionRuntimeStatus.Unknown, SessionRuntimeStatus.Blocked)) SessionRuntimeStatus.Idle else observedRuntimeStatus
+    val busyForQueue = observedRuntimeStatus in setOf(SessionRuntimeStatus.Waiting, SessionRuntimeStatus.Pending, SessionRuntimeStatus.Running, SessionRuntimeStatus.Stopping, SessionRuntimeStatus.WaitingApproval, SessionRuntimeStatus.Blocked) || state.sending
+    val sendFact = state.capabilities.find(SESSION_SEND_MESSAGE_CAPABILITY, runtimeId, runtimeType)
+    val canQueue = !isPreparedSession && connectorOnline && takeoverEnabled && state.session?.archived != true && capabilityFactsFresh && sendFact?.supported == true && sendFact.allowed && busyForQueue
+    LaunchedEffect(sessionId, appVisible, queueScope) {
+        val id = sessionId
+        if (id != null && forkController != null && appVisible) while (true) {
+            forkController.quota(id).onSuccess { value ->
+                val becameReady = quotaWait?.waiting() == true && value?.waiting() == false
+                quotaWait = value
+                if (becameReady) loadInitialSnapshot()
+            }
+            delay(5000)
+        }
+    }
     val openInteractions = remember(state.notices.notices) {
         state.notices.notices
             .filter(RuntimeNotice::openInteraction)
@@ -1316,7 +1341,7 @@ fun SessionDetailScreen(
         SessionRuntimeStatus.Blocked,
         SessionRuntimeStatus.Disconnected,
     )
-    val inputEnabled = if (isPreparedSession) {
+    val inputEnabled = if (canQueue || isPreparedSession) {
         true
     } else {
         sessionComposerEnabled(
@@ -1335,7 +1360,7 @@ fun SessionDetailScreen(
     val commandLookupPending = slashIntent != null && slashIntent.command.isNotEmpty() && canUseCommands &&
         exactCommand == null && state.commands.isLoading
     val commandMode = takeoverEnabled && inputEnabled && slashIntent != null && attachments.isEmpty()
-    val messageSendable = !runtimeBlocksSubmission &&
+    val messageSendable = !runtimeBlocksSubmission && quotaWait?.waiting() != true &&
         blockingNotices.isEmpty() &&
         attachmentsReady &&
         (attachments.isEmpty() || canUseAttachments) &&
@@ -1344,7 +1369,7 @@ fun SessionDetailScreen(
     val goalInput = goalMode || goalUsable && Regex("^/goal(?:\\s|$)").containsMatchIn(draft.trimStart())
     val planInput = com.agentsanywhere.app.feature.sessiondetail.PlanningCommand.parse(draft) != null
     val canSend = (inputEnabled || (goalInput && takeoverEnabled && !goalState?.actions.isNullOrEmpty()) || (planInput && takeoverEnabled && !state.planning?.actions.isNullOrEmpty())) &&
-        !state.sending &&
+        (!state.sending || canQueue) &&
         !preparedSessionCreating &&
         !state.commandExecuting &&
         (draft.isNotBlank() || attachments.isNotEmpty()) &&
@@ -1354,7 +1379,7 @@ fun SessionDetailScreen(
             planInput -> attachmentsReady && !planningBusy
             exactCommand != null -> true
             commandLookupPending -> false
-            else -> messageSendable
+            else -> messageSendable || (canQueue && attachmentsReady)
         }
     val modelOptions = if (isPreparedSession) preparedModelOptions else remember(state.catalogs.model) {
         state.catalogs.model?.selectionOptions().orEmpty()
@@ -1523,6 +1548,36 @@ fun SessionDetailScreen(
             (review.status == "open" || (review.status == "approved" && current.executionStatus == "rejected" && current.executionRetryable)) &&
             review.planId == document.planId && review.planRevision == document.revision && review.contentHash == document.contentHash
     }
+    val canDeliverQueue = !isPreparedSession && appVisible && connectorOnline && takeoverEnabled && state.session?.archived != true && canUseSendMessage && blockingNotices.isEmpty() && planTarget == null && !state.sending && !state.interrupting && !planningBusy && !state.commandExecuting && quotaWait?.waiting() != true
+    val canSteerQueue = !isPreparedSession && appVisible && connectorOnline && takeoverEnabled && state.session?.archived != true && runtimeStatus == SessionRuntimeStatus.Running && state.capabilities.isUsable("session.steer", runtimeId, runtimeType) && blockingNotices.isEmpty() && planTarget == null && !state.sending
+    fun deliverQueued(id: String, steer: Boolean) {
+        val current = sessionId ?: return
+        val queue = queueStore ?: return
+        if (steer) { if (!canSteerQueue) return } else { if (!canDeliverQueue || runtimeStatus !in setOf(SessionRuntimeStatus.Idle, SessionRuntimeStatus.Error) || queue.messages.firstOrNull()?.id != id) return }
+        val item = queue.begin(id) ?: return
+        queueItems = queue.messages; queueVersion++
+        scope.launch {
+            var accepted = false
+            try {
+                state = controller.addOptimisticMessage(current, state, item.text, item.id, item.attachments)
+                if (!steer) state = state.copy(runtime = state.runtime.copy(status = SessionRuntimeStatus.Waiting))
+                val result = controller.sendMessage(current, item.text, item.id, uploadedAttachments = item.attachments, steer = steer, expectedScope = queueScope)
+                accepted = result.isSuccess
+                if (planningSession == current && controller.queueScope() == queueScope) {
+                    state = controller.markOptimisticMessage(current, state, item.id, if (accepted) "running" else "failed", item.attachments,
+                        errorMessage = if (accepted) null else context.getString(R.string.fork_queue_failed))
+                }
+            } finally {
+                queue.finish(item.id, accepted)
+                queueItems = queue.messages; queueVersion++
+            }
+        }
+    }
+    LaunchedEffect(queueItems, queuePaused, runtimeStatus, canDeliverQueue) {
+        val head = queueItems.firstOrNull()
+        if (!queuePaused && runtimeStatus == SessionRuntimeStatus.Idle && canDeliverQueue && head?.status == "queued") deliverQueued(head.id, false)
+    }
+
     LaunchedEffect(planTarget?.review?.reviewId) { if (planTarget != null) unfocusComposer() }
     fun respondPlan(target: com.agentsanywhere.app.api.RemotePlanningState, action: String, feedback: String) {
         val id = sessionId
@@ -1587,6 +1642,13 @@ fun SessionDetailScreen(
                 controller.submitPlanning(id, planning, uploaded).onSuccess { if (planningSession == id) { state = state.copy(planning = it); if (draft == raw) clearComposerDraft() } }.onFailure { showError(runtimeOperationErrorMessage(context, it)) }
                 planningBusy = false
             }
+            return
+        }
+        if (canQueue && SlashIntent.parse(raw)?.let { state.commands.commands.exact(it) } == null) {
+            if (!attachmentsReady || attachments.any { it.remote == null }) return
+            if (queueStore?.enqueue(text, attachments.mapNotNull { it.remote }) == true) {
+                queueItems = queueStore.messages; queueVersion++; clearComposerDraft()
+            } else showError(context.getString(R.string.fork_queue_storage))
             return
         }
         val intent = if (isPreparedSession) null else SlashIntent.parse(raw)
@@ -1732,6 +1794,7 @@ fun SessionDetailScreen(
     val replyTarget = state.session?.runtimeLabel?.takeIf { it.isNotBlank() }
         ?: stringResource(R.string.session_agent_fallback)
     val placeholder = when {
+        canQueue -> stringResource(R.string.fork_queue_hint)
         isPreparedSession -> stringResource(R.string.session_reply_to, replyTarget)
         !takeoverEnabled -> stringResource(R.string.session_read_only_placeholder)
         state.session != null && !connectorOnline -> stringResource(R.string.session_device_offline_placeholder)
@@ -1919,6 +1982,28 @@ fun SessionDetailScreen(
                                 goalReplacement?.let { replacement ->
                                     androidx.compose.material3.AlertDialog(onDismissRequest={goalReplacement=null},title={androidx.compose.material3.Text(stringResource(R.string.goal_replace_title))},text={androidx.compose.material3.Text(replacement.first,maxLines=4)},confirmButton={androidx.compose.material3.TextButton(onClick={goalReplacement=null;goalAction("set",replacement.first,replacement.second,true)}){androidx.compose.material3.Text(stringResource(R.string.goal_replace))}},dismissButton={androidx.compose.material3.TextButton(onClick={goalReplacement=null}){androidx.compose.material3.Text(stringResource(R.string.goal_cancel))}})
                                 }
+                                quotaWait?.takeIf { it.state in listOf("limited", "ready") }?.let { limit ->
+                                    androidx.compose.material3.Surface(tonalElevation = 3.dp) {
+                                        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                                            Text(stringResource(if (limit.waiting()) R.string.fork_quota_wait else R.string.fork_quota_ready))
+                                            Text(if (limit.resetsAt == null) stringResource(R.string.fork_reset_unknown) else stringResource(R.string.fork_reset_at, com.agentsanywhere.app.ui.screens.fork.localUsageTime(limit.resetsAt)))
+                                            androidx.compose.material3.TextButton(enabled = !quotaBusy, onClick = {
+                                                val current = sessionId
+                                                if (current != null && forkController != null) scope.launch {
+                                                    quotaBusy = true
+                                                    forkController.quota(current, true).onSuccess { quotaWait = it; quotaError = false; loadInitialSnapshot() }.onFailure { quotaError = true }
+                                                    quotaBusy = false
+                                                }
+                                            }) { Text(stringResource(R.string.fork_recheck)) }
+                                            if (quotaError) Text(stringResource(R.string.fork_failed))
+                                        }
+                                    }
+                                }
+                                com.agentsanywhere.app.ui.screens.fork.SessionQueuePanel(queueItems, queuePaused,
+                                    canDeliverQueue && runtimeStatus in setOf(SessionRuntimeStatus.Idle, SessionRuntimeStatus.Error), canSteerQueue,
+                                    { queueStore?.pause(); queueVersion++ }, { queueStore?.resume(); queueVersion++ },
+                                    { id -> if (queueStore?.remove(id) == true) { queueItems = queueStore.messages; queueVersion++ } else showError(context.getString(R.string.fork_queue_storage)) }, ::deliverQueued)
+                                if (showInterrupt && (draft.isNotBlank() || attachments.isNotEmpty())) androidx.compose.material3.TextButton(onClick = ::interrupt) { Text(stringResource(R.string.fork_stop)) }
                                 if (planTarget == null) MessageComposer(
                                     darkMode = darkMode,
                                     draft = if (takeoverEnabled) draft else "",
@@ -1929,7 +2014,7 @@ fun SessionDetailScreen(
                                     attachmentsEnabled = inputEnabled && canUseAttachments && !commandMode,
                                     canSend = canSend,
                                     sending = state.sending,
-                                    showInterrupt = showInterrupt,
+                                    showInterrupt = showInterrupt && draft.isBlank() && attachments.isEmpty(),
                                     interrupting = state.interrupting,
                                     placeholder = placeholder,
                                     attachments = if (takeoverEnabled) attachments else emptyList(),
@@ -2098,7 +2183,7 @@ private fun SessionDetailState.effectiveRuntimeStatus(): SessionRuntimeStatus {
         SessionStatus.Stopping -> SessionRuntimeStatus.Stopping
         SessionStatus.WaitingApproval -> SessionRuntimeStatus.WaitingApproval
         SessionStatus.Blocked -> SessionRuntimeStatus.Blocked
-        SessionStatus.Error -> SessionRuntimeStatus.Error
+        SessionStatus.Error, SessionStatus.Limited -> SessionRuntimeStatus.Error
         SessionStatus.Unknown, null -> SessionRuntimeStatus.Unknown
     }
 }

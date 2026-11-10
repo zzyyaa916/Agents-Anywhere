@@ -48,6 +48,7 @@ enum class SessionStatus {
     WaitingApproval,
     Error,
     Blocked,
+    Limited,
     Unknown,
 }
 

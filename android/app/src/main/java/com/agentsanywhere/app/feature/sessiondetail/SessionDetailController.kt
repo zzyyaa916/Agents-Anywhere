@@ -509,15 +509,20 @@ class SessionDetailController(
         }
     }
 
+    fun queueScope(): String = JSONObject().put("server", sessionStore.readServerUrl()).put("user", sessionStore.readUserId()).toString()
+
     suspend fun sendMessage(
         sessionId: String,
         content: String,
         clientMessageId: String,
         attachments: List<UploadFilePart> = emptyList(),
         uploadedAttachments: List<TimelineAttachment> = emptyList(),
+        steer: Boolean = false,
+        expectedScope: String? = null,
     ): Result<SendMessageResult> {
         return withContext(Dispatchers.IO) {
             runCatching {
+                check(expectedScope == null || expectedScope == queueScope()) { "Account changed" }
                 val auth = authSession()
                 val uploaded = if (uploadedAttachments.isNotEmpty()) {
                     uploadedAttachments
@@ -533,6 +538,7 @@ class SessionDetailController(
                     content = content,
                     clientMessageId = clientMessageId,
                     attachments = uploaded.map { it.toRemoteAttachmentRef() },
+                    steer = steer,
                 )
                 if (!response.ok) {
                     throw IllegalStateException(response.failureMessage("Runtime rejected the message."))

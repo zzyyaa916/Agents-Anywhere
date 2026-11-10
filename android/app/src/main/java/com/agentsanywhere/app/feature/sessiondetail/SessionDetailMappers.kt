@@ -71,7 +71,7 @@ internal fun RemoteSessionRuntimeState?.toSessionRuntimeState(serverTime: String
             "waiting_approval" -> SessionRuntimeStatus.WaitingApproval
             "blocked" -> SessionRuntimeStatus.Blocked
             "disconnected" -> SessionRuntimeStatus.Disconnected
-            "error" -> SessionRuntimeStatus.Error
+            "error", "limited" -> SessionRuntimeStatus.Error
             else -> SessionRuntimeStatus.Unknown
         },
         selections = selections,

@@ -42,4 +42,5 @@
     <string name="fork_queue_storage">无法保存队列，已保留输入草稿。</string>
     <string name="fork_queue_restored">已恢复队列，当前已暂停。</string>
     <string name="fork_limited_label">限额等待</string>
+    <string name="fork_stop">停止任务</string>
 </resources>

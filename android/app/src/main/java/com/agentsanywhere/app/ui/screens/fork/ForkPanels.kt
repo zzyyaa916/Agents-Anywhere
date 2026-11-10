@@ -86,7 +86,7 @@ fun ForkDeleteDialog(controller: ForkController, id: String, title: String, proj
             error?.let { failure ->
                 val api = failure as? ApiException
                 Text(when {
-                    api?.errorCode == "project_sessions_changed" || api?.errorCode == "session_count_changed" -> stringResource(R.string.fork_count_changed)
+                    api?.errorCode == "deletion_count_changed" -> stringResource(R.string.fork_count_changed)
                     api?.statusCode == 403 -> stringResource(R.string.fork_forbidden)
                     api?.statusCode == 409 -> stringResource(R.string.fork_busy, api.blockingSessionIds.joinToString(", "))
                     else -> stringResource(R.string.fork_failed)

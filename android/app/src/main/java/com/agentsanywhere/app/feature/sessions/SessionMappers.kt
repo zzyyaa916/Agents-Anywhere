@@ -82,6 +82,7 @@ private fun String.toSessionStatus(): SessionStatus {
         "stopping" -> SessionStatus.Stopping
         "waiting_approval" -> SessionStatus.WaitingApproval
         "error" -> SessionStatus.Error
+        "limited" -> SessionStatus.Limited
         "blocked" -> SessionStatus.Blocked
         else -> SessionStatus.Unknown
     }
@@ -97,6 +98,7 @@ private fun SessionStatus.statusLabel(): String {
         SessionStatus.WaitingApproval -> "Approval"
         SessionStatus.Error -> "Error"
         SessionStatus.Blocked -> "Blocked"
+        SessionStatus.Limited -> "Limit wait"
         SessionStatus.Unknown -> "Unknown"
     }
 }
