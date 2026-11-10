@@ -284,33 +284,25 @@ macOS app carries both architectures.
 
 ## Desktop updates
 
-After authentication finishes and the workbench opens, Main checks the saved
-server's `/api/v2/health`. The authenticated session must match the saved server;
-login screens, missing server records, and default configuration never trigger
-an update check. Signing out cancels pending work and clears the update dialog.
-The server's `version` is compared numerically with the Server version recorded
-at build time, not with `app.getVersion()`. `yarn build:main` (and therefore
-`yarn dev`, `yarn build` and `yarn dist:*`) runs `scripts/write-build-info.mjs`,
-which copies `server/pyproject.toml`'s version into the generated
-`build-info.json`. A live Server newer than that baseline means a newer Desktop
-build exists; Desktop and Server PATCH versions may otherwise differ (see
-[versioning](../docs/versioning.md)). No dedicated release API is used.
+After authentication, the Fork client checks its installed version against stable
+releases in `zzyyaa916/Agents-Anywhere`, then checks every 30 minutes while open.
+The account-footer download icon is always visible and can trigger a manual
+check. Ignoring a version persists per server; manual checks can reopen it.
+Signing out cancels pending requests and downloads. No application token or
+Server credentials are sent to GitHub.
 
-A Desktop built against an older Server opens an update dialog with **Ignore this version** and
-**Update now**. Outside clicks and Escape do not dismiss it; there is no close
-icon. Ignoring persists the exact server version in
-`<Electron userData>/updates/state.json`, scoped to the server. A newer server
-version prompts again. The download icon beside the account avatar remains
-visible whenever the Server is ahead of the build baseline, including after ignoring a version.
+Only the exact Fork Windows x64 EXE or Intel Mac x64 PKG asset with published
+size and SHA256 can be offered. Downloads stream with progress into
+`<Electron userData>/updates/downloads`; incomplete or corrupt files are removed.
+After **Download, quit and install**, the complete, verified file opens in the
+system installer and the client shuts down its Connector normally. Finish local
+tasks first, follow the system prompts, then reopen the app. macOS PKG avoids
+manual DMG dragging; DMG remains available for initial installation. This does
+not bypass OS installation, signing or administrator confirmations.
 
-`updates.downloadUrls` in `config.json` maps `process.platform` to the fixed
-HTTPS installer address. `darwin` and `win32` point at
-`https://www.agents-anywhere.com/api/download/<mac|windows>/latest`, which the
-official site redirects to the latest installer. The site has no Linux
-installer, so Linux and `.invalid` placeholder addresses report that the
-download is not available. Downloads stream into `<Electron userData>/updates/downloads`
-with progress, remove incomplete files on failure/quit, and open the completed
-installer with the OS. Installing the new app remains an installer operation.
+The old `updates.downloadUrls` setting is no longer used by the Fork updater.
+Desktop update availability is independent of the live Server version. Existing
+Desktop clients need one initial overwrite upgrade to 2.5.6 to enable this flow.
 
 ## Shared local machine record
 

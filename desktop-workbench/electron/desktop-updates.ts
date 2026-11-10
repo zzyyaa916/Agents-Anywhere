@@ -69,7 +69,7 @@ export class DesktopUpdateService {
           headers: { accept: "application/json" }, credentials: "omit", cache: "no-store",
           redirect: "error", signal: controller.signal,
         });
-        if (!response.ok) throw new Error("Health request failed.");
+        if (!response.ok) throw new Error("Release request failed.");
         const payload = await readReleaseList(response, controller.signal);
         const release = selectForkDesktopRelease(payload, this.options.platform);
         const latestVersion = release?.version ?? this.options.currentVersion;
