@@ -37,7 +37,7 @@ class TaskGroupsController(private val api: TaskGroupsApi, private val auth: Aut
     suspend fun create(operation: String, project: String, text: String, configs: List<NewSessionRuntimeSelectionState>, attachments: List<NewSessionAttachmentPart>) = request { s, t ->
         require(text.isNotBlank() && text.length <= 32000) { "任务文字须为 1–32000 字符" }
         require(configs.size in 1..3 && configs.all { it.readyForCreate }) { "请选择 1–3 个已就绪的 AI" }
-        require(attachments.size <= 10 && attachments.all { it.bytes.isNotEmpty() && it.bytes.size <= 25 * 1024 * 1024 }) { "最多 10 个附件，每个不超过 25 MB 且不能为空" }
+        require(attachments.size <= 10 && attachments.all { it.bytes.isNotEmpty() } && attachments.sumOf { it.bytes.size.toLong() } <= 25L * 1024 * 1024) { "最多 10 个非空附件，总大小不能超过 25 MB" }
         require(attachments.isEmpty() || configs.all { it.canUseAttachments }) { "所选 AI 不支持附件" }
         api.create(s, t, JSONObject().put("operationId", operation).put("projectId", project).put("content", text)
             .put("candidates", JSONArray(configs.map(::targetJson)))
@@ -85,5 +85,13 @@ fun taskGroupChain(groups: List<TaskGroup>, root: String?): Set<String> {
         groups.filter { it.sourceId in ids }.forEach { ids.add(it.id) }
         changed = ids.size != before
     } while (changed)
-    return ids
+    val ordered = linkedSetOf<String>()
+    val visited = mutableSetOf<String>()
+    fun visit(id: String) {
+        if (!visited.add(id)) return
+        groups.firstOrNull { it.id == id }?.sourceId?.let(::visit)
+        ordered.add(id)
+    }
+    ids.forEach(::visit)
+    return ordered
 }

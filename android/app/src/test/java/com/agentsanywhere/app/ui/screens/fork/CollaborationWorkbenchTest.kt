@@ -55,7 +55,7 @@ class CollaborationWorkbenchTest {
                 }
             }
             compose.waitUntil(10000) { compose.onAllNodesWithText("恢复原生任务").fetchSemanticsNodes().isNotEmpty() }
-            compose.onNodeWithText("恢复原生任务").performClick()
+            compose.onNodeWithText("恢复原生任务").performScrollTo().performClick()
             compose.waitUntil(10000) { compose.onAllNodesWithText("原生会话 session-1").fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithTag("task-unified-input").performTextInput("统一任务")
             compose.onNodeWithText("发送", useUnmergedTree = true).performClick()

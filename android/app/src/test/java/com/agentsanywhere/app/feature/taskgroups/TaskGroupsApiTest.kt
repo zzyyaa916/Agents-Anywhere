@@ -42,6 +42,7 @@ class TaskGroupsApiTest {
         val grandchild = root.copy(id = "grandchild", sourceId = "child")
         val unrelated = root.copy(id = "unrelated")
         assertEquals(setOf("root", "child", "grandchild"), taskGroupChain(listOf(grandchild, unrelated, child, root), "grandchild"))
+        assertEquals(listOf("root", "child", "grandchild"), taskGroupChain(listOf(grandchild, child, root), "grandchild").toList())
         assertTrue(taskGroupChain(listOf(root), null).isEmpty())
     }
     @Test fun initialAttachmentsAreIncludedForEveryCandidateWithStableOperation() = kotlinx.coroutines.runBlocking {
@@ -66,6 +67,11 @@ class TaskGroupsApiTest {
                 assertEquals("payload", String(java.util.Base64.getDecoder().decode(attachment.getString("contentBase64"))))
                 assertEquals(64, attachment.getString("sha256").length)
             }
+            val large = ByteArray(13 * 1024 * 1024)
+            assertTrue(controller.create("large-operation", "project-1", "任务", listOf(config), listOf(
+                com.agentsanywhere.app.feature.sessions.NewSessionAttachmentPart("one", "text/plain", large),
+                com.agentsanywhere.app.feature.sessions.NewSessionAttachmentPart("two", "text/plain", large),
+            )).isFailure)
             assertEquals(2, server.requestCount)
         }
     }

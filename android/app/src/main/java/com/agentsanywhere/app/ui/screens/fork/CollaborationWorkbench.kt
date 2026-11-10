@@ -110,7 +110,7 @@ fun CollaborationWorkbench(
     }
     LaunchedEffect(rootId) { if (rootId != null) refresh() }
     val visibleIds = remember(groups, rootId) { taskGroupChain(groups, rootId) }
-    val panes = groups.filter { it.id in visibleIds }.flatMap { group -> group.candidates.map { group to it } }
+    val panes = visibleIds.mapNotNull { id -> groups.firstOrNull { it.id == id } }.flatMap { group -> group.candidates.map { group to it } }
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Surface(Modifier.fillMaxSize().systemBarsPadding().imePadding()) {
             Column(Modifier.fillMaxSize()) {
@@ -136,7 +136,7 @@ fun CollaborationWorkbench(
                         }
                     }
                     OutlinedTextField(value = text, onValueChange = { text = it; operation = UUID.randomUUID().toString() }, enabled = !busy, label = { Text("初始任务（所有选中 AI 同时收到）") }, modifier = Modifier.fillMaxWidth(), minLines = 3)
-                    TextButton(enabled = !busy, onClick = { picker.launch(arrayOf("*/*")) }) { Text("选择附件（${files.size}/10）") }
+                    TextButton(enabled = !busy, onClick = { picker.launch(arrayOf("*/*")) }) { Text("选择附件（${files.size}/10，总计不超过 25 MB）") }
                     if (files.isNotEmpty()) TextButton(enabled = !busy, onClick = { files = emptyList(); operation = UUID.randomUUID().toString() }) { Text("移除附件") }
                     Button(enabled = !busy && text.isNotBlank() && selected.isNotEmpty() && selected.all { configs[it]?.readyForCreate == true }, onClick = {
                         busy = true; error = null
