@@ -10,7 +10,7 @@ import org.robolectric.RobolectricTestRunner
 
 @RunWith(RobolectricTestRunner::class)
 class SessionMessageQueueTest {
-    private fun prefs() = RuntimeEnvironment.getApplication<android.app.Application>().getSharedPreferences(java.util.UUID.randomUUID().toString(), 0)
+    private fun prefs() = RuntimeEnvironment.getApplication().getSharedPreferences(java.util.UUID.randomUUID().toString(), 0)
     @Test fun storageFailureDoesNotAcceptOrClearDraft() {
         val backing = prefs()
         val blocked = object : android.content.SharedPreferences by backing {
