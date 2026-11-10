@@ -203,6 +203,7 @@ class TaskGroupService:
         items, _more = await self.store.list_timeline_latest(session_id=source_session, limit=100)
         attachments = list(row["request"].get("attachments", []))
         seen = {attachment["fileId"] for attachment in attachments}
+        contents = {(attachment["name"], attachment["contentBase64"]) for attachment in attachments}
         attachment_lists = [item.content.get("attachments", []) for item in items if item.type == "message" and isinstance(item.content, dict)]
         attachment_lists.append([a.model_dump() for a in payload.attachments])
         for attachment_list in attachment_lists:
@@ -211,8 +212,11 @@ class TaskGroupService:
                 if not file_id or file_id in seen:
                     continue
                 saved = await self.store.read_uploaded_file(session_id=source_session, file_id=file_id, user_id=user_id)
-                attachments.append(InlineAttachmentRef(**{key: saved[key] for key in InlineAttachmentRef.model_fields if key in saved}).model_dump())
                 seen.add(file_id)
+                identity = (saved["name"], saved["contentBase64"])
+                if identity not in contents:
+                    attachments.append(InlineAttachmentRef(**{key: saved[key] for key in InlineAttachmentRef.model_fields if key in saved}).model_dump())
+                    contents.add(identity)
         if len(attachments) > 10:
             raise ValueError("转发附件超过 10 个，请减少附件后重试。")
         request = {

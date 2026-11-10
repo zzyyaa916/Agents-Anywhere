@@ -53,7 +53,14 @@ export function TaskGroupConversation({ initialGroup, starting = false, onBack }
   React.useEffect(() => {
     let disposed = false
     void taskGroupsApi.list(token, initialGroup.projectId).then(result => {
-      if (!disposed) setForwarded(result.groups.filter(row => row.request.source?.groupId === initialGroup.id))
+      if (disposed) return
+      const related = new Set([initialGroup.id])
+      let previousSize = 0
+      while (previousSize !== related.size) {
+        previousSize = related.size
+        for (const row of result.groups) if (row.request.source && related.has(row.request.source.groupId)) related.add(row.id)
+      }
+      setForwarded(result.groups.filter(row => row.id !== initialGroup.id && related.has(row.id)))
     }).catch(() => {})
     return () => { disposed = true; ++generation.current }
   }, [initialGroup.id, initialGroup.projectId, token])

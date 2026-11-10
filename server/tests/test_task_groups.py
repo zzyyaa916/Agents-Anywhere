@@ -265,3 +265,14 @@ def test_forward_explicit_attachment_checks_source_session_ownership(setup):
     invalid = payload.model_copy(update={"operationId":"forward-extra-file-002", "attachments":[type(payload.attachments[0])(fileId="missing-file")]})
     with pytest.raises(KeyError):
         asyncio.run(s.svc.handoff(row["id"], invalid, user_id=s.user_id))
+
+
+def test_forward_deduplicates_reuploaded_original_attachment(setup):
+    s = setup
+    s.request["attachments"] = [{"fileId":"original-id", "name":"task.txt", "contentBase64":"aGVsbG8="}]
+    row = create(s)
+    source = asyncio.run(s.svc.start(row["id"], 0, user_id=s.user_id))
+    saved = asyncio.run(s.store.save_user_uploaded_file(session_id=source["candidates"][0]["sessionId"], user_id=s.user_id, name="task.txt", data=b"hello", media_type="text/plain"))
+    payload = TaskGroupHandoff(operationId="forward-deduplicate-001", slot=0, mode="review", attachments=[{"fileId":saved["fileId"]}], target={"runtime":"claude", "runtimeId":"claude"})
+    forwarded = asyncio.run(s.svc.handoff(row["id"], payload, user_id=s.user_id))
+    assert len(forwarded["request"]["attachments"]) == 1

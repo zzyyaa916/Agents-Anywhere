@@ -315,3 +315,21 @@ test('explicit forward commands dispatch directly without adding a source AI tur
     assert.equal(container.querySelectorAll('[data-chat]').length,3)
   } finally { await act(async()=>root.unmount());container.remove() }
 })
+
+
+test('reopening a task restores chained forwards regardless of list order', async () => {
+  calls.length=0;groups.clear()
+  const row=await globalThis.testTaskGroups.create('',{content:'Task',candidates:[{runtime:'codex',runtimeId:'codex',selections:{}}]})
+  await globalThis.testTaskGroups.start('',row.id,0)
+  const child={...structuredClone(row),id:'b'.repeat(40),request:{...row.request,source:{groupId:row.id,slot:0}}}
+  const grandchild={...structuredClone(row),id:'c'.repeat(40),request:{...row.request,source:{groupId:child.id,slot:0}}}
+  groups.set(child.id,child);groups.set(grandchild.id,grandchild)
+  await globalThis.testTaskGroups.start('',child.id,0);await globalThis.testTaskGroups.start('',grandchild.id,0)
+  const original=globalThis.testTaskGroups.list
+  globalThis.testTaskGroups.list=async()=>({groups:[grandchild,child,row]})
+  const container=document.createElement('div');document.body.append(container);const root=createRoot(container)
+  try {
+    await act(async()=>root.render(h(TaskGroupConversation,{initialGroup:row,onBack:()=>{}})))
+    assert.equal(container.querySelectorAll('[data-chat]').length,3)
+  } finally {globalThis.testTaskGroups.list=original;await act(async()=>root.unmount());container.remove()}
+})
