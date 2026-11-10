@@ -329,7 +329,7 @@ test('reopening a task restores chained forwards regardless of list order', asyn
   globalThis.testTaskGroups.list=async()=>({groups:[grandchild,child,row]})
   const container=document.createElement('div');document.body.append(container);const root=createRoot(container)
   try {
-    await act(async()=>root.render(h(TaskGroupConversation,{initialGroup:row,onBack:()=>{}})))
+    await act(async()=>root.render(h(TaskGroupConversation,{initialGroup:await globalThis.testTaskGroups.get("",row.id),onBack:()=>{}})))
     assert.equal(container.querySelectorAll('[data-chat]').length,3)
   } finally {globalThis.testTaskGroups.list=original;await act(async()=>root.unmount());container.remove()}
 })
