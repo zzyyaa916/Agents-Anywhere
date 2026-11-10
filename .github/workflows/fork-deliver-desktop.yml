@@ -1,0 +1,83 @@
+name: Verify desktop installers into a draft release
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Successful Fork Desktop build run
+        required: true
+      tag:
+        description: Existing draft release tag
+        required: true
+permissions:
+  actions: read
+  contents: write
+jobs:
+  deliver:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      BUILD_RUN_ID: ${{ inputs.run_id }}
+      RELEASE_TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Verify build, installer checksums and draft assets
+        shell: python
+        run: |
+          import hashlib, json, os, re, subprocess
+          from pathlib import Path
+          repo = os.environ['GH_REPO']
+          run_id, tag = os.environ['BUILD_RUN_ID'], os.environ['RELEASE_TAG']
+          assert run_id.isdigit()
+          match = re.fullmatch(r'v(\d+\.\d+\.\d+)-fork', tag)
+          assert match
+          version = match[1]
+          def gh(*args):
+              return subprocess.check_output(['gh', *args], text=True)
+          build = json.loads(gh('api', f'repos/{repo}/actions/runs/{run_id}'))
+          assert build['conclusion'] == 'success'
+          assert build['head_repository']['full_name'] == repo
+          assert build['path'] == '.github/workflows/fork-desktop-build.yml'
+          release = next(row for row in json.loads(gh('api', f'repos/{repo}/releases?per_page=100')) if row['tag_name'] == tag)
+          assert release['draft'], 'Only an unpublished draft may be changed'
+          assert release['target_commitish'] == build['head_sha']
+          verified = []
+          for platform, extensions in [('win', {'.exe'}), ('mac', {'.dmg', '.pkg'})]:
+              directory = Path('installers') / platform
+              gh('run', 'download', run_id, '--name', f'fork-test-{platform}-x64', '--dir', str(directory))
+              sums = dict(line.split('  ', 1)[::-1] for line in (directory / 'SHA256SUMS.txt').read_text().splitlines())
+              files = [file for file in directory.iterdir() if file.suffix in extensions]
+              assert {file.suffix for file in files} == extensions
+              for file in files:
+                  digest = hashlib.sha256()
+                  with file.open('rb') as stream:
+                      for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+                          digest.update(chunk)
+                  assert digest.hexdigest() == sums[file.name]
+                  with file.open('rb') as stream:
+                      if file.suffix == '.exe':
+                          assert stream.read(2) == b'MZ'
+                      elif file.suffix == '.pkg':
+                          assert stream.read(4) == b'xar!'
+                      else:
+                          stream.seek(-512, 2)
+                          assert stream.read(4) == b'koly'
+                  name = f'Agents.Anywhere.Fork.Setup.{version}.exe' if file.suffix == '.exe' else f'Agents.Anywhere.Fork-{version}-x64{file.suffix}'
+                  target = file.with_name(name)
+                  file.rename(target)
+                  gh('release', 'upload', tag, str(target), '--clobber')
+                  verified.append({'name': name, 'size': target.stat().st_size, 'sha256': digest.hexdigest(), 'run': run_id})
+          assets = {row['name']: row for row in json.loads(gh('api', f"repos/{repo}/releases/{release['id']}"))['assets']}
+          for row in verified:
+              assert assets[row['name']]['digest'] == 'sha256:' + row['sha256']
+              assert assets[row['name']]['size'] == row['size']
+          Path('desktop-delivery-verification.json').write_text(json.dumps(verified, indent=2))
+          print(json.dumps({'draft': True, 'source': build['head_sha'], 'verifiedAssets': verified}))
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-delivery-verification
+          path: desktop-delivery-verification.json
+          if-no-files-found: error
