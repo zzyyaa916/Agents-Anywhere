@@ -53,7 +53,7 @@ fun ForkUsageButton(controller: ForkController, modifier: Modifier = Modifier) {
             usage?.accounts?.forEach { account ->
                 Text("${if (account.runtime == "codex") "Codex" else "Claude Code"} · ${account.label}")
                 account.windows.forEach { w ->
-                    Text(stringResource(if (w.kind == "five_hour") R.string.fork_five_hour else R.string.fork_weekly) + (w.model?.let { " · $it" } ?: ""))
+                    Text(stringResource(when (w.kind) { "five_hour" -> R.string.fork_five_hour; "weekly", "seven_day", "weekly_scoped" -> R.string.fork_weekly; else -> R.string.fork_other_window }) + (w.model?.let { " · $it" } ?: ""))
                     Text(if (w.expired()) stringResource(R.string.fork_expired) else stringResource(R.string.fork_remaining, w.remaining.roundToInt(), localUsageTime(w.resetsAt)))
                 }
                 if (account.windows.isEmpty()) Text(stringResource(R.string.fork_wait_native))

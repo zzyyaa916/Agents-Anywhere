@@ -1,6 +1,4 @@
 import json
-from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 from connector.account_usage import LocalAccountUsage

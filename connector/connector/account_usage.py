@@ -7,8 +7,6 @@ import hashlib
 import json
 import math
 import os
-import re
-import sys
 import time
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -192,12 +190,11 @@ class LocalAccountUsage:
         kv,
         *,
         home=None,
-        platform=None,
         clock=time.time,
         codex_factory=codex_process,
     ):
         self.kv, self.home = kv, Path(home) if home is not None else Path.home()
-        self.platform, self.clock = platform or sys.platform, clock
+        self.clock = clock
         self.codex_factory = codex_factory
         self._lock = asyncio.Lock()
 

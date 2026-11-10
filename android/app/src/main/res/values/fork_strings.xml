@@ -44,4 +44,5 @@
     <string name="fork_limited_label">Limit wait</string>
     <string name="fork_stop">Stop task</string>
     <string name="fork_stop_wait">Stop waiting</string>
+    <string name="fork_other_window">Other limit</string>
 </resources>

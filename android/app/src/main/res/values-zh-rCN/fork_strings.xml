@@ -44,4 +44,5 @@
     <string name="fork_limited_label">限额等待</string>
     <string name="fork_stop">停止任务</string>
     <string name="fork_stop_wait">停止等待</string>
+    <string name="fork_other_window">其他额度窗口</string>
 </resources>

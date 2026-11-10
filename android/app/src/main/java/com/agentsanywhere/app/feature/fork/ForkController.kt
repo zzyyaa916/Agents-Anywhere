@@ -37,7 +37,7 @@ data class UsageCache(val accounts: List<UsageAccount>, val unavailable: List<St
                 val runtime = account.optString("runtime")
                 if (runtime !in listOf("codex", "claude_code")) return@mapNotNull null
                 val windows = account.optJSONArray("windows")
-                UsageAccount(runtime, account.optString("accountLabel").take(32), account.optBoolean("stale", true),
+                UsageAccount(runtime, account.optString("accountKey").takeIf { it.matches(Regex("[a-f0-9]{64}")) }?.take(7) ?: "—", account.optBoolean("stale", true),
                     account.optString("fetchedAt").takeUnless { it.isBlank() || it == "null" },
                     (0 until (windows?.length() ?: 0)).mapNotNull { n ->
                         val w = windows?.optJSONObject(n) ?: return@mapNotNull null
