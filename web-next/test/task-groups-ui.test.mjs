@@ -36,12 +36,28 @@ globalThis.testTaskGroups = {
 }
 globalThis.testWorkspace = {
   projects: [{ id: 'p', connectorId: 'c', name: 'Project' }], connectors: [{ id: 'c', deviceOs: 'linux' }],
-  runtimes: ['codex', 'claude'].map(runtime => ({ connectorId: 'c', runtimeId: runtime, runtimeType: runtime, displayName: runtime, status: 'running' })),
+  newSessionProject: { id: 'p', connectorId: 'c', name: 'Project' },
+  runtimes: ['codex', 'claude', 'dsh'].map(runtime => ({ connectorId: 'c', runtimeId: runtime, runtimeType: runtime, displayName: runtime, status: 'running' })),
   refreshData: async () => {}, upsertSession: () => {}, reportSessionStreamProgress: () => {},
+}
+const fullInventory = globalThis.testWorkspace.runtimes
+globalThis.testWorkspace.runtimes = fullInventory.filter(row => row.runtimeType !== 'dsh')
+globalThis.testDashboard = {
+  getConnectorRuntimes: async () => ({ runtimes: fullInventory }),
+  getConnectorRuntimeCapabilities: async (_token, _connector, id) => ({ capabilitySet: { capabilities: id === 'dsh' ? ['catalog.model', 'catalog.permission'].map(capabilityId => ({ capabilityId, runtime: 'dsh', supported: true, available: true, allowed: true })) : [] } }),
+  getConnectorRuntimeModelCatalog: async () => ({ catalog: { models: [
+    { id: 'deepseek', displayName: 'DeepSeek', default: true, selectionId: 'dsh-model-1', reasoningItems: [], metadata: {} },
+    { id: 'other', displayName: 'Other model', default: false, selectionId: 'dsh-model-2', reasoningItems: [], metadata: {} },
+  ] } }),
+  getConnectorRuntimePermissionCatalog: async () => ({ catalog: { permissions: [
+    { id: 'read', displayName: 'Read only', default: true, selectionId: 'dsh-permission-read', metadata: {} },
+    { id: 'write', displayName: 'Workspace write', default: false, selectionId: 'dsh-permission-write', metadata: {} },
+  ] } }),
 }
 const source = registerSource()
 const hooks = registerHooks({ load(url, context, next) {
   const mocks = {
+    '/features/dashboard/api.ts': 'export const dashboardApi=globalThis.testDashboard',
     '/components/auth/auth-context.tsx': 'export const useAuth=()=>({session:{accessToken:"test-token",userId:"user"}})',
     '/components/workspace-context.tsx': 'export const useWorkspace=()=>globalThis.testWorkspace',
     '/features/task-groups/api.ts': 'export const taskGroupsApi=globalThis.testTaskGroups;export const candidateStopped=c=>c.phase==="sent"&&c.status==="idle"',
@@ -88,10 +104,19 @@ for (const count of [1, 2, 3]) test(`${count} agents open independent chats; pan
     await click('entry')
     assert.equal(calls.length, 0)
     assert.equal(container.querySelector('[aria-label="execution"]').value, '1')
+    assert.equal(container.querySelector('[aria-label="project"]'), null)
     await act(async () => { const select = container.querySelector('[aria-label="execution"]'); select.value = String(count); select.dispatchEvent(new dom.window.Event('change', { bubbles: true })) })
+    for (let slot = 0; slot < count; slot++) await act(async () => {
+      const select = container.querySelector(`[aria-label="candidate${slot + 1}"]`)
+      assert.ok([...select.options].some(option => option.value === 'dsh'))
+      select.value = slot === count - 1 ? 'dsh' : 'codex'; select.dispatchEvent(new dom.window.Event('change', { bubbles: true }))
+    })
+    await act(async () => { const select = container.querySelector(`[aria-label="candidate${count} model"]`); select.value = 'other'; select.dispatchEvent(new dom.window.Event('change', { bubbles: true })) })
     await input(container.querySelector('[aria-label="task"]'), 'Improve the implementation')
     await click('prepare')
+    assert.equal(calls[0][1].projectId, 'p')
     assert.equal(calls[0][1].candidates.length, count)
+    assert.deepEqual(calls[0][1].candidates[count - 1], { runtime: 'dsh', runtimeId: 'dsh', selections: { model: 'dsh-model-2', permission: 'dsh-permission-read' } })
     assert.equal(calls.filter(c => c[0] === 'start').length, 0)
     await click('start')
     assert.equal(calls.filter(c => c[0] === 'start').length, count)
@@ -114,20 +139,51 @@ for (const count of [1, 2, 3]) test(`${count} agents open independent chats; pan
     assert.match(pane(0).textContent, /independent result/)
     await act(async () => pane(0).querySelector('[aria-label="forward"]').click())
     assert.equal(calls.filter(c => c[0] === 'start').length, count)
-    assert.equal(container.querySelector('[aria-label="handoffAgent"]').value, 'claude')
+    assert.equal(container.querySelector('[aria-label="handoffAgent"]').value, count === 1 ? 'codex' : 'claude')
     assert.equal([...container.querySelectorAll('button')].find(b => b.textContent === 'sendForward').disabled, true)
     await click('cancel')
     assert.equal(calls.filter(c => c[0] === 'handoff').length, 0)
     await act(async () => pane(0).querySelector('[aria-label="forward"]').click())
+    await act(async () => { const select = container.querySelector('[aria-label="handoffAgent"]'); select.value = 'dsh'; select.dispatchEvent(new dom.window.Event('change', { bubbles: true })) })
     await input(container.querySelector('[aria-label="forwardInstructions"]'), 'Check this result; do not change any code.')
     assert.match(container.textContent, /Result for session-a-0/)
     await click('sendForward')
     const forwarded = calls.find(c => c[0] === 'handoff')[2]
-    assert.equal(forwarded.target.runtime, 'claude')
+    assert.equal(forwarded.target.runtime, 'dsh')
+    assert.deepEqual(forwarded.target.selections, { model: 'dsh-model-1', permission: 'dsh-permission-read' })
     assert.equal(forwarded.instructions, 'Check this result; do not change any code.')
     assert.equal(calls.filter(c => c[0] === 'start').length, count + 1)
     assert.equal(container.querySelectorAll('[data-chat]').length, count + 1)
     assert.ok(pane(0), 'Forwarding must retain the source chat')
     if (count > 1) assert.equal(pane(1).querySelector('textarea').value, 'Unsent draft for AI 2')
   } finally { await act(async () => root.unmount()); container.remove() }
+})
+
+test('collaboration requires the current project and blocks preparation until failed DSH settings recover', async () => {
+  const project = globalThis.testWorkspace.newSessionProject
+  const original = globalThis.testDashboard.getConnectorRuntimeModelCatalog
+  const container = document.createElement('div'); document.body.append(container)
+  const root = createRoot(container)
+  try {
+    globalThis.testWorkspace.newSessionProject = null
+    await act(async () => root.render(h(TaskGroupsButton)))
+    assert.equal(container.querySelector('button').disabled, true)
+    globalThis.testWorkspace.newSessionProject = project
+    await act(async () => root.render(h(TaskGroupsButton)))
+    await act(async () => container.querySelector('button').click())
+    globalThis.testDashboard.getConnectorRuntimeModelCatalog = async () => { throw new Error('DSH catalog unavailable') }
+    await act(async () => {
+      const select = container.querySelector('[aria-label="candidate1"]'); select.value = 'dsh'; select.dispatchEvent(new dom.window.Event('change', { bubbles: true }))
+    })
+    await input(container.querySelector('[aria-label="task"]'), 'Task')
+    assert.match(container.textContent, /DSH catalog unavailable/)
+    assert.equal([...container.querySelectorAll('button')].find(b => b.textContent === 'prepare').disabled, true)
+    globalThis.testDashboard.getConnectorRuntimeModelCatalog = original
+    await act(async () => [...container.querySelectorAll('button')].find(b => b.textContent === 'retry').click())
+    assert.equal([...container.querySelectorAll('button')].find(b => b.textContent === 'prepare').disabled, false)
+  } finally {
+    globalThis.testDashboard.getConnectorRuntimeModelCatalog = original
+    globalThis.testWorkspace.newSessionProject = project
+    await act(async () => root.unmount()); container.remove()
+  }
 })

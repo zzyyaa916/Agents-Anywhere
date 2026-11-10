@@ -2,6 +2,9 @@
 
 import * as React from "react"
 import { useTranslations } from "next-intl"
+import { TaskGroupAgentSelect } from "@/components/task-group-agent-select"
+import { dashboardApi } from "@/features/dashboard/api"
+import type { DeviceRuntimeView } from "@/features/dashboard/types"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
@@ -18,12 +21,13 @@ const operationId = () => createClientId("group").replaceAll("_", "-")
 export function TaskGroupsButton() {
   const [open, setOpen] = React.useState(false)
   const { session } = useAuth()
+  const { newSessionProject } = useWorkspace()
   const t = useTranslations("taskGroups")
-  return <><Button variant="outline" size="sm" onClick={() => setOpen(true)}>{t("entry")}</Button>
+  return <><Button variant="ghost" size="sm" className="min-w-0 shrink text-muted-foreground" disabled={!newSessionProject} onClick={() => setOpen(true)}>{t("entry")}</Button>
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent className="max-h-[94dvh] overflow-y-auto sm:max-w-[calc(100vw-2rem)]">
         <DialogHeader><DialogTitle>{t("title")}</DialogTitle><DialogDescription>{t("description")}</DialogDescription></DialogHeader>
-        {open && <TaskGroupsWorkbench key={session?.userId} />}
+        {open && <TaskGroupsWorkbench key={`${session?.userId}:${newSessionProject?.id}`} />}
       </DialogContent>
     </Dialog></>
 }
@@ -31,12 +35,14 @@ export function TaskGroupsButton() {
 function TaskGroupsWorkbench() {
   const t = useTranslations("taskGroups")
   const { session } = useAuth()
-  const { projects, runtimes, newSessionProject, refreshData } = useWorkspace()
+  const { newSessionProject, refreshData } = useWorkspace()
   const token = session?.accessToken ?? ""
-  const [projectId, setProjectId] = React.useState(newSessionProject?.id ?? projects[0]?.id ?? "")
+  const project = newSessionProject
+  const projectId = project?.id ?? ""
+  const [runtimes, setRuntimes] = React.useState<DeviceRuntimeView[]>([])
   const [content, setContent] = React.useState("")
   const [count, setCount] = React.useState(1)
-  const [targets, setTargets] = React.useState<string[]>(["", "", ""])
+  const [targets, setTargets] = React.useState<(CandidateTarget | null)[]>([null, null, null])
   const [groups, setGroups] = React.useState<TaskGroup[]>([])
   const [current, setCurrent] = React.useState<TaskGroup | null>(null)
   const [forwarded, setForwarded] = React.useState<TaskGroup[]>([])
@@ -45,12 +51,19 @@ function TaskGroupsWorkbench() {
   const [diffs, setDiffs] = React.useState<Record<string, CandidateDiff>>({})
   const [paneModes, setPaneModes] = React.useState<Record<string, ChatPaneMode>>({})
   const [forward, setForward] = React.useState<{ group: TaskGroup; slot: number; conclusion: string } | null>(null)
-  const [forwardTarget, setForwardTarget] = React.useState("")
+  const [forwardTarget, setForwardTarget] = React.useState<CandidateTarget | null>(null)
   const [instructions, setInstructions] = React.useState("")
   const identity = React.useRef({ signature: "", id: "" })
   const forwardIdentity = React.useRef({ signature: "", id: "" })
-  const project = projects.find(p => p.id === projectId)
   const available = runtimes.filter(r => r.connectorId === project?.connectorId && r.status === "running")
+  React.useEffect(() => {
+    let cancelled = false
+    setRuntimes([])
+    if (project?.connectorId && token) void dashboardApi.getConnectorRuntimes(token, project.connectorId)
+      .then(result => { if (!cancelled) setRuntimes(result.runtimes) })
+      .catch(e => { if (!cancelled) setError(String(e.message ?? e)) })
+    return () => { cancelled = true }
+  }, [project?.connectorId, token])
   const generation = React.useRef(0)
   const observedIds = [current?.id, ...forwarded.map(group => group.id)].filter(Boolean).join(",")
 
@@ -89,12 +102,6 @@ function TaskGroupsWorkbench() {
     } finally { if (turn === generation.current) setPending(false) }
   }
 
-  function target(id: string): CandidateTarget {
-    const runtime = available.find(r => r.runtimeId === id)
-    if (!runtime) throw new Error(t("chooseAgents"))
-    return { runtime: runtime.runtimeType, runtimeId: runtime.runtimeId, selections: {} }
-  }
-
   function remember(group: TaskGroup) {
     setGroups(rows => [group, ...rows.filter(row => row.id !== group.id)])
   }
@@ -106,8 +113,9 @@ function TaskGroupsWorkbench() {
   }
 
   async function create() {
-    const candidates = targets.slice(0, count).map(id => target(id || available[0]?.runtimeId || ""))
-    const body = { projectId, content, candidates }
+    const candidates = targets.slice(0, count)
+    if (candidates.some(row => !row)) throw new Error(t("chooseAgents"))
+    const body = { projectId, content, candidates: candidates as CandidateTarget[] }
     const signature = JSON.stringify(body)
     if (identity.current.signature !== signature) identity.current = { signature, id: operationId() }
     const turn = generation.current
@@ -122,8 +130,8 @@ function TaskGroupsWorkbench() {
   }
 
   async function sendForward() {
-    if (!forward || !instructions.trim()) return
-    const body = { slot: forward.slot, mode: "continue" as const, target: target(forwardTarget), instructions: instructions.trim() }
+    if (!forward || !forwardTarget || !instructions.trim()) return
+    const body = { slot: forward.slot, mode: "continue" as const, target: forwardTarget, instructions: instructions.trim() }
     const signature = JSON.stringify([forward.group.id, body])
     if (forwardIdentity.current.signature !== signature) forwardIdentity.current = { signature, id: operationId() }
     const turn = generation.current
@@ -139,7 +147,6 @@ function TaskGroupsWorkbench() {
   const panes = current ? [current, ...forwarded].flatMap(group => group.candidates.map((candidate, slot) => ({ group, candidate, slot, key: `${group.id}:${slot}` }))) : []
   const hasChat = panes.some(pane => pane.candidate.sessionId)
   const visible = panes.filter(pane => paneModes[pane.key] !== "closed")
-  const runtimeOptions = <><NativeSelectOption value="">{t("defaultAgent")}</NativeSelectOption>{available.map(r => <NativeSelectOption key={r.runtimeId} value={r.runtimeId}>{r.name || r.displayName} · {r.runtimeType}</NativeSelectOption>)}</>
   const paneTitle = (pane: typeof panes[number]) => {
     const configured = pane.group.request.candidates[pane.slot]
     const runtime = available.find(item => item.runtimeId === configured?.runtimeId)
@@ -149,20 +156,17 @@ function TaskGroupsWorkbench() {
   return <div className="min-w-0 space-y-4">
     <details open={!current} className="space-y-3">
       <summary className="cursor-pointer text-sm font-medium">{t("newTask")}</summary>
-      <div className="mt-3 grid gap-3 sm:grid-cols-2">
-        <Label className="grid gap-2">{t("project")}<NativeSelect aria-label={t("project")} value={projectId} disabled={pending} onChange={e => setProjectId(e.target.value)}>
-          {projects.map(p => <NativeSelectOption key={p.id} value={p.id}>{p.name}</NativeSelectOption>)}
-        </NativeSelect></Label>
+      <div className="mt-3">
         <Label className="grid gap-2">{t("execution")}<NativeSelect aria-label={t("execution")} value={count} disabled={pending} onChange={e => setCount(Number(e.target.value))}>
           {[1, 2, 3].map(n => <NativeSelectOption key={n} value={n}>{t("agentCount", { n })}</NativeSelectOption>)}
         </NativeSelect></Label>
       </div>
       <Label className="grid gap-2">{t("task")}<Textarea aria-label={t("task")} maxLength={32000} value={content} disabled={pending} onChange={e => setContent(e.target.value)} placeholder={t("taskExample")} /></Label>
-      <div className="grid gap-3 sm:grid-cols-3">{Array.from({ length: count }, (_, slot) => <Label key={slot} className="grid gap-2">{t("candidate", { n: slot + 1 })}
-        <NativeSelect aria-label={t("candidate", { n: slot + 1 })} disabled={pending} value={targets[slot]} onChange={e => setTargets(rows => rows.map((value, n) => n === slot ? e.target.value : value))}>{runtimeOptions}</NativeSelect>
-      </Label>)}</div>
+      <div className="grid gap-3 sm:grid-cols-3">{Array.from({ length: count }, (_, slot) => available.length > 0 && <TaskGroupAgentSelect key={slot}
+        token={token} connectorId={project!.connectorId} runtimes={available} label={t("candidate", { n: slot + 1 })} disabled={pending}
+        onChange={value => setTargets(rows => rows.map((row, n) => n === slot ? value : row))} />)}</div>
       <p className="text-sm text-muted-foreground">{t("limits")}</p>
-      <Button disabled={pending || !projectId || !content.trim() || !available.length} onClick={() => void run(create)}>{t("prepare")}</Button>
+      <Button disabled={pending || !projectId || !content.trim() || !available.length || targets.slice(0, count).some(row => !row)} onClick={() => void run(create)}>{t("prepare")}</Button>
     </details>
     <Label className="grid gap-2">{t("history")}<NativeSelect disabled={pending} value={current?.id ?? ""} onChange={e => {
       const row = groups.find(g => g.id === e.target.value)
@@ -189,7 +193,7 @@ function TaskGroupsWorkbench() {
           {visible.map(pane => <TaskGroupChatPane key={pane.key} group={pane.group} slot={pane.slot} title={paneTitle(pane)} token={token}
             mode={paneModes[pane.key] ?? "open"} pending={pending} diff={diffs[pane.key]}
             onModeChange={mode => setPaneModes(rows => ({ ...rows, [pane.key]: mode }))}
-            onForward={conclusion => { setForward({ group: pane.group, slot: pane.slot, conclusion }); setForwardTarget(available.find(r => r.runtimeId !== pane.group.request.candidates[pane.slot]?.runtimeId)?.runtimeId ?? available[0]?.runtimeId ?? ""); setInstructions(""); forwardIdentity.current = { signature: "", id: "" } }}
+            onForward={conclusion => { setForward({ group: pane.group, slot: pane.slot, conclusion }); setForwardTarget(null); setInstructions(""); forwardIdentity.current = { signature: "", id: "" } }}
             onInspect={() => void run(async () => { const turn = generation.current; const result = await taskGroupsApi.diff(token, pane.group.id, pane.slot); if (turn === generation.current) setDiffs(rows => ({ ...rows, [pane.key]: result })) })}
             onSelect={() => void run(async () => updateGroup(await taskGroupsApi.select(token, pane.group.id, pane.slot)))} />)}
         </div></div>
@@ -198,9 +202,9 @@ function TaskGroupsWorkbench() {
     <Dialog open={Boolean(forward)} onOpenChange={open => { if (!open && !pending) setForward(null) }}>
       <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-xl">
         <DialogHeader><DialogTitle>{t("forward")}</DialogTitle><DialogDescription>{t("forwardDescription")}</DialogDescription></DialogHeader>
-        <Label className="grid gap-2">{t("handoffAgent")}<NativeSelect aria-label={t("handoffAgent")} disabled={pending} value={forwardTarget} onChange={e => setForwardTarget(e.target.value)}>
-          <NativeSelectOption value="">{t("chooseAgents")}</NativeSelectOption>{available.map(r => <NativeSelectOption key={r.runtimeId} value={r.runtimeId}>{r.name || r.displayName} · {r.runtimeType}</NativeSelectOption>)}
-        </NativeSelect></Label>
+        {forward && <TaskGroupAgentSelect key={`${forward.group.id}:${forward.slot}`} token={token} connectorId={project!.connectorId} runtimes={available}
+          initialRuntimeId={available.find(r => r.runtimeId !== forward.group.request.candidates[forward.slot]?.runtimeId)?.runtimeId}
+          label={t("handoffAgent")} disabled={pending} onChange={setForwardTarget} />}
         <details><summary className="cursor-pointer text-sm">{t("conclusion")}</summary><p className="max-h-48 overflow-auto whitespace-pre-wrap text-sm">{forward?.conclusion}</p></details>
         <Label className="grid gap-2">{t("forwardInstructions")}<Textarea aria-label={t("forwardInstructions")} value={instructions} maxLength={8000} disabled={pending} placeholder={t("forwardExample")} onChange={e => setInstructions(e.target.value)} /></Label>
         {error && <p role="alert" className="text-sm text-destructive">{error}</p>}

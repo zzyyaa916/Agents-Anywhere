@@ -1050,7 +1050,6 @@ export function TaskComposer() {
         </h1>
 
         <RuntimeCreationStatus />
-        <div className="mb-3 flex justify-end"><TaskGroupsButton /></div>
         {needsPreparation && preparationNeedsAttention ? (
           <div className="mb-4">
             {preparation.operation ? <RuntimeWorkflowPanel operation={preparation.operation} pending={preparation.pending} error={preparation.error} onRespond={preparation.respond} onCancel={preparation.cancel} />
@@ -1230,6 +1229,8 @@ export function TaskComposer() {
                 ) : null}
               </>
             )}
+
+            <TaskGroupsButton />
 
             {showCatalogStatus ? (
               <div className="flex min-w-0 items-center gap-1">

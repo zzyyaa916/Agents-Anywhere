@@ -2602,16 +2602,14 @@
     "resumeTitle": "恢复此目标？"
   },
   "taskGroups": {
-    "entry": "选择 AI 做任务（测试）",
-    "title": "选择 AI，开始任务",
-    "description": "可选 1～3 个 AI，分别完成同一件事。开始后可以一边看结果，一边和每个 AI 单独聊天。",
-    "project": "在哪个项目里做？",
-    "execution": "需要几个 AI？",
-    "task": "你想让 AI 做什么？",
+    "entry": "多 AI 协作",
+    "title": "多 AI 协作",
+    "description": "在当前项目中选择 1～3 个 AI 独立执行同一任务，可分别对话、比较结果或转发继续处理。",
+    "execution": "参与 AI 数量",
+    "task": "任务说明",
     "candidate": "AI {n}",
     "chooseAgents": "请选择一个可用的 AI",
-    "defaultAgent": "默认使用第一个可用的 AI",
-    "limits": "请选择同一台设备上的 Git 项目，先保存并提交已有改动。多个 AI 共享账号额度。",
+    "limits": "使用当前项目，请先保存并提交已有改动。多个 AI 共享账号额度。",
     "prepare": "下一步：确认任务",
     "history": "之前的任务",
     "chooseGroup": "选择一个任务",
@@ -2661,6 +2659,10 @@
     "close": "关闭窗口",
     "reopen": "重新打开",
     "windowHint": "每栏都能单独聊天。收起或关闭窗口不会停止 AI，关闭后可以重新打开。",
-    "waitingForSession": "正在等待 AI 开始，稍后这里会显示聊天。"
+    "waitingForSession": "正在等待 AI 开始，稍后这里会显示聊天。",
+    "model": "模型",
+    "permission": "权限",
+    "loadingAgent": "正在读取 AI 配置…",
+    "retry": "重试"
   }
 }
