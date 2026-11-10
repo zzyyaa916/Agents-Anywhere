@@ -219,9 +219,8 @@ test("device, agent, permission, model, and reasoning changes use immediate pers
   assert.match(handlers, /permission: permissionSelectionForNewSessionPreference\(permissionCatalog, permission\)/)
 
   assert.match(source, /onDeviceChange=\{handleDeviceChange\}/)
-  assert.match(source, /onAgentChange=\{handleAgentChange\}/)
-  assert.match(source, /onPrimaryChange=\{handleDeviceChange\}/)
-  assert.match(source, /onSecondaryChange=\{handleAgentChange\}/)
+  assert.match(source, /onAgentChange=\{toggleAgent\}/)
+  assert.match(handlers, /handleAgentChange\(additionalAgents\[0\]!\)/)
   assert.match(source, /onPermissionChange=\{handlePermissionChange\}/)
   assert.match(source, /onModelChange=\{handleModelChange\}/)
   assert.match(source, /onSelect=\{\(\) => handlePermissionChange\(item\.id\)\}/)

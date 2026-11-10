@@ -333,3 +333,26 @@ test('reopening a task restores chained forwards regardless of list order', asyn
     assert.equal(container.querySelectorAll('[data-chat]').length,3)
   } finally {globalThis.testTaskGroups.list=original;await act(async()=>root.unmount());container.remove()}
 })
+
+
+test('a failed forward keeps its operation identity when another pane forwards before retry', async () => {
+  calls.length=0;groups.clear()
+  const row=await globalThis.testTaskGroups.create('',{content:'Task',candidates:[{runtime:'claude',runtimeId:'claude',selections:{}},{runtime:'codex',runtimeId:'codex',selections:{}}]})
+  await globalThis.testTaskGroups.start('',row.id,0);await globalThis.testTaskGroups.start('',row.id,1)
+  const original=globalThis.testTaskGroups.handoff;let failed=false
+  globalThis.testTaskGroups.handoff=async(...args)=>{const result=await original(...args);if(args[2].slot===0&&!failed){failed=true;throw new Error('Lost response')}return result}
+  const container=document.createElement('div');document.body.append(container);const root=createRoot(container)
+  try {
+    await act(async()=>root.render(h(TaskGroupConversation,{initialGroup:await globalThis.testTaskGroups.get('',row.id),onBack:()=>{}})))
+    const first=container.querySelector('[data-session-id="session-a-0"]');const second=container.querySelector('[data-session-id="session-a-1"]')
+    await input(first.querySelector('textarea'),'转发给 Codex：审核')
+    await act(async()=>first.querySelector('[data-chat] button').click())
+    await input(second.querySelector('textarea'),'转发给 Claude：继续执行')
+    await act(async()=>second.querySelector('[data-chat] button').click())
+    await act(async()=>first.querySelector('[data-chat] button').click())
+    const forwards=calls.filter(row=>row[0]==='handoff')
+    assert.equal(forwards.length,3)
+    assert.equal(forwards[0][2].operationId,forwards[2][2].operationId)
+    assert.notEqual(forwards[0][2].operationId,forwards[1][2].operationId)
+  } finally {globalThis.testTaskGroups.handoff=original;await act(async()=>root.unmount());container.remove()}
+})

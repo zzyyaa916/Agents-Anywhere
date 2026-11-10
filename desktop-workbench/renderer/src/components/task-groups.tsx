@@ -37,6 +37,7 @@ export function TaskGroupConversation({ initialGroup, starting = false, onBack }
   const [forwardTarget, setForwardTarget] = React.useState<CandidateTarget | null>(null)
   const [instructions, setInstructions] = React.useState("")
   const forwardIdentity = React.useRef({ signature: "", id: "" })
+  const forwardOperations = React.useRef(new Map<string, string>())
   const available = runtimes.filter(r => r.connectorId === project?.connectorId && r.status === "running")
   React.useEffect(() => {
     let cancelled = false
@@ -113,7 +114,7 @@ export function TaskGroupConversation({ initialGroup, starting = false, onBack }
 
   const [broadcast, setBroadcast] = React.useState("")
   const [sending, setSending] = React.useState(false)
-  const delivery = React.useRef<{ content: string; ids: Map<string, string>; sent: Set<string> } | null>(null)
+  const delivery = React.useRef<{ content: string; sent: Set<string> } | null>(null)
   const queues = React.useRef(new Map<string, (text: string) => boolean>())
   const queueCallbacks = React.useRef(new Map<string, (enqueue: ((text: string) => boolean) | null) => void>())
   const registerQueue = (id: string) => {
@@ -126,7 +127,7 @@ export function TaskGroupConversation({ initialGroup, starting = false, onBack }
   const broadcastReady = current.candidates.every(row => row.phase === "sent" && row.sessionId)
   async function sendBroadcast() {
     if (sending || !broadcastReady || !broadcast.trim()) return
-    if (delivery.current?.content !== broadcast) delivery.current = { content: broadcast, ids: new Map(), sent: new Set() }
+    if (delivery.current?.content !== broadcast) delivery.current = { content: broadcast, sent: new Set() }
     const batch = delivery.current!
     setSending(true); setError("")
     try {
@@ -180,8 +181,8 @@ export function TaskGroupConversation({ initialGroup, starting = false, onBack }
               const runtime = matches[0]!
               let target = current.request.candidates.find(row => row.runtimeId === runtime.runtimeId)
               const signature = JSON.stringify([pane.key, command, attachments.map(file => file.uploaded?.fileId)])
-              if (forwardIdentity.current.signature !== signature) forwardIdentity.current = { signature, id: operationId() }
-              const forwardOperationId = forwardIdentity.current.id
+              if (!forwardOperations.current.has(signature)) forwardOperations.current.set(signature, operationId())
+              const forwardOperationId = forwardOperations.current.get(signature)!
               try {
                 if (!target) {
                   const { capabilitySet } = await dashboardApi.getConnectorRuntimeCapabilities(token, project!.connectorId, runtime.runtimeId)
@@ -211,7 +212,7 @@ export function TaskGroupConversation({ initialGroup, starting = false, onBack }
                 setForwarded(rows => [...rows.filter(row => row.id !== group.id), group])
                 updateGroup(await taskGroupsApi.start(token, group.id, 0))
                 await refreshData()
-                if (forwardIdentity.current.id === forwardOperationId) forwardIdentity.current = { signature: "", id: "" }
+                forwardOperations.current.delete(signature)
                 return true
               } catch (e) { setError(e instanceof Error ? e.message : String(e)); return false }
             }}
