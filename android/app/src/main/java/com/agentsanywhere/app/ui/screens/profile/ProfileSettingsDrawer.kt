@@ -138,7 +138,6 @@ fun ProfileSettingsDrawer(
             sidebarViewMenuOpen = false
             return@LaunchedEffect
         }
-        appUpdateViewModel.checkForUpdate(showPrompt = false)
         onLoadAccount()
             .onSuccess { account = it }
             .onFailure { onNotice(it.message ?: context.getString(R.string.profile_account_load_failed), true) }
@@ -278,11 +277,8 @@ fun ProfileSettingsDrawer(
                                 trailingAttention = appUpdateViewModel.state.release != null,
                                 showChevron = appUpdateViewModel.state.release == null,
                                 onClick = {
-                                    if (appUpdateViewModel.state.release != null) appUpdateViewModel.showUpdatePrompt()
-                                    else {
-                                        detailPage = ProfileDetailPage.Updates
-                                        appUpdateViewModel.checkForUpdate(showPrompt = false)
-                                    }
+                                    detailPage = ProfileDetailPage.Updates
+                                    appUpdateViewModel.checkForUpdate(showPrompt = false)
                                 },
                             )
                         }

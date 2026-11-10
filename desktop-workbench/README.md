@@ -284,8 +284,9 @@ macOS app carries both architectures.
 
 ## Desktop updates
 
-After authentication, the Fork client checks its installed version against stable
-releases in `zzyyaa916/Agents-Anywhere`, then checks every 30 minutes while open.
+The Fork client checks its installed version against stable releases in
+`zzyyaa916/Agents-Anywhere` only when the user clicks the update entry.
+Signing in and using the app do not check for updates or show update prompts.
 The account-footer download icon is always visible and can trigger a manual
 check. Ignoring a version persists per server; manual checks can reopen it.
 Signing out cancels pending requests and downloads. No application token or

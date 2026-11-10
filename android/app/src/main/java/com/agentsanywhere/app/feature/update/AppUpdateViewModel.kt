@@ -73,7 +73,7 @@ class AppUpdateViewModel(application: Application) : AndroidViewModel(applicatio
         val generation = ++checkGeneration
         if (serverUrl != currentUpdateServer) state = AppUpdateUiState()
         currentUpdateServer = serverUrl
-        state = state.copy(checking = true, checkFailed = false)
+        state = state.copy(checking = true, checkFailed = false, release = null, promptVisible = false)
         checkJob = viewModelScope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
@@ -112,7 +112,7 @@ class AppUpdateViewModel(application: Application) : AndroidViewModel(applicatio
         } else if (serverUrl != currentUpdateServer) {
             resetSession()
             sessionActive = true
-            checkForUpdate(showPrompt = true)
+            currentUpdateServer = serverUrl
         }
     }
 

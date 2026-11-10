@@ -37,10 +37,8 @@ export function DesktopUpdateProvider({ children }: { children: React.ReactNode 
     let disposed = false
     const receive = (next: DesktopUpdateState | null) => { if (!disposed) accept(next) }
     const unsubscribe = updates.onState(receive)
-    void updates.syncSession(serverUrl).then(receive).catch(() => undefined)
-    const timer = setInterval(() => { void updates.syncSession(serverUrl).then(receive).catch(() => undefined) }, 30 * 60_000)
+    void updates.syncSession(null).then(receive).catch(() => undefined)
     return () => {
-      clearInterval(timer)
       ++generation.current
       disposed = true
       unsubscribe()

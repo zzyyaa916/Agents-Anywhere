@@ -43,16 +43,16 @@ const hooks=registerHooks({load(url,context,next){
 const {DesktopUpdateProvider,DesktopUpdateButton}=await import('../src/features/desktop/desktop-update-provider.tsx')
 hooks.deregister();source.deregister()
 
-test('update entry always exists; manual and periodic checks discover releases and wire download/install',async()=>{
+test('update entry always exists; only manual checks discover releases and wire download/install',async()=>{
   const container=document.createElement('div');document.body.append(container);const root=createRoot(container)
   try {
     await act(async()=>root.render(h(DesktopUpdateProvider,null,h(DesktopUpdateButton))))
     assert.ok(container.querySelector('[aria-label="check"]'))
+    assert.equal(calls.includes('check'),false)
+    assert.equal(poll,undefined)
     await act(async()=>container.querySelector('button').click())
     assert.ok(calls.includes('upToDate'))
     state={...state,revision:2,available:true,latestVersion:'2.5.7'}
-    await act(async()=>poll())
-    assert.ok(container.querySelector('[aria-label="entry"]'))
     await act(async()=>container.querySelector('button').click())
     assert.ok(calls.includes('open'))
     assert.match(container.textContent,/updateNow/)
