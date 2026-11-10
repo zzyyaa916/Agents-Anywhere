@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable
 from typing import Any, ClassVar
 
@@ -30,6 +31,9 @@ class LocalRpcHandler:
         "terminal.release",
         "terminal.snapshot",
         "terminal.relay.connect",
+        "worktree.prepare",
+        "worktree.diff",
+        "worktree.handoff",
     }
 
     def __init__(
@@ -48,6 +52,10 @@ class LocalRpcHandler:
         return method in self.METHODS
 
     async def dispatch(self, method: str, params: dict[str, Any]) -> Any:
+        if method.startswith("worktree."):
+            from connector.local import worktrees
+            operation = {"worktree.prepare": worktrees.prepare, "worktree.diff": worktrees.diff, "worktree.handoff": worktrees.handoff}[method]
+            return await asyncio.to_thread(operation, params)
         if method == "fs.prepareDownload":
             return await self.local_ops.prepare_download(params)
         if method == "fs.uploadPreparedDownload":

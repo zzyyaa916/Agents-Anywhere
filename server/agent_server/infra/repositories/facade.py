@@ -48,9 +48,11 @@ from agent_server.infra.repositories.account_usage import AccountUsageRepository
 
 
 from agent_server.infra.repositories.session_quota import SessionQuotaRepositoryMixin
+from agent_server.infra.repositories.task_groups import TaskGroupRepositoryMixin
 
 
 class Store(
+    TaskGroupRepositoryMixin,
     SessionQuotaRepositoryMixin,
     AccountUsageRepositoryMixin,
     HistoryDeletionRepositoryMixin,

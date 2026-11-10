@@ -24,6 +24,17 @@ from sqlalchemy import (
 
 metadata = MetaData()
 
+task_groups = Table(
+    "task_groups", metadata,
+    Column("id", Text, primary_key=True),
+    Column("user_id", Text, ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+    Column("project_id", Text, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
+    Column("created_at", Text, nullable=False),
+    Column("request_json", Text, nullable=False),
+    Column("state_json", Text, nullable=False),
+    Index("idx_task_groups_project_created", "project_id", "created_at"),
+)
+
 
 def _legacy_runtime_id_default(context: Any) -> str:
     runtime = context.get_current_parameters().get("runtime")

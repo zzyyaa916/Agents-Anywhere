@@ -4,6 +4,7 @@ import { runtimeFailureOf, useRuntimeErrorText, type RuntimeFailure } from "@/li
 import { RuntimeWorkflowPanel } from "@/components/session/runtime-workflow-panel"
 import { useWorkspacePreparation } from "@/components/session/use-workspace-preparation"
 import { RuntimeCreationStatus } from "@/components/session/runtime-creation-status"
+import { TaskGroupsButton } from "@/components/task-groups"
 import { creationConfigurationDefaults } from "@/features/dashboard/runtime-forms"
 
 import * as React from "react"
@@ -1049,6 +1050,7 @@ export function TaskComposer() {
         </h1>
 
         <RuntimeCreationStatus />
+        <div className="mb-3 flex justify-end"><TaskGroupsButton /></div>
         {needsPreparation && preparationNeedsAttention ? (
           <div className="mb-4">
             {preparation.operation ? <RuntimeWorkflowPanel operation={preparation.operation} pending={preparation.pending} error={preparation.error} onRespond={preparation.respond} onCancel={preparation.cancel} />

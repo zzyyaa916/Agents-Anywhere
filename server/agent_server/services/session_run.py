@@ -187,6 +187,7 @@ class SessionRunService:
         payload: SessionCreateAndStartRequest,
         *,
         user_id: str,
+        reserved_session_id: str | None = None,
     ) -> dict[str, Any]:
         from agent_server.core.goal.models import GoalCreationIntent
 
@@ -232,6 +233,7 @@ class SessionRunService:
         async with self._admitted(payload.connectorId, runtime_id, user_id=user_id):
             return await self._create_and_start_admitted(
                 payload, user_id=user_id, runtime_id=runtime_id, project_id=project_id,
+                reserved_session_id=reserved_session_id,
             )
 
     async def _create_and_start_admitted(
@@ -241,6 +243,7 @@ class SessionRunService:
         user_id: str,
         runtime_id: str,
         project_id: str | None,
+        reserved_session_id: str | None = None,
     ) -> dict[str, Any]:
         await self._require_runtime_instance(
             payload.connectorId,
@@ -302,6 +305,7 @@ class SessionRunService:
 
         selections = _selections_from_mapping(payload.selections)
         session = await self._store.create_session(
+            **({"session_id": reserved_session_id} if reserved_session_id else {}),
             connector_id=payload.connectorId,
             project_id=project_id,
             user_id=user_id,
