@@ -9,4 +9,6 @@ test("explicit Chinese forwarding preserves instructions and ignores ordinary di
   assert.equal(parseForwardCommand("解释一下如何转发给Claude"), null)
   assert.equal(parseForwardCommand("转发给"), null)
   assert.equal(parseForwardCommand("转发给Claude").target, "Claude")
+  assert.deepEqual(parseForwardCommand("转发给 Claude Code：继续执行"), {target:"Claude Code",instructions:"继续执行"})
+  assert.deepEqual(parseForwardCommand("转发给 我的 Codex：审核", ["我的 Codex"]), {target:"我的 Codex",instructions:"审核"})
 })

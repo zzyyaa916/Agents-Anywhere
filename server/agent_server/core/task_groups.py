@@ -2,7 +2,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from agent_server.core.models import RuntimeName, InlineAttachmentRef, AttachmentRef
+from agent_server.core.models import AttachmentRef, InlineAttachmentRef, RuntimeName
 
 
 class CandidateTarget(BaseModel):

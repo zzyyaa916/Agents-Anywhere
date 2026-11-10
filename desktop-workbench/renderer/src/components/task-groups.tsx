@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label"
 import { useAuth } from "@/components/auth/auth-context"
 import { useWorkspace } from "@/components/workspace-context"
 import { TaskGroupChatPane, type ChatPaneMode } from "@/components/task-group-chat-pane"
-import { CAPABILITY, capabilityIsUsable } from "@/components/session/capabilities"
+import { CAPABILITY, capabilityIsUsable, findCapability } from "@/components/session/capabilities"
 import { catalogItemEnabled, selectionIdForModelCatalog } from "@/components/session/catalog-selection"
 import { parseForwardCommand } from "@/features/task-groups/forward-command"
 import { createClientId } from "@/lib/id"
@@ -166,7 +166,7 @@ export function TaskGroupConversation({ initialGroup, starting = false, onBack }
           {panes.map(pane => <TaskGroupChatPane key={pane.key} group={pane.group} slot={pane.slot} title={paneTitle(pane)} token={token}
             onQueueReady={pane.candidate.sessionId ? registerQueue(pane.candidate.sessionId) : undefined}
             onForwardCommand={async (text, attachments) => {
-              const command = parseForwardCommand(text)
+              const command = parseForwardCommand(text, available.flatMap(runtime => [runtime.runtimeId, runtime.runtimeType, runtime.name, runtime.displayName].filter((name): name is string => Boolean(name))))
               if (!command) return null
               const matches = available.filter(runtime => [runtime.runtimeId, runtime.runtimeType, runtime.name, runtime.displayName].some(name => name?.toLowerCase() === command.target.toLowerCase()))
               if (matches.length !== 1) { setError("目标 AI 不存在或名称不唯一，请使用转发按钮选择。"); return false }
@@ -179,6 +179,9 @@ export function TaskGroupConversation({ initialGroup, starting = false, onBack }
                 if (!target) {
                   const { capabilitySet } = await dashboardApi.getConnectorRuntimeCapabilities(token, project!.connectorId, runtime.runtimeId)
                   const scope = { runtimeId: runtime.runtimeId, runtimeType: runtime.runtimeType }
+                  for (const id of [CAPABILITY.modelCatalog, CAPABILITY.permissionCatalog]) {
+                    if (findCapability(capabilitySet, id, scope)?.supported && !capabilityIsUsable(capabilitySet, id, scope)) throw new Error("目标 AI 设置暂不可用，请稍后重试。")
+                  }
                   const selections: Record<string, string | null> = {}
                   if (capabilityIsUsable(capabilitySet, CAPABILITY.modelCatalog, scope)) {
                     const { catalog } = await dashboardApi.getConnectorRuntimeModelCatalog(token, project!.connectorId, runtime.runtimeId)

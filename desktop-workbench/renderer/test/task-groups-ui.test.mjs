@@ -83,12 +83,12 @@ const hooks = registerHooks({ load(url, context, next) {
     '/components/workspace-context.tsx': 'export const useWorkspace=()=>globalThis.testWorkspace',
     '/features/task-groups/api.ts': 'export const taskGroupsApi=globalThis.testTaskGroups;export const candidateStopped=c=>c.phase==="sent"&&c.status==="idle"',
     '/components/session-detail.tsx': `import * as React from "react";
-      export function SessionDetail({sessionId,onMemorySnapshotUpdated,onQueueReady}) {
+      export function SessionDetail({sessionId,onMemorySnapshotUpdated,onQueueReady,onForwardCommand}) {
         const [value,setValue]=React.useState('');
         React.useEffect(()=>{onQueueReady?.(text=>{globalThis.testChatCalls.push(['queued',sessionId,text]);return !globalThis.testQueueFailure?.(sessionId)});return ()=>onQueueReady?.(null)},[sessionId,onQueueReady]);
         React.useEffect(()=>{onMemorySnapshotUpdated({items:[{type:'message',role:'assistant',content:{text:'Result for '+sessionId}}]})},[sessionId,onMemorySnapshotUpdated]);
         return React.createElement('div',{'data-chat':sessionId},React.createElement('textarea',{'aria-label':'chat-'+sessionId,value,onChange:e=>setValue(e.target.value)}),
-          React.createElement('button',{onClick:()=>{globalThis.testChatCalls.push(['message',sessionId,value]);setValue('')}},'chat-send'))
+          React.createElement('button',{onClick:async()=>{const forwarded=await onForwardCommand?.(value,[]);if(forwarded==null)globalThis.testChatCalls.push(['message',sessionId,value]);if(forwarded!==false)setValue('')}},'chat-send'))
       }`,
     '/components/ui/button.tsx': 'import * as React from "react";export const Button=({children,variant,size,...props})=>React.createElement("button",props,children)',
     '/components/ui/label.tsx': 'import * as React from "react";export const Label=({children,...props})=>React.createElement("label",props,children)',
@@ -295,4 +295,23 @@ test('main composer blocks multi-agent dispatch when an agent configuration fail
     assert.equal(container.querySelector('[aria-label="sendTask"]').disabled,false)
     assert.equal(calls.some(row=>row[0]==='prepare'||row[0]==='start'),false)
   } finally {globalThis.testDashboard.getConnectorRuntimeCapabilities=original;await act(async()=>root.unmount());container.remove()}
+})
+
+
+test('explicit forward commands dispatch directly without adding a source AI turn', async () => {
+  calls.length=0;groups.clear()
+  const row=await globalThis.testTaskGroups.create('',{content:'Original task',candidates:[{runtime:'claude',runtimeId:'claude',selections:{}},{runtime:'codex',runtimeId:'codex',selections:{model:'chosen'}}]})
+  await globalThis.testTaskGroups.start('',row.id,0);await globalThis.testTaskGroups.start('',row.id,1)
+  const container=document.createElement('div');document.body.append(container);const root=createRoot(container)
+  try {
+    await act(async()=>root.render(h(TaskGroupConversation,{initialGroup:await globalThis.testTaskGroups.get('',row.id),onBack:()=>{}})))
+    const pane=container.querySelector('[data-session-id="session-a-0"]')
+    await input(pane.querySelector('textarea'),'转发给 Codex：请审核未提交的改动')
+    await act(async()=>pane.querySelector('[data-chat] button').click())
+    const forwarded=calls.find(row=>row[0]==='handoff')
+    assert.equal(forwarded[2].instructions,'请审核未提交的改动')
+    assert.deepEqual(forwarded[2].target.selections,{model:'chosen'})
+    assert.equal(calls.some(row=>row[0]==='message'),false)
+    assert.equal(container.querySelectorAll('[data-chat]').length,3)
+  } finally { await act(async()=>root.unmount());container.remove() }
 })
