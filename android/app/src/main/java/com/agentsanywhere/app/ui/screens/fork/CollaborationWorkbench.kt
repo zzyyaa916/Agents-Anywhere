@@ -11,6 +11,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -45,7 +46,10 @@ fun CollaborationWorkbench(
     var selected by rememberSaveable(project.id) { mutableStateOf(emptyList<String>()) }
     var text by rememberSaveable(project.id) { mutableStateOf("") }
     var operation by rememberSaveable(project.id) { mutableStateOf(UUID.randomUUID().toString()) }
-    var files by remember { mutableStateOf(emptyList<android.net.Uri>()) }
+    var files by rememberSaveable(project.id) { mutableStateOf(emptyList<String>()) }
+    var modelChoices by rememberSaveable(project.id) { mutableStateOf(hashMapOf<String, String>()) }
+    var reasoningChoices by rememberSaveable(project.id) { mutableStateOf(hashMapOf<String, String>()) }
+    var permissionChoices by rememberSaveable(project.id) { mutableStateOf(hashMapOf<String, String>()) }
     var groups by remember(project.id) { mutableStateOf(emptyList<TaskGroup>()) }
     var rootId by rememberSaveable(project.id) { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
@@ -59,10 +63,16 @@ fun CollaborationWorkbench(
     var forwardText by remember { mutableStateOf("请审核代码") }
     var forwardOperation by remember { mutableStateOf(UUID.randomUUID().toString()) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
-        if (uris.size <= 10) { files = uris; operation = UUID.randomUUID().toString() } else error = "最多选择 10 个附件"
+        try { files = retainTaskGroupAttachments(context.applicationContext, uris); operation = UUID.randomUUID().toString() } catch (failure: Exception) { error = failure.message }
+    }
+    fun configure(id: String, value: NewSessionRuntimeSelectionState) {
+        configs = configs + (id to value)
+        modelChoices = HashMap(modelChoices).apply { value.selectedModelId?.let { put(id, it) } }
+        reasoningChoices = HashMap(reasoningChoices).apply { value.selectedReasoningId?.let { put(id, it) } }
+        permissionChoices = HashMap(permissionChoices).apply { value.selectedPermissionId?.let { put(id, it) } }
     }
     fun update(group: TaskGroup) { groups = groups.filterNot { it.id == group.id } + group }
-    suspend fun refresh() { controller.list(project.id).onSuccess { groups = it }.onFailure { error = it.message } }
+    suspend fun refresh() { controller.restore(project.id, rootId).onSuccess { groups = it }.onFailure { error = it.message } }
     suspend fun forward(group: TaskGroup, slot: Int, message: String, attachments: List<TimelineAttachment>, id: String): Result<Boolean> {
         return try {
             val command = parseForwardCommand(message, configs.values.mapNotNull { it.selectedRuntime }) ?: return Result.success(false)
@@ -90,17 +100,16 @@ fun CollaborationWorkbench(
                         .onSuccess { config = config.applyModelCatalog(key, it) }.onFailure { config = config.failModelCatalog(key, it.message ?: "模型加载失败") }
                     if (config.canUsePermissionCatalog) onLoadPermissions(project.connectorId, runtime.id)
                         .onSuccess { config = config.applyPermissionCatalog(key, it) }.onFailure { config = config.failPermissionCatalog(key, it.message ?: "权限加载失败") }
+                    modelChoices[runtime.id]?.let { config = config.selectModel(it) }
+                    reasoningChoices[runtime.id]?.let { config = config.selectReasoning(it) }
+                    permissionChoices[runtime.id]?.let { config = config.selectPermission(it) }
                     configs = configs + (runtime.id to config)
                 } }
             }
         }.onFailure { error = it.message }
     }
-    val visibleIds = remember(groups, rootId) {
-        val ids = mutableSetOf<String>()
-        rootId?.let(ids::add)
-        do { val size = ids.size; groups.filter { it.sourceId in ids }.forEach { ids.add(it.id) } } while (ids.size != size)
-        ids
-    }
+    LaunchedEffect(rootId) { if (rootId != null) refresh() }
+    val visibleIds = remember(groups, rootId) { taskGroupChain(groups, rootId) }
     val panes = groups.filter { it.id in visibleIds }.flatMap { group -> group.candidates.map { group to it } }
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Surface(Modifier.fillMaxSize().systemBarsPadding().imePadding()) {
@@ -122,7 +131,7 @@ fun CollaborationWorkbench(
                             })
                             Column(Modifier.weight(1f)) {
                                 Text(config.selectedRuntime?.displayName ?: id)
-                                if (id in selected) RuntimeConfiguration(config, enabled = !busy) { configs = configs + (id to it); operation = UUID.randomUUID().toString() }
+                                if (id in selected) RuntimeConfiguration(config, enabled = !busy) { configure(id, it); operation = UUID.randomUUID().toString() }
                             }
                         }
                     }
@@ -134,12 +143,14 @@ fun CollaborationWorkbench(
                         val submittedText = text; val submittedOperation = operation; val submittedFiles = files; val submittedConfigs = selected.mapNotNull(configs::get)
                         scope.launch {
                             try {
-                                val parts = readTaskGroupAttachments(context.applicationContext, submittedFiles)
+                                val parts = readTaskGroupAttachments(context.applicationContext, submittedFiles.map(android.net.Uri::parse))
                                 val group = controller.create(submittedOperation, project.id, submittedText, submittedConfigs, parts).getOrThrow()
                                 update(group); rootId = group.id
+                                text = ""; files = emptyList(); operation = UUID.randomUUID().toString()
                                 coroutineScope { group.candidates.forEach { candidate -> launch {
                                     controller.start(group.id, candidate.slot).onSuccess(::update).onFailure { error = "任务组已创建，请刷新查看结果：${it.message}" }
                                 } } }
+                                refresh()
                             } catch (cancel: CancellationException) { throw cancel }
                             catch (failure: Exception) { error = "${failure.message}。请先查看历史任务组；重试将复用本次任务标识。"; refresh() }
                             finally { busy = false }
@@ -162,6 +173,7 @@ fun CollaborationWorkbench(
                                     }
                                     if (session == null) {
                                         Text(candidate.error ?: "等待启动：${candidate.phase}")
+                                        if (group.phase != "ready") Text("工作区准备尚未完成；请返回原任务重试，保留操作标识。")
                                         if (group.phase == "ready" && candidate.phase == "pending") TextButton(enabled = !busy, onClick = {
                                             busy = true; scope.launch { try { controller.start(group.id, candidate.slot).onSuccess(::update).onFailure { error = it.message } } finally { busy = false } }
                                         }) { Text("启动此 AI") }
@@ -177,7 +189,7 @@ fun CollaborationWorkbench(
                         }
                     }
                     Row(Modifier.padding(8.dp)) {
-                        OutlinedTextField(value = unified, onValueChange = { unified = it }, label = { Text("统一输入：空闲即发，忙碌排队") }, modifier = Modifier.weight(1f), maxLines = 4)
+                        OutlinedTextField(value = unified, onValueChange = { unified = it }, label = { Text("统一输入：空闲即发，忙碌排队") }, modifier = Modifier.weight(1f).testTag("task-unified-input"), maxLines = 4)
                         Button(enabled = unified.isNotBlank() && panes.any { it.second.sessionId?.let { id -> id !in excluded && id in queues } == true }, onClick = {
                             val targets = panes.mapNotNull { it.second.sessionId }.distinct().filter { it !in excluded }
                             val failed = targets.filter { queues[it]?.invoke(unified.trim()) != true }
@@ -199,8 +211,9 @@ fun CollaborationWorkbench(
                     RadioButton(selected = forwardTarget == id, enabled = !busy, onClick = { forwardTarget = id; forwardOperation = UUID.randomUUID().toString() })
                     Text(config.selectedRuntime?.displayName ?: id, Modifier.padding(top = 12.dp))
                 } }
-                configs[forwardTarget]?.let { config -> RuntimeConfiguration(config, !busy) { configs = configs + (requireNotNull(forwardTarget) to it); forwardOperation = UUID.randomUUID().toString() } }
+                configs[forwardTarget]?.let { config -> RuntimeConfiguration(config, !busy) { configure(requireNotNull(forwardTarget), it); forwardOperation = UUID.randomUUID().toString() } }
                 OutlinedTextField(value = forwardText, enabled = !busy, onValueChange = { forwardText = it; forwardOperation = UUID.randomUUID().toString() }, label = { Text("审核或继续执行指令") })
+                error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 Text("来源须先完成任务。原始任务、代码快照、近期对话及附件由服务端一起交接。")
             }
         }, confirmButton = { TextButton(enabled = !busy && forwardText.isNotBlank() && configs[forwardTarget]?.readyForCreate == true, onClick = {

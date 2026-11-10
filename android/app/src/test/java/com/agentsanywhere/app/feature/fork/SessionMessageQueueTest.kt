@@ -45,6 +45,22 @@ class SessionMessageQueueTest {
         queue.begin(id); queue.finish(id, true)
         assertEquals("two", queue.messages.single().text)
     }
+    @Test fun activeBusyQueueDoesNotBlockOtherSessions() {
+        val prefs = prefs()
+        val busy = SessionMessageQueue(prefs, "server/user/busy")
+        val idle = SessionMessageQueue(prefs, "server/user/idle")
+        busy.enqueue("first", emptyList()); val first = busy.messages.first().id
+        assertNotNull(busy.begin(first))
+        busy.enqueue("supplement", emptyList()); idle.enqueue("supplement", emptyList())
+        assertNull(busy.begin(busy.messages.last().id))
+        val idleId = idle.messages.single().id
+        assertNotNull(idle.begin(idleId)); idle.finish(idleId, true)
+        assertTrue(idle.messages.isEmpty())
+        busy.finish(first, true)
+        assertEquals("supplement", busy.messages.single().text)
+        assertNotNull(busy.begin(busy.messages.single().id)); busy.finish(busy.messages.single().id, true)
+        assertTrue(busy.messages.isEmpty())
+    }
     @Test fun scopesAndAttachmentReferencesStaySeparate() {
         val prefs = prefs(); val queue = SessionMessageQueue(prefs, "a/user/session")
         queue.enqueue("file", listOf(TimelineAttachment("file_1", "a.txt", "text/plain", 10, localPreviewUri="file:///secret")))

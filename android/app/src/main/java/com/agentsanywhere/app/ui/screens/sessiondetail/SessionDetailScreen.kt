@@ -188,6 +188,11 @@ fun SessionDetailScreen(
     onQueueReady: (((String) -> Boolean)?) -> Unit = {},
     onForwardCommand: suspend (String, List<TimelineAttachment>, String) -> Result<Boolean> = { _, _, _ -> Result.success(false) },
 ) {
+    var forwarding by remember(sessionId) { mutableStateOf(false) }
+    suspend fun forwardMessage(text: String, refs: List<TimelineAttachment>, id: String): Result<Boolean> {
+        forwarding = true
+        return try { onForwardCommand(text, refs, id) } finally { forwarding = false }
+    }
     var planningCreation by remember(sessionId, preparedSession?.localSessionId) { mutableStateOf(false) }
     var goalState by remember(sessionId){mutableStateOf<com.agentsanywhere.app.api.RemoteGoalState?>(null)}
     var goalMode by remember(sessionId,preparedSession?.localSessionId){mutableStateOf(false)}
@@ -748,6 +753,7 @@ fun SessionDetailScreen(
     }
 
     fun sendText(text: String) {
+        if (forwarding) return
         val pending = preparedSession
         if (pending != null) {
             if (preparedSessionCreating) return
@@ -847,7 +853,7 @@ fun SessionDetailScreen(
                 return@launch
             }
             val uploadedAttachments = pendingAttachments.mapNotNull { it.remote }
-            val forwarded = onForwardCommand(text, uploadedAttachments, clientMessageId)
+            val forwarded = forwardMessage(text, uploadedAttachments, clientMessageId)
             if (forwarded.isFailure) {
                 retryClientMessageId = clientMessageId
                 saveComposerDraft(text, pendingAttachments, clientMessageId)
@@ -1321,7 +1327,7 @@ fun SessionDetailScreen(
     val capabilityFactsFresh = state.capabilities.isLoaded && state.capabilities.errorMessage == null
     val observedRuntimeStatus = state.effectiveRuntimeStatus()
     val runtimeStatus = if (quotaWait?.state in listOf("limited", "ready") && quotaWait?.waiting() == false && observedRuntimeStatus in setOf(SessionRuntimeStatus.Error, SessionRuntimeStatus.Unknown, SessionRuntimeStatus.Blocked)) SessionRuntimeStatus.Idle else observedRuntimeStatus
-    val busyForQueue = observedRuntimeStatus in setOf(SessionRuntimeStatus.Waiting, SessionRuntimeStatus.Pending, SessionRuntimeStatus.Running, SessionRuntimeStatus.Stopping, SessionRuntimeStatus.WaitingApproval, SessionRuntimeStatus.Blocked) || state.sending
+    val busyForQueue = observedRuntimeStatus in setOf(SessionRuntimeStatus.Waiting, SessionRuntimeStatus.Pending, SessionRuntimeStatus.Running, SessionRuntimeStatus.Stopping, SessionRuntimeStatus.WaitingApproval, SessionRuntimeStatus.Blocked) || state.sending || forwarding
     val sendFact = state.capabilities.find(SESSION_SEND_MESSAGE_CAPABILITY, runtimeId, runtimeType)
     val canQueue = !isPreparedSession && connectorOnline && takeoverEnabled && state.session?.archived != true && capabilityFactsFresh && sendFact?.supported == true && sendFact.allowed && busyForQueue
     LaunchedEffect(sessionId, appVisible, queueScope) {
@@ -1562,8 +1568,8 @@ fun SessionDetailScreen(
             (review.status == "open" || (review.status == "approved" && current.executionStatus == "rejected" && current.executionRetryable)) &&
             review.planId == document.planId && review.planRevision == document.revision && review.contentHash == document.contentHash
     }
-    val canDeliverQueue = !isPreparedSession && appVisible && connectorOnline && takeoverEnabled && state.session?.archived != true && canUseSendMessage && blockingNotices.isEmpty() && planTarget == null && !state.sending && !state.interrupting && !planningBusy && !state.commandExecuting && quotaWait?.waiting() != true
-    val canSteerQueue = !isPreparedSession && appVisible && connectorOnline && takeoverEnabled && state.session?.archived != true && runtimeStatus == SessionRuntimeStatus.Running && state.capabilities.isUsable("session.steer", runtimeId, runtimeType) && blockingNotices.isEmpty() && planTarget == null && !state.sending
+    val canDeliverQueue = !forwarding && !isPreparedSession && appVisible && connectorOnline && takeoverEnabled && state.session?.archived != true && canUseSendMessage && blockingNotices.isEmpty() && planTarget == null && !state.sending && !state.interrupting && !planningBusy && !state.commandExecuting && quotaWait?.waiting() != true
+    val canSteerQueue = !forwarding && !isPreparedSession && appVisible && connectorOnline && takeoverEnabled && state.session?.archived != true && runtimeStatus == SessionRuntimeStatus.Running && state.capabilities.isUsable("session.steer", runtimeId, runtimeType) && blockingNotices.isEmpty() && planTarget == null && !state.sending
     fun deliverQueued(id: String, steer: Boolean) {
         val current = sessionId ?: return
         val queue = queueStore ?: return
@@ -1575,7 +1581,7 @@ fun SessionDetailScreen(
             var pendingState: SessionDetailState? = null
             val beforeRuntimeSequence = state.runtime.updatedSeq
             try {
-                val forwarded = onForwardCommand(item.text, item.attachments, item.id)
+                val forwarded = forwardMessage(item.text, item.attachments, item.id)
                 if (forwarded.isFailure) { showError(forwarded.exceptionOrNull()?.message ?: "转发失败"); return@launch }
                 if (forwarded.getOrNull() == true) { accepted = true; return@launch }
                 state = controller.addOptimisticMessage(current, state, item.text, item.id, item.attachments)
@@ -2050,7 +2056,7 @@ fun SessionDetailScreen(
                                     inputEnabled = inputEnabled,
                                     attachmentsEnabled = inputEnabled && canUseAttachments && !commandMode,
                                     canSend = canSend,
-                                    sending = state.sending,
+                                    sending = state.sending || forwarding,
                                     showInterrupt = showInterrupt && draft.isBlank() && attachments.isEmpty(),
                                     interrupting = state.interrupting,
                                     placeholder = placeholder,

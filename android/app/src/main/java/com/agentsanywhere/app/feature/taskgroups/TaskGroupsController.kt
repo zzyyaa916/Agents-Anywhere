@@ -22,6 +22,16 @@ class TaskGroupsController(private val api: TaskGroupsApi, private val auth: Aut
         catch (error: Exception) { Result.failure(error) }
     }
     suspend fun list(project: String) = request { s, t -> api.list(s, t, project) }
+    suspend fun restore(project: String, root: String?): Result<List<TaskGroup>> {
+        val groups = list(project).getOrElse { return Result.failure(it) }.associateBy { it.id }.toMutableMap()
+        var next = root
+        val seen = mutableSetOf<String>()
+        while (next != null && seen.add(next)) {
+            val group = groups[next] ?: get(next).getOrElse { return Result.failure(it) }.also { groups[it.id] = it }
+            next = group.sourceId
+        }
+        return Result.success(groups.values.toList())
+    }
     suspend fun get(id: String) = request { s, t -> api.get(s, t, id) }
     suspend fun start(id: String, slot: Int) = request { s, t -> api.start(s, t, id, slot) }
     suspend fun create(operation: String, project: String, text: String, configs: List<NewSessionRuntimeSelectionState>, attachments: List<NewSessionAttachmentPart>) = request { s, t ->
@@ -51,9 +61,29 @@ private fun targetJson(config: NewSessionRuntimeSelectionState): JSONObject = JS
 
 data class ForwardCommand(val runtimeId: String, val instructions: String)
 fun parseForwardCommand(text: String, runtimes: List<DeviceRuntime>): ForwardCommand? {
-    val match = Regex("^\\s*转发给\\s*(.+?)[：:]\\s*([\\s\\S]+)$").matchEntire(text) ?: return null
-    val name = match.groupValues[1].trim()
-    val matches = runtimes.filter { runtime -> listOf(runtime.id, runtime.displayName, runtime.type, runtime.typeDisplayName).any { it?.equals(name, ignoreCase = true) == true } }
-    require(matches.size == 1) { if (matches.isEmpty()) "未找到目标 AI：$name" else "AI 名称重复，请使用完整 AI 标识" }
-    return ForwardCommand(matches.single().id, match.groupValues[2].trim())
+    val prefix = Regex("^\\s*转发给\\s*").find(text) ?: return null
+    val rest = text.substring(prefix.range.last + 1).trim()
+    fun names(runtime: DeviceRuntime) = listOfNotNull(runtime.id, runtime.displayName, runtime.type, runtime.typeDisplayName)
+    fun delimiter(char: Char) = char.isWhitespace() || char in "，,：:；;。"
+    val name = runtimes.flatMap(::names).distinct().sortedByDescending { it.length }.firstOrNull { candidate ->
+        rest.startsWith(candidate, ignoreCase = true) && (rest.length == candidate.length || delimiter(rest[candidate.length]))
+    }
+    require(name != null) { "未找到目标 AI，请使用设备上的完整 AI 名称或标识" }
+    val matches = runtimes.filter { runtime -> names(runtime).any { it.equals(name, ignoreCase = true) } }
+    require(matches.size == 1) { "AI 名称重复，请使用完整 AI 标识" }
+    val instructions = rest.drop(name.length).trimStart(::delimiter).trim().ifEmpty { "请审核当前代码和任务结果，指出问题及后续建议。" }
+    return ForwardCommand(matches.single().id, instructions)
+}
+
+fun taskGroupChain(groups: List<TaskGroup>, root: String?): Set<String> {
+    if (root == null) return emptySet()
+    val ids = mutableSetOf(root)
+    var changed: Boolean
+    do {
+        val before = ids.size
+        groups.filter { it.id in ids }.mapNotNull { it.sourceId }.forEach(ids::add)
+        groups.filter { it.sourceId in ids }.forEach { ids.add(it.id) }
+        changed = ids.size != before
+    } while (changed)
+    return ids
 }

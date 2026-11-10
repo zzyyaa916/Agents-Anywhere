@@ -36,6 +36,39 @@ class TaskGroupsApiTest {
             assertEquals("/api/v2/task-groups/group-1/candidates/0/start", server.takeRequest().path)
         }
     }
+    @Test fun chainRetainsAllAncestorsAndForwardedDescendants() {
+        val root = TaskGroup.parse(JSONObject(group)).copy(id = "root", sourceId = null)
+        val child = root.copy(id = "child", sourceId = "root")
+        val grandchild = root.copy(id = "grandchild", sourceId = "child")
+        val unrelated = root.copy(id = "unrelated")
+        assertEquals(setOf("root", "child", "grandchild"), taskGroupChain(listOf(grandchild, unrelated, child, root), "grandchild"))
+        assertTrue(taskGroupChain(listOf(root), null).isEmpty())
+    }
+    @Test fun initialAttachmentsAreIncludedForEveryCandidateWithStableOperation() = kotlinx.coroutines.runBlocking {
+        MockWebServer().use { server ->
+            val runtime = runtime("custom-1", "自定义 AI")
+            val inventory = DeviceRuntimeList("device", listOf(runtime), null)
+            var config = com.agentsanywhere.app.feature.sessions.NewSessionRuntimeSelectionState().beginRuntimeInventory("device").replaceRuntimeInventory(inventory, runtime.id).beginRuntimeDetails()
+            val capability = com.agentsanywhere.app.feature.sessions.NewSessionRuntimeCapability("runtime.attachment", "1", "runtime", "custom-1", null, true, true, true, null, emptyMap())
+            config = config.applyCapabilities(requireNotNull(config.requestKey), com.agentsanywhere.app.feature.sessions.NewSessionRuntimeCapabilities("device", 1L, listOf(capability), null))
+            val auth = object : com.agentsanywhere.app.feature.auth.AuthSessionReader {
+                override fun readServerUrl() = server.url("/").toString()
+                override fun readAccessToken() = "synthetic"
+            }
+            val controller = TaskGroupsController(TaskGroupsApi(ApiClient()), auth)
+            repeat(2) {
+                server.enqueue(MockResponse().setBody(group))
+                assertTrue(controller.create("same-operation", "project-1", "任务", listOf(config, config), listOf(com.agentsanywhere.app.feature.sessions.NewSessionAttachmentPart("file.txt", "text/plain", "payload".toByteArray()))).isSuccess)
+                val body = JSONObject(server.takeRequest().body.readUtf8())
+                assertEquals("same-operation", body.getString("operationId"))
+                assertEquals(2, body.getJSONArray("candidates").length())
+                val attachment = body.getJSONArray("attachments").getJSONObject(0)
+                assertEquals("payload", String(java.util.Base64.getDecoder().decode(attachment.getString("contentBase64"))))
+                assertEquals(64, attachment.getString("sha256").length)
+            }
+            assertEquals(2, server.requestCount)
+        }
+    }
     private fun runtime(id: String, name: String, type: String = id) = DeviceRuntime(
         connectorId = "device", id = id, type = type, displayName = name, present = true, configured = true, active = true,
         status = DeviceRuntimeStatus.Running, discovery = emptyMap(), schema = null, uiSchema = emptyMap(), config = null, error = null, lastDiscoveredAt = null, updatedAt = null,
@@ -45,6 +78,8 @@ class TaskGroupsApiTest {
         assertEquals(ForwardCommand("custom-1", "继续执行\n保留改动"), parseForwardCommand("转发给 我的 AI：继续执行\n保留改动", agents))
         assertEquals("claude-1", parseForwardCommand("转发给 Claude Code: 请审核代码", agents)?.runtimeId)
         assertEquals("codex-1", parseForwardCommand("转发给 CODEX：审核", agents)?.runtimeId)
+        assertEquals("custom-1", parseForwardCommand("转发给 我的 AI", agents)?.runtimeId)
+        assertEquals("继续执行", parseForwardCommand("转发给 Claude Code 继续执行", agents)?.instructions)
         assertNull(parseForwardCommand("请解释转发功能", agents))
     }
     @Test fun missingOrAmbiguousAiDoesNotFallBackToSourceModel() {

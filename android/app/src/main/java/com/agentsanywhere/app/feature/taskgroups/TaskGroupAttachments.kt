@@ -27,3 +27,12 @@ suspend fun readTaskGroupAttachments(context: Context, uris: List<Uri>): List<Ne
         NewSessionAttachmentPart(name, context.contentResolver.getType(uri) ?: "application/octet-stream", bytes)
     }
 }
+
+fun retainTaskGroupAttachments(context: Context, uris: List<Uri>): List<String> {
+    require(uris.size <= 10) { "最多选择 10 个附件" }
+    return uris.map { uri ->
+        try { context.contentResolver.takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+        catch (_: SecurityException) { /* Some providers only grant access for the current app session. */ }
+        uri.toString()
+    }
+}

@@ -238,7 +238,8 @@ internal fun AgentsAnywhereNavHost(
     }
 
     var collaborationProjectId by rememberSaveable(serverUrl, userId) { mutableStateOf<String?>(null) }
-    val collaborationProject = sessionsState.projects.firstOrNull { it.id == collaborationProjectId }
+    var openedCollaborationProject by remember(serverUrl, userId) { mutableStateOf<AgentProject?>(null) }
+    val collaborationProject = openedCollaborationProject?.takeIf { it.id == collaborationProjectId } ?: sessionsState.projects.firstOrNull { it.id == collaborationProjectId }
     if (collaborationProject != null) com.agentsanywhere.app.ui.screens.fork.CollaborationWorkbench(
         project = collaborationProject,
         controller = forkController.taskGroups,
@@ -344,7 +345,7 @@ internal fun AgentsAnywhereNavHost(
                     onPairDevice = { navigate(AppDestination.DeviceSetup) },
                 )
                 AppDestination.NewSession, AppDestination.NewProject -> androidx.compose.runtime.key(serverUrl, userId, destination) { NewSessionScreen(
-                    onOpenCollaboration = { project -> collaborationProjectId = project.id },
+                    onOpenCollaboration = { project -> openedCollaborationProject = project; collaborationProjectId = project.id },
                     navigate = navigate,
                     sessionsState = sessionsState,
                     projectSessionsById = projectSessionsById,
