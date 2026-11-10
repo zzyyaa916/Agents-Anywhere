@@ -462,6 +462,16 @@
         "ideaToSession": "把想法变成会话。",
         "chooseTarget": "选择目标并运行。",
         "changingToday": "今天要改什么？"
+      },
+      "reasoningModes": {
+        "none": "无",
+        "minimal": "最低",
+        "low": "低",
+        "medium": "中",
+        "high": "高",
+        "xhigh": "很高",
+        "max": "最高",
+        "ultra": "极高"
       }
     },
     "workspacePicker": {

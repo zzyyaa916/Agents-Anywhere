@@ -72,11 +72,14 @@ export function catalogI18nText(
   metadata: Record<string, unknown> | null | undefined,
   field: "labelKey" | "descriptionKey",
   fallback: string | null | undefined,
+  reasoningId?: string,
 ): string {
   const i18n = metadata?.i18n
   const preset = metadata?.preset
   const rawKey = (isRecord(i18n) ? i18n[field] : undefined)
     ?? (field === "labelKey" && typeof preset === "string" ? dshPermissionLabelKeys[preset] : undefined)
+  const reasoningKeys: Record<string, string> = { none: "none", minimal: "minimal", low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max", ultra: "ultra" }
+  if (!rawKey && field === "labelKey" && reasoningId && reasoningKeys[reasoningId]) return translate(`reasoningModes.${reasoningKeys[reasoningId]}`)
   if (typeof rawKey !== "string" || !rawKey) return fallback ?? ""
   const key = rawKey.startsWith("dashboard.new.")
     ? rawKey.slice("dashboard.new.".length)

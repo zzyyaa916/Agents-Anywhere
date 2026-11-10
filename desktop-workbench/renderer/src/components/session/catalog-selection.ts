@@ -38,15 +38,18 @@ export function isDshAutoReviewPermission(catalog: ProtocolPermissionCatalog | n
   )
 }
 
-function dshPermissionPreset(
+export function permissionSelectionForNewSessionPreference(
   catalog: ProtocolPermissionCatalog | null,
-  item: ProtocolPermissionItem,
+  id: string,
 ): string | null {
+  return isDshAutoReviewPermission(catalog, id) ? null : selectionIdForPermissionCatalog(catalog, id)
+}
+
+function dshPermissionPreset(catalog: ProtocolPermissionCatalog | null, item: ProtocolPermissionItem): string | null {
   if (catalog?.runtime !== "dsh") return null
   const preset = item.metadata?.preset
   if (typeof preset === "string" && preset) return preset
-  return item.displayName === "Auto review" ? "auto"
-    : Object.hasOwn(dshPermissionLabelKeys, item.displayName) ? item.displayName : null
+  return item.displayName === "auto" || item.displayName === "Auto review" ? "auto" : null
 }
 
 export function permissionCatalogI18nText(
@@ -69,11 +72,14 @@ export function catalogI18nText(
   metadata: Record<string, unknown> | null | undefined,
   field: "labelKey" | "descriptionKey",
   fallback: string | null | undefined,
+  reasoningId?: string,
 ): string {
   const i18n = metadata?.i18n
   const preset = metadata?.preset
   const rawKey = (isRecord(i18n) ? i18n[field] : undefined)
     ?? (field === "labelKey" && typeof preset === "string" ? dshPermissionLabelKeys[preset] : undefined)
+  const reasoningKeys: Record<string, string> = { none: "none", minimal: "minimal", low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max", ultra: "ultra" }
+  if (!rawKey && field === "labelKey" && reasoningId && reasoningKeys[reasoningId]) return translate(`reasoningModes.${reasoningKeys[reasoningId]}`)
   if (typeof rawKey !== "string" || !rawKey) return fallback ?? ""
   const key = rawKey.startsWith("dashboard.new.")
     ? rawKey.slice("dashboard.new.".length)
@@ -148,15 +154,6 @@ export function selectionIdForPermissionCatalog(
   return catalog.permissions.find(
     (item) => item.id === permissionId && catalogItemEnabled(item),
   )?.selectionId ?? null
-}
-
-export function permissionSelectionForNewSessionPreference(
-  catalog: ProtocolPermissionCatalog | null,
-  permissionId: string,
-): string | null {
-  return isDshAutoReviewPermission(catalog, permissionId)
-    ? null
-    : selectionIdForPermissionCatalog(catalog, permissionId)
 }
 
 export function permissionIdForSelectionId(

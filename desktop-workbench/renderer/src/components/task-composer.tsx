@@ -583,7 +583,7 @@ export function TaskComposer() {
       group: item.group ?? null,
       reasoningItems: item.reasoningItems.map((reasoning) => ({
         id: reasoning.id,
-        label: catalogI18nText(t, reasoning.metadata, "labelKey", reasoning.displayName),
+        label: catalogI18nText(t, reasoning.metadata, "labelKey", reasoning.displayName, reasoning.id),
         default: reasoning.default,
         enabled: catalogItemEnabled(reasoning),
         disabledReason: catalogItemDisabledReason(reasoning),

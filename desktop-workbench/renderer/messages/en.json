@@ -518,6 +518,16 @@
         "ideaToSession": "Turn an idea into a session.",
         "chooseTarget": "Choose a target and run.",
         "changingToday": "What are we changing today?"
+      },
+      "reasoningModes": {
+        "none": "None",
+        "minimal": "Minimal",
+        "low": "Low",
+        "medium": "Medium",
+        "high": "High",
+        "xhigh": "Extra high",
+        "max": "Max",
+        "ultra": "Ultra"
       }
     },
     "workspacePicker": {

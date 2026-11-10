@@ -68,10 +68,10 @@ export function AgentConfigurationFields({ config, label, disabled }: { config: 
   const reasoning = catalogs?.model?.models.find(row => row.id === modelId)?.reasoningItems ?? []
   return <div className="space-y-2">
     {catalogs?.model && <Label className="grid gap-2">{t("model")}<NativeSelect aria-label={`${label} ${t("model")}`} value={modelId} disabled={disabled} onChange={e => selectModel(e.target.value)}>
-      {catalogs.model.models.map(row => <NativeSelectOption key={row.id} value={row.id} disabled={!catalogItemEnabled(row)}>{row.group?.displayName ? `${row.group.displayName} · ` : ""}{row.displayName}</NativeSelectOption>)}
+      {catalogs.model.models.map(row => <NativeSelectOption key={row.id} value={row.id} disabled={!catalogItemEnabled(row)}>{row.group?.displayName ? `${row.group.displayName} · ` : ""}{catalogI18nText(tNew, row.metadata, "labelKey", row.displayName)}</NativeSelectOption>)}
     </NativeSelect></Label>}
     {reasoning.length > 0 && <Label className="grid gap-2">{t("reasoning")}<NativeSelect aria-label={`${label} ${t("reasoning")}`} value={reasoningId} disabled={disabled} onChange={e => setReasoningId(e.target.value)}>
-      {reasoning.map(row => <NativeSelectOption key={row.id} value={row.id} disabled={!catalogItemEnabled(row)}>{catalogI18nText(tNew, row.metadata, "labelKey", row.displayName)}</NativeSelectOption>)}
+      {reasoning.map(row => <NativeSelectOption key={row.id} value={row.id} disabled={!catalogItemEnabled(row)}>{catalogI18nText(tNew, row.metadata, "labelKey", row.displayName, row.id)}</NativeSelectOption>)}
     </NativeSelect></Label>}
     {catalogs?.permission && <Label className="grid gap-2">{t("permission")}<NativeSelect aria-label={`${label} ${t("permission")}`} value={permissionId} disabled={disabled} onChange={e => setPermissionId(e.target.value)}>
       {catalogs.permission.permissions.map(row => <NativeSelectOption key={row.id} value={row.id} disabled={!catalogItemEnabled(row)}>{permissionCatalogI18nText(tNew, catalogs.permission, row, "labelKey")}</NativeSelectOption>)}
