@@ -539,8 +539,8 @@ internal fun SessionStatusIndicator(indicator: SessionListIndicator) {
     val colors = LocalAAColors.current
 
     when (indicator) {
-        SessionListIndicator.WaitingApproval -> {
-            val label = stringResource(R.string.home_session_status_waiting_approval)
+        SessionListIndicator.WaitingApproval, SessionListIndicator.Limited -> {
+            val label = stringResource(if (indicator == SessionListIndicator.Limited) R.string.fork_limited_label else R.string.home_session_status_waiting_approval)
             Text(
                 text = label,
                 modifier = Modifier

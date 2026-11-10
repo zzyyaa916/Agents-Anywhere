@@ -1999,6 +1999,7 @@ fun SessionDetailScreen(
                                                     quotaBusy = false
                                                 }
                                             }) { Text(stringResource(R.string.fork_recheck)) }
+                                            if (limit.waiting()) androidx.compose.material3.TextButton(onClick = ::interrupt, enabled = !state.interrupting) { Text(stringResource(R.string.fork_stop_wait)) }
                                             if (quotaError) Text(stringResource(R.string.fork_failed))
                                         }
                                     }

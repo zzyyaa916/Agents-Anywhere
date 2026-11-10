@@ -1,4 +1,18 @@
-# Agents Anywhere Android
+# Agents Anywhere Fork Android 2.5.4
+
+Android 8.0+；独立包名 `com.agentsanywhere.fork`，名称 Agents Anywhere Fork，可与官方版并排安装。默认连接自托管 Fork，登录页不提供公开注册；沿用管理员创建的账号。内嵌登录回调由 WebView 私有处理，不注册官方 scheme 的系统入口。
+
+新增：项目/会话永久删除（含归档）、精确删除数量确认和忙碌阻塞提示；圆形用量按钮展开 Server 缓存；限额等待及原会话继续；当前客户端消息队列、支持时显式立即补充、失败保留和恢复后暂停。用量/队列的界面使用中英资源。
+
+Claude 被动用量需 Connector >=2.5.4，来自正常任务的原生事件，缺字段时不猜百分比；APK 不会自动升级工作设备。手机不保存厂商凭据。队列不跨设备同步，清除应用数据会丢失草稿；网络失败可能结果未知，重试前需确认会话，保留同一 clientMessageId。
+
+[APK 发布页](https://github.com/zzyyaa916/Agents-Anywhere/releases/tag/v2.5.4-fork)。更新从本 Fork 的 GitHub Release 选择同名 APK 资产，不使用官方升级 URL 或 Server 版本推断 Android 版本。发布 APK 在本机使用独立稳定签名，私钥不进入仓库或 CI。
+
+[现状核查及实施方案](../docs/fork/android-audit-and-plan.md)，[Claude 原生数据来源](../docs/fork/claude-native-usage.md)。真实安卓设备安装、登录、权限和任务仍需验收。iOS 不在本期。
+
+---
+
+# Upstream Android development notes
 
 Native Android client for Agents Anywhere.
 

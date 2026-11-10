@@ -43,4 +43,5 @@
     <string name="fork_queue_restored">Restored queue is paused.</string>
     <string name="fork_limited_label">Limit wait</string>
     <string name="fork_stop">Stop task</string>
+    <string name="fork_stop_wait">Stop waiting</string>
 </resources>

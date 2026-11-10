@@ -7,11 +7,13 @@ internal enum class SessionListIndicator {
     None,
     Busy,
     WaitingApproval,
+    Limited,
     Unread,
 }
 
 internal fun AgentSession.listIndicator(): SessionListIndicator {
     return when {
+        status == SessionStatus.Limited -> SessionListIndicator.Limited
         status == SessionStatus.WaitingApproval -> SessionListIndicator.WaitingApproval
         status in setOf(SessionStatus.Running, SessionStatus.Waiting, SessionStatus.Pending) -> SessionListIndicator.Busy
         status == SessionStatus.Idle && unread -> SessionListIndicator.Unread
