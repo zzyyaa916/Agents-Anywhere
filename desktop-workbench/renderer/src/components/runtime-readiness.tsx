@@ -26,7 +26,8 @@ export function RuntimeReadiness({ runtime, channel, onChanged }: {
   const [saved, setSaved] = React.useState<{ key: string; count?: number; error?: string } | null>(null)
   const result = saved?.key === key ? saved : null
   const account = data?.snapshots.find(s => s.bindings.some(b => b.connectorId === runtime.connectorId && b.runtimeId === runtime.runtimeId))
-  const state = channelReadiness(channel)
+  const hasChannel = Boolean(runtime.modelConnection) && channel?.state !== "unsupported"
+  const state = hasChannel ? channelReadiness(channel) : null
   const check = async () => {
     if (!session || busy === key) return
     setBusy(key)
@@ -46,8 +47,8 @@ export function RuntimeReadiness({ runtime, channel, onChanged }: {
   if (runtime.status !== "running") return null
   return <div className="mt-1 space-y-1 text-xs text-muted-foreground" title={t("hint")}>
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-      <span className={state === "channelFailed" ? "text-destructive" : undefined}>{t(state)}</span>
-      <span>{t(accountReadiness(account))}</span>
+      {state && <span className={state === "channelFailed" ? "text-destructive" : undefined}>{t(state)}</span>}
+      {(account || runtime.runtimeType === "codex" || runtime.runtimeType === "claude") && <span>{t(accountReadiness(account))}</span>}
       <span>{result?.count !== undefined ? t("modelsReady", { count: result.count }) : t(result?.error ? "modelsFailed" : "modelsUnknown")}</span>
       <Button variant="link" size="sm" className="h-auto p-0 text-xs" disabled={busy === key} onClick={() => void check()}>
         {t(busy === key ? "checking" : state === "channelFailed" ? "retryChannel" : "check")}

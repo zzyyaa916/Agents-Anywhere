@@ -31,7 +31,7 @@ hook.deregister();source.deregister()
 test('failed channel retry is scoped and old model success is discarded after a runtime update', async () => {
   const container=document.createElement('div');document.body.append(container)
   const root=createRoot(container)
-  const runtime={connectorId:'device',runtimeId:'codex',status:'running',updatedAt:'one'}
+  const runtime={connectorId:'device',runtimeId:'codex',runtimeType:'codex',modelConnection:{},status:'running',updatedAt:'one'}
   const channel={state:'failed',updatedAt:'one'}
   const render=async (value)=>act(async()=>root.render(h(RuntimeReadiness,{runtime:value,channel,onChanged:()=>calls.push('refresh')})))
   await render(runtime)
@@ -47,5 +47,8 @@ test('failed channel retry is scoped and old model success is discarded after a 
   await act(async()=>container.querySelector('button').click())
   assert.match(container.textContent,/modelsFailed/)
   assert.equal(container.querySelector('[role="alert"]').textContent,'Sign in again')
+  await render({...runtime,runtimeType:'dsh',runtimeId:'dsh',modelConnection:null,updatedAt:'three'})
+  assert.doesNotMatch(container.textContent,/channelFailed|channelUnknown|accountUnknown|accountStale/)
+  assert.match(container.textContent,/modelsUnknown/)
   await act(async()=>root.unmount())
 })

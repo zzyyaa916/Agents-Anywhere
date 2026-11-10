@@ -3,10 +3,9 @@ package com.agentsanywhere.app.api
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
-import java.net.URI
 import java.util.concurrent.TimeUnit
 
-data class AndroidAppRelease(val versionName: String, val downloadUrl: String)
+data class AndroidAppRelease(val versionName: String, val downloadUrl: String, val sha256: String, val size: Long)
 
 class AppUpdatesApi {
     fun check(serverUrl: String, currentVersionName: String): AndroidAppRelease? {
@@ -29,7 +28,7 @@ internal fun parseForkAndroidRelease(releases: JSONArray, current: String): Andr
     for (index in 0 until releases.length()) {
         val release = releases.optJSONObject(index) ?: continue
         val tag = release.optString("tag_name")
-        if (release.optBoolean("draft") || !tag.endsWith("-fork")) continue
+        if (release.optBoolean("draft") || release.optBoolean("prerelease") || !Regex("v[0-9]+\\.[0-9]+\\.[0-9]+-fork").matches(tag)) continue
         val version = tag.removePrefix("v").removeSuffix("-fork")
         if ((compareUpdateVersions(version, current) ?: 0) <= 0) continue
         val assets = release.optJSONArray("assets") ?: continue
@@ -37,9 +36,11 @@ internal fun parseForkAndroidRelease(releases: JSONArray, current: String): Andr
             val asset = assets.optJSONObject(n) ?: continue
             if (asset.optString("name") != "Agents.Anywhere.Fork.apk") continue
             val url = asset.optString("browser_download_url")
-            val uri = runCatching { URI(url) }.getOrNull() ?: continue
-            if (uri.scheme != "https" || uri.host != "github.com" || uri.userInfo != null || !uri.path.startsWith("/zzyyaa916/Agents-Anywhere/releases/download/")) continue
-            if (latest == null || (compareUpdateVersions(version, latest.versionName) ?: 0) > 0) latest = AndroidAppRelease(version, url)
+            if (url != "https://github.com/zzyyaa916/Agents-Anywhere/releases/download/$tag/Agents.Anywhere.Fork.apk") continue
+            val digest = asset.optString("digest")
+            val size = asset.optLong("size")
+            if (!Regex("sha256:[a-f0-9]{64}").matches(digest) || size <= 0) continue
+            if (latest == null || (compareUpdateVersions(version, latest.versionName) ?: 0) > 0) latest = AndroidAppRelease(version, url, digest.removePrefix("sha256:"), size)
         }
     }
     return latest

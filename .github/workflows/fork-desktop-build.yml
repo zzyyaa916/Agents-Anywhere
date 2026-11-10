@@ -40,7 +40,7 @@ jobs:
           corepack yarn test:main
           corepack yarn renderer:typecheck
           corepack yarn workspace agents-anywhere-desktop-renderer protocol:check
-          corepack yarn workspace agents-anywhere-desktop-renderer exec node --test test/session-command-ui.test.mjs test/runtime-command-api.test.mjs test/session-message-queue.test.mjs test/workspace-file-browser-dialog.test.mjs test/runtime-readiness.test.mjs test/runtime-readiness-ui.test.mjs
+          corepack yarn workspace agents-anywhere-desktop-renderer exec node --test test/session-command-ui.test.mjs test/runtime-command-api.test.mjs test/session-message-queue.test.mjs test/workspace-file-browser-dialog.test.mjs test/runtime-readiness.test.mjs test/runtime-readiness-ui.test.mjs test/desktop-update-ui.test.mjs
       - name: Cache native dependencies from the official GitHub Release API
         working-directory: desktop-workbench
         env:
@@ -66,7 +66,7 @@ jobs:
             import { readdirSync, statSync, readFileSync, writeFileSync } from "node:fs";
             import { createHash } from "node:crypto";
             const extension = process.platform === "win32" ? ".exe" : ".dmg";
-            const files = readdirSync("release").filter(name => name.endsWith(extension));
+            const files = readdirSync("release").filter(name => (name.endsWith(extension) || name.endsWith(".pkg")));
             if (!files.length) throw new Error(`No ${extension} installer produced`);
             const checksums = files.map(name => {
               const path = `release/${name}`;
@@ -81,6 +81,7 @@ jobs:
           name: fork-test-${{ matrix.platform }}-${{ matrix.architecture }}
           path: |
             desktop-workbench/release/*.dmg
+            desktop-workbench/release/*.pkg
             desktop-workbench/release/*.exe
             desktop-workbench/release/SHA256SUMS.txt
           if-no-files-found: error

@@ -1,8 +1,4 @@
-/**
- * Records the Server version this Desktop build targets. Update checks compare
- * the live Server `/health` version against this baseline, so Desktop and Server
- * PATCH numbers may differ without triggering a false update prompt.
- */
+/** Record Server compatibility metadata; Fork client updates use published client versions. */
 import { readFileSync, writeFileSync } from "node:fs";
 
 const pyproject = readFileSync(new URL("../../server/pyproject.toml", import.meta.url), "utf8");

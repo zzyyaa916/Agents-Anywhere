@@ -904,6 +904,14 @@ fun AgentsAnywhereApp(
             destinationName = AppDestination.SessionDetail.name
         }
     }
+    LaunchedEffect(updatesAllowed, updateServerUrl, appVisible) {
+        if (updatesAllowed && appVisible) {
+            while (true) {
+                appUpdateViewModel.checkForUpdate(showPrompt = true)
+                kotlinx.coroutines.delay(30 * 60_000L)
+            }
+        }
+    }
     AnnouncementGate(
         api = announcementsApi,
         serverUrl = updateServerUrl.ifBlank { AppConfig.OFFICIAL_SERVER_URL },

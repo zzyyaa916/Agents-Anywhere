@@ -38,7 +38,9 @@ export function DesktopUpdateProvider({ children }: { children: React.ReactNode 
     const receive = (next: DesktopUpdateState | null) => { if (!disposed) accept(next) }
     const unsubscribe = updates.onState(receive)
     void updates.syncSession(serverUrl).then(receive).catch(() => undefined)
+    const timer = setInterval(() => { void updates.syncSession(serverUrl).then(receive).catch(() => undefined) }, 30 * 60_000)
     return () => {
+      clearInterval(timer)
       ++generation.current
       disposed = true
       unsubscribe()
@@ -46,13 +48,19 @@ export function DesktopUpdateProvider({ children }: { children: React.ReactNode 
     }
   }, [accept, serverUrl])
 
-  const perform = React.useCallback(async (action: "open" | "ignore" | "download") => {
+  const perform = React.useCallback(async (action: "check" | "ignore" | "download") => {
     const updates = getDesktopWorkbenchBridge()?.updates
     if (!updates || !serverUrl) return
     const currentGeneration = generation.current
     setPending(true)
     try {
-      const next = await updates[action]()
+      let next = action === "check" ? await updates.syncSession(serverUrl) : await updates[action]()
+      if (currentGeneration !== generation.current) return
+      if (action === "check") {
+        if (next?.available) next = await updates.open()
+        else if (next?.error) toast.error(t(`errors.${next.error}`))
+        else toast.success(t("upToDate"))
+      }
       if (currentGeneration === generation.current) accept(next)
     } catch {
       if (currentGeneration === generation.current) toast.error(t("errors.actionFailed"))
@@ -60,7 +68,7 @@ export function DesktopUpdateProvider({ children }: { children: React.ReactNode 
       if (currentGeneration === generation.current) setPending(false)
     }
   }, [accept, serverUrl, t])
-  const open = React.useCallback(() => { void perform("open") }, [perform])
+  const open = React.useCallback(() => { void perform("check") }, [perform])
   const busy = pending || state?.phase === "downloading" || state?.phase === "opening"
   const progress = state?.totalBytes ? Math.min(100, Math.floor(state.downloadedBytes / state.totalBytes * 100)) : null
 
@@ -109,11 +117,11 @@ export function DesktopUpdateProvider({ children }: { children: React.ReactNode 
 export function DesktopUpdateButton() {
   const { state, open } = React.useContext(Context)
   const t = useTranslations("desktopUpdates")
-  if (!state?.available) return null
+  if (!state) return null
   return (
-    <Button variant="ghost" size="icon" className="relative shrink-0" onClick={open} title={t("entry")} aria-label={t("entry")}>
+    <Button variant="ghost" size="icon" className="relative shrink-0" onClick={open} disabled={state.checking || state.phase === "downloading" || state.phase === "opening"} title={t(state.available ? "entry" : "check")} aria-label={t(state.available ? "entry" : "check")}>
       <Download />
-      <Badge variant="notification" className="absolute right-1 top-1 size-1.5 rounded-full p-0" aria-hidden="true" />
+      {state.available && <Badge variant="notification" className="absolute right-1 top-1 size-1.5 rounded-full p-0" aria-hidden="true" />}
     </Button>
   )
 }

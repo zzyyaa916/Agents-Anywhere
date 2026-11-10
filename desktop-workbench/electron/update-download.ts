@@ -1,16 +1,20 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 export async function downloadDesktopInstaller(options: {
   url: string;
+  sha256: string;
+  expectedSize: number;
   directory: string;
   platform: string;
   fetcher: typeof fetch;
   signal: AbortSignal;
   onProgress: (downloadedBytes: number, totalBytes: number | null) => void;
 }): Promise<string> {
-  const extension = { darwin: ".dmg", win32: ".exe", linux: ".AppImage" }[options.platform];
+  if (!/^[a-f0-9]{64}$/.test(options.sha256) || !Number.isSafeInteger(options.expectedSize) || options.expectedSize <= 0) throw new Error("Invalid installer integrity metadata.");
+  const hash = createHash("sha256");
+  const extension = { darwin: ".pkg", win32: ".exe", linux: ".AppImage" }[options.platform];
   if (!extension) throw new Error("Unsupported installer platform.");
   const url = new URL(options.url);
   if (url.protocol !== "https:" || url.username || url.password) throw new Error("Installer URL must use HTTPS.");
@@ -47,6 +51,8 @@ export async function downloadDesktopInstaller(options: {
       const { done, value } = await reader.read();
       options.signal.throwIfAborted();
       if (done) break;
+      if (received + value.byteLength > options.expectedSize) throw new Error("Installer exceeds its published size.");
+      hash.update(value);
       await output.writeFile(value);
       received += value.byteLength;
       if (Date.now() - lastPublished >= 100 || received === total) {
@@ -55,6 +61,7 @@ export async function downloadDesktopInstaller(options: {
       }
     }
     if (!received || (total !== null && total !== received)) throw new Error("Installer download is incomplete.");
+    if (received !== options.expectedSize || hash.digest("hex") !== options.sha256) throw new Error("Installer checksum mismatch.");
     await output.sync();
     await output.close();
     output = undefined;

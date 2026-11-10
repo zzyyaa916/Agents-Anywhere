@@ -4,15 +4,12 @@ import type { DesktopServerConnection } from "./desktop-server";
 import { readJsonFile, writeJsonFile } from "./json-store";
 import { compareUpdateVersions } from "./update-version";
 import { downloadDesktopInstaller } from "./update-download";
+import { FORK_RELEASES_URL, selectForkDesktopRelease, type ForkDesktopRelease } from "./fork-release";
 import type { DesktopUpdateState } from "../shared/desktop-updates";
 
 type Options = {
   directory: string;
   currentVersion: string;
-  /** Server version recorded at build time; a newer live Server means a newer Desktop exists. */
-  serverVersion: string;
-  /** Installer address per `process.platform`; a platform without one cannot download updates. */
-  downloadUrls: Partial<Record<string, string>>;
   platform: string;
   fetcher: typeof fetch;
   openInstaller: (filePath: string) => Promise<void>;
@@ -30,6 +27,7 @@ export class DesktopUpdateService {
   private healthAbort: AbortController | null = null;
   private downloadAbort: AbortController | null = null;
   private installerPath: string | null = null;
+  private release: ForkDesktopRelease | null = null;
 
   constructor(private readonly options: Options) {
     this.state = this.initialState();
@@ -67,17 +65,18 @@ export class DesktopUpdateService {
     const timeout = setTimeout(() => controller.abort(), this.options.healthTimeoutMs ?? 10_000);
     const promise = (async () => {
       try {
-        const response = await this.options.fetcher(`${key}/health`, {
+        const response = await this.options.fetcher(FORK_RELEASES_URL, {
           headers: { accept: "application/json" }, credentials: "omit", cache: "no-store",
           redirect: "error", signal: controller.signal,
         });
         if (!response.ok) throw new Error("Health request failed.");
-        const payload = await readHealth(response, controller.signal);
-        if (payload?.status !== "ok" || typeof payload.version !== "string") throw new Error("Health response has no version.");
-        const latestVersion = payload.version.trim();
-        const comparison = compareUpdateVersions(latestVersion, this.options.serverVersion);
+        const payload = await readReleaseList(response, controller.signal);
+        const release = selectForkDesktopRelease(payload, this.options.platform);
+        const latestVersion = release?.version ?? this.options.currentVersion;
+        const comparison = compareUpdateVersions(latestVersion, this.options.currentVersion);
         if (comparison === null) throw new Error("Unsupported version format.");
         if (generation !== this.generation) return this.getState();
+        this.release = release;
         const available = comparison > 0;
         const ignoredVersion = this.readIgnored()[key];
         const ignored = available && typeof ignoredVersion === "string" && compareUpdateVersions(ignoredVersion, latestVersion) === 0;
@@ -115,14 +114,8 @@ export class DesktopUpdateService {
   download(): Promise<DesktopUpdateState> {
     if (this.downloadPromise) return this.downloadPromise;
     if (!this.state.available) return Promise.resolve(this.getState());
-    const downloadUrl = this.options.downloadUrls[this.options.platform] ?? "";
-    try {
-      const url = new URL(downloadUrl);
-      if (url.protocol !== "https:" || url.hostname.endsWith(".invalid") || url.username || url.password) throw new Error();
-    } catch {
-      this.publish({ dialogOpen: true, error: "downloadNotConfigured" });
-      return Promise.resolve(this.getState());
-    }
+    const release = this.release;
+    if (!release) return Promise.resolve(this.getState());
     const generation = this.generation;
     const controller = new AbortController();
     this.downloadAbort = controller;
@@ -132,7 +125,7 @@ export class DesktopUpdateService {
       try {
         if (!this.installerPath || !fs.existsSync(this.installerPath)) {
           const downloadedPath = await downloadDesktopInstaller({
-            url: downloadUrl, directory: path.join(this.options.directory, "downloads"),
+            url: release.url, sha256: release.sha256, expectedSize: release.size, directory: path.join(this.options.directory, "downloads"),
             platform: this.options.platform, fetcher: this.options.fetcher, signal: controller.signal,
             onProgress: (downloadedBytes, totalBytes) => {
               if (generation === this.generation) this.publish({ downloadedBytes, totalBytes });
@@ -189,9 +182,9 @@ export class DesktopUpdateService {
   }
 }
 
-async function readHealth(response: Response, signal: AbortSignal): Promise<{ status?: unknown; version?: unknown }> {
+async function readReleaseList(response: Response, signal: AbortSignal): Promise<unknown> {
   const reader = response.body?.getReader();
-  if (!reader) throw new Error("Empty health response.");
+  if (!reader) throw new Error("Empty release list.");
   const cancel = () => { void reader.cancel().catch(() => undefined); };
   signal.addEventListener("abort", cancel, { once: true });
   const decoder = new TextDecoder();
@@ -203,7 +196,7 @@ async function readHealth(response: Response, signal: AbortSignal): Promise<{ st
       signal.throwIfAborted();
       if (done) break;
       content += decoder.decode(value, { stream: true });
-      if (content.length > 65_536) throw new Error("Health response is too large.");
+      if (content.length > 2_000_000) throw new Error("Release list is too large.");
     }
     return JSON.parse(content + decoder.decode());
   } finally {

@@ -41,7 +41,6 @@ import { DesktopBackendClient } from "./backend-client";
 import { readDesktopSettings } from "./desktop-settings";
 import { ConnectorLogStore } from "./log-store";
 import { windowMaterialOptions } from "./window-material";
-import buildInfo from "../build-info.json";
 import { droppedFolderPath } from "./dropped-folder";
 import config from "../config.json";
 import { proxyDesktopApi } from "./api-proxy";
@@ -1047,8 +1046,6 @@ if (hasSingleInstanceLock) {
     updates = new DesktopUpdateService({
       directory: path.join(app.getPath("userData"), "updates"),
       currentVersion: app.getVersion(),
-      serverVersion: buildInfo.serverVersion,
-      downloadUrls: config.updates.downloadUrls,
       platform: process.platform,
       healthTimeoutMs: config.healthTimeoutMs,
       fetcher: (input, init) => net.fetch(String(input), init),
@@ -1056,6 +1053,8 @@ if (hasSingleInstanceLock) {
         if (process.platform === "linux") await fs.promises.chmod(filePath, 0o700);
         const error = await shell.openPath(filePath);
         if (error) throw new Error(error);
+        // The update button authorizes quitting; use normal Connector cleanup.
+        setImmediate(() => { void requestQuit(); });
       },
       onState: (state) => sendToRenderer("workbench:updates:state", state),
     });

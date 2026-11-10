@@ -275,6 +275,7 @@ class AppUpdateViewModel(application: Application) : AndroidViewModel(applicatio
                             currentCoroutineContext().ensureActive()
                             val count = input.read(buffer)
                             if (count < 0) break
+                            if (downloadedBytes + count > release.size) error("Update exceeds its published size.")
                             output.write(buffer, 0, count)
                             downloadedBytes += count
                             val now = System.nanoTime()
@@ -288,6 +289,8 @@ class AppUpdateViewModel(application: Application) : AndroidViewModel(applicatio
                     }
                 }
             }
+            require(target.length() == release.size) { "Update size mismatch." }
+            verifyUpdateChecksum(target, release.sha256)
             target
         } catch (error: Throwable) {
             target.delete()

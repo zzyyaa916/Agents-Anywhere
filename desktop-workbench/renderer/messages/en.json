@@ -2518,12 +2518,14 @@
     "discardChanges": "Discard changes"
   },
   "desktopUpdates": {
+    "check": "Check for client updates",
+    "upToDate": "You have the latest available client",
     "title": "Update available",
-    "description": "The service has been upgraded. Update Desktop to stay compatible. Some features may stop working on older versions.",
+    "description": "A new Fork client is available. Finish local tasks first. After verification, the app will quit and open the system installer; follow its prompts.",
     "currentVersion": "Current version {version}",
-    "latestVersion": "Server version {version}",
+    "latestVersion": "Latest client {version}",
     "ignore": "Ignore this version",
-    "updateNow": "Update now",
+    "updateNow": "Download, quit and install",
     "entry": "Update available",
     "downloading": "Downloading update",
     "opening": "Download complete. Opening the installer…",

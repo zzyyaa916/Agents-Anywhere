@@ -196,7 +196,7 @@ async function main() {
   electronBuilder([
     ...(process.env.WORKBENCH_ELECTRON_DIST ? [`--config.electronDist=${resolve(process.env.WORKBENCH_ELECTRON_DIST)}`] : []),
     `--${platform}`,
-    platform === "mac" ? "dmg" : "nsis",
+    ...(platform === "mac" ? ["dmg", "pkg"] : ["nsis"]),
     ...builderFlags,
     "--publish",
     "never",
