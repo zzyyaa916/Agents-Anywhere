@@ -552,6 +552,24 @@
       "directoryRequired": "请选择一个目录。"
     },
     "device": {
+      "readiness": {
+        "processRunning": "进程已启动",
+        "channelReady": "渠道已就绪",
+        "channelWaiting": "渠道同步中",
+        "channelFailed": "渠道异常",
+        "channelUnknown": "渠道状态未确认",
+        "accountRecent": "账号最近验证成功",
+        "accountStale": "账号验证已过期",
+        "accountUnknown": "账号尚未验证",
+        "loginRequired": "请在原生终端重新登录后重试",
+        "modelsUnknown": "模型列表尚未检查",
+        "modelsReady": "模型列表可读取（{count} 个）",
+        "modelsFailed": "模型列表读取失败",
+        "check": "检查模型",
+        "retryChannel": "重试渠道",
+        "checking": "检查中…",
+        "hint": "运行状态、账号缓存与模型列表分别检查；不发送模型生成任务。"
+      },
       "sessionCount": "{count, plural, one {# 个会话} other {# 个会话}}",
       "newSession": "新会话",
       "active": "活跃",

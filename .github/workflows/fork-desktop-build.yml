@@ -40,7 +40,7 @@ jobs:
           corepack yarn test:main
           corepack yarn renderer:typecheck
           corepack yarn workspace agents-anywhere-desktop-renderer protocol:check
-          corepack yarn workspace agents-anywhere-desktop-renderer exec node --test test/session-command-ui.test.mjs test/runtime-command-api.test.mjs test/session-message-queue.test.mjs test/workspace-file-browser-dialog.test.mjs
+          corepack yarn workspace agents-anywhere-desktop-renderer exec node --test test/session-command-ui.test.mjs test/runtime-command-api.test.mjs test/session-message-queue.test.mjs test/workspace-file-browser-dialog.test.mjs test/runtime-readiness.test.mjs test/runtime-readiness-ui.test.mjs
       - name: Cache native dependencies from the official GitHub Release API
         working-directory: desktop-workbench
         env:

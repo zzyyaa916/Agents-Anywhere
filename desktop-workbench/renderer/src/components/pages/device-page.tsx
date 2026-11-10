@@ -59,6 +59,7 @@ import { useIsMobile } from "@/hooks/use-mobile"
 import { useLocale, useTranslations } from "next-intl"
 import { toast } from "sonner"
 import { useDesktopConnector } from "@/features/desktop/desktop-connector-context"
+import { RuntimeReadiness } from "@/components/runtime-readiness"
 import { RuntimeAddDialog } from "@/components/runtime-add-dialog"
 import { RuntimeMaturityBadge } from "@/components/runtime-maturity-badge"
 import { RuntimeConfigDialog } from "@/components/runtime-config-dialog"
@@ -306,6 +307,7 @@ export function DevicePage() {
   const tCommon = useTranslations("common")
   const runtimeStatusLabel = (runtime: DeviceRuntimeView) => {
     if (runtimeIsNotStarted(runtime)) return t("runtimeNotStarted")
+    if (runtime.status === "running") return t("readiness.processRunning")
     const key = RUNTIME_STATUS_LABEL_KEYS[runtime.status]
     return key ? t(key) : runtime.status
   }
@@ -315,6 +317,7 @@ export function DevicePage() {
     projects,
     sessions: allSessions,
     runtimes: liveRuntimes,
+    modelConfig,
     startProjectSession,
     openSession,
     goHome,
@@ -952,6 +955,9 @@ export function DevicePage() {
                               {runtimeTypeName(runtime)}
                               {!runtime.present ? ` · ${t("runtimeNotReported")}` : ""}
                             </p>
+                            <RuntimeReadiness runtime={runtime}
+                              channel={modelConfig?.channel?.runtimes.find(row => row.connectorId === runtime.connectorId && row.runtimeId === runtime.runtimeId)}
+                              onChanged={refreshData} />
                           </div>
                           <div className="flex shrink-0 items-center gap-2">
                             <Button

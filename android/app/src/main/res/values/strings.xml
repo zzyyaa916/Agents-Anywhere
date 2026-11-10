@@ -170,7 +170,7 @@
     <string name="device_runtime_unavailable">Unavailable</string>
     <string name="device_runtime_validating">Validating configuration</string>
     <string name="device_runtime_starting">Starting</string>
-    <string name="device_runtime_running">Running</string>
+    <string name="device_runtime_running">Process started</string>
     <string name="device_runtime_stopping">Stopping</string>
     <string name="device_runtime_error">Runtime error</string>
     <string name="device_runtime_unknown">Unknown state</string>

@@ -169,7 +169,7 @@
     <string name="device_runtime_unavailable">不可用</string>
     <string name="device_runtime_validating">正在验证配置</string>
     <string name="device_runtime_starting">启动中</string>
-    <string name="device_runtime_running">运行中</string>
+    <string name="device_runtime_running">进程已启动</string>
     <string name="device_runtime_stopping">停止中</string>
     <string name="device_runtime_error">运行时错误</string>
     <string name="device_runtime_unknown">未知状态</string>
