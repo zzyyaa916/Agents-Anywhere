@@ -4,6 +4,11 @@
 
 ## 未发布
 
+### Fork 2.5.4 全端更新
+
+- Windows 与 Intel Mac 安装包包含新版 Connector，Claude 用量改为被动读取正常任务的原生事件，不再请求私有用量接口；沿用已有独立账号和会话，无需重新配对。（[发布说明](docs/releases/2.5.4-fork-desktop-server.md)）
+- Fork Server/Web 版本统一为 2.5.4，保持现有 API、数据格式和数据库结构，官方版独立运行。（[发布说明](docs/releases/2.5.4-fork-desktop-server.md)）
+
 ### Android Fork 2.5.4
 
 - Android 分叉版可与官方版并排安装，连接自托管服务，账号由管理员创建，更新只下载 Fork 签名安装包。
