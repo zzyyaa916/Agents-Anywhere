@@ -8,7 +8,7 @@ object AppConfig {
     val OFFICIAL_SERVER_URL: String = BuildConfig.OFFICIAL_SERVER_URL
     const val DESKTOP_DOWNLOAD_URL = "https://agents-anywhere.com/download"
     // Fork update discovery uses only matching signed APK assets on GitHub.
-    const val UPDATE_DOWNLOAD_URL = "https://github.com/zzyyaa916/Agents-Anywhere/releases/download/v2.5.4-fork/Agents.Anywhere.Fork.apk"
+    const val UPDATE_DOWNLOAD_URL = "https://github.com/zzyyaa916/Agents-Anywhere/releases/download/v2.5.5-fork/Agents.Anywhere.Fork.apk"
 
     fun isOfficialServer(serverUrl: String): Boolean {
         val officialOrigin = normalizeServerOrigin(OFFICIAL_SERVER_URL) ?: return false
