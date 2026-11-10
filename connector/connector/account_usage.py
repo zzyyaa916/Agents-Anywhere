@@ -104,7 +104,7 @@ async def codex_process(executable=None):
 
     async def request(method, params=None):
         nonlocal sequence
-        if method not in {"initialize", "account/read", "account/rateLimits/read"}:
+        if method not in {"initialize", "account/read", "account/rateLimits/read", "model/list"}:
             raise UsageUnavailable("invalid_request")
         sequence += 1
         request_id = sequence

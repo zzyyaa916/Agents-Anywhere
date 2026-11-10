@@ -793,6 +793,24 @@
         "openai_responses": "OpenAI Responses",
         "openai_chat": "OpenAI Chat Completions",
         "anthropic": "Anthropic Messages"
+      },
+      "readiness": {
+        "processRunning": "Process started",
+        "channelReady": "Channel ready",
+        "channelWaiting": "Channel synchronizing",
+        "channelFailed": "Channel needs attention",
+        "channelUnknown": "Channel not verified",
+        "accountRecent": "Account recently verified",
+        "accountStale": "Account verification is stale",
+        "accountUnknown": "Account not verified",
+        "loginRequired": "Sign in again in the native terminal, then retry",
+        "modelsUnknown": "Model catalog not checked",
+        "modelsReady": "Model catalog readable ({count})",
+        "modelsFailed": "Model catalog unavailable",
+        "check": "Check models",
+        "retryChannel": "Retry channel",
+        "checking": "Checking…",
+        "hint": "Process, cached account and model catalog are checked separately. No model generation is sent."
       }
     },
     "panels": {

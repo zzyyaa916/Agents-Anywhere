@@ -445,7 +445,7 @@ class ChannelReconciliationRepositoryMixin:
                                         runtime_channel_switches.c.runtime_id
                                         == runtime_channel_sync.c.runtime_id,
                                         runtime_channel_switches.c.state.in_(
-                                            ("pending", "switching", "restoring")
+                                            ("pending", "switching", "restoring", "failed")
                                         ),
                                     )
                                     .correlate(runtime_channel_sync)

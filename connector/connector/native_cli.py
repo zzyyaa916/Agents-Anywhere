@@ -7,7 +7,11 @@ import os
 import sys
 from pathlib import Path
 
-from connector.core.fork_profile import fork_enabled, validate_fork_environment
+from connector.core.fork_profile import (
+    broker_executable,
+    fork_enabled,
+    validate_fork_environment,
+)
 from connector.launch import launch_target
 from connector.runtimes.codex.sdk.binary import (
     LoginShellPathResult,
@@ -43,6 +47,7 @@ def codex_command(
 def claude_command(args: list[str], executable: str | None = None) -> list[str]:
     if fork_enabled():
         validate_fork_environment()
+    executable = broker_executable("claude") or executable
     if executable is None:
         spec = importlib.util.find_spec("claude_agent_sdk")
         if spec and spec.origin:

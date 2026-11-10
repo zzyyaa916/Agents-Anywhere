@@ -8,10 +8,11 @@ import { apiClient } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 
 type UsageWindow = { kind: string; modelScope: string | null; remainingPercent: number; resetsAt: string; windowDurationMins: number }
-type Snapshot = { runtime: string; accountKey: string; accountLabel: string; planType: string | null; windows: UsageWindow[]; fetchedAt: string | null; stale: boolean; bindings: { connectorId: string; runtimeId: string }[] }
+type Snapshot = { runtime: string; accountKey: string; accountLabel: string; planType: string | null; windows: UsageWindow[]; fetchedAt: string | null; stale: boolean; errorCode?: string | null; bindings: { connectorId: string; runtimeId: string }[] }
 type Response = { snapshots: Snapshot[]; unavailable: string[] }
 type State = { data: Response | null; busy: boolean; refresh: () => Promise<void> }
 const Context = React.createContext<State>({ data: null, busy: false, refresh: async () => {} })
+export const useAccountUsage = () => React.useContext(Context)
 export const localTime = (value: string) => new Date(value).toLocaleString(undefined, { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })
 export const windowLabel = (value: UsageWindow) => ({ five_hour: "5 小时", weekly: "周", seven_day: "7 天", weekly_scoped: `周 · ${value.modelScope ?? "模型"}` }[value.kind] ?? `${value.windowDurationMins} 分钟`)
 

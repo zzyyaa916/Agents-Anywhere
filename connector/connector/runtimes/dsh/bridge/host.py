@@ -220,11 +220,23 @@ class BridgeHost:
 
     def publish(self) -> None:
         path = rendezvous_path()
-        write_private_json(path, {
+        payload = {
             "version": RENDEZVOUS_VERSION,
             "protocol": "meshcall",
             **self.hub.descriptor(DSH_BRIDGE_ROLE),
-        })
+        }
+        if self._published == path:
+            with contextlib.suppress(OSError, ValueError):
+                if read_rendezvous(path) == payload:
+                    return
+        write_private_json(path, payload)
+        # Atomic replacement resets the fixed ai-dsh user's ACL.
+        import os
+
+        from connector.core.fork_profile import fork_enabled
+        if fork_enabled() and os.environ.get("AA_FORK_RUNTIME_BROKER") == "1":
+            import subprocess
+            subprocess.run(["/usr/local/libexec/aa-fork-bridge-acl"], check=True)
         self._published = path
         logger.info("published DSH bridge rendezvous path={}", path)
 

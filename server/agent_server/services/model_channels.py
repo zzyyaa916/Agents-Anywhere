@@ -93,6 +93,15 @@ ADMISSION_TTL = timedelta(minutes=2)
 # A closing switch lets requests already admitted start their task, this long at most.
 ADMISSION_DRAIN_SECONDS = 30.0
 ADMISSION_DRAIN_INTERVAL_SECONDS = 0.25
+
+
+def recovery_due(switch: dict[str, Any] | None, sync: dict[str, Any] | None) -> bool:
+    """Only re-observe a failed rollback, never replay configuration or tasks."""
+    return bool(switch and sync and switch["state"] == FAILED
+        and switch.get("reason") == "rollback_failed"
+        and sync["applied_generation"] == sync["desired_generation"]
+        and sync["retry_count"] < 3
+        and (not sync["next_retry_at"] or sync["next_retry_at"] <= utc_now()))
 VERIFY_TIMEOUT_SECONDS = 120.0
 RESTARTING_STATUSES = {"starting", "running"}
 # The device dropped mid-switch: the row waits for it to come back and verifies then.
@@ -623,7 +632,8 @@ class ModelChannelService:
         await self._store.refresh_channel_targets(user_id)
         await self._plan(user_id, only=(base.connectorId, base.runtimeId))
         switch = await self._store.get_channel_switch(base.connectorId, base.runtimeId)
-        if switch is not None and switch["state"] in (PENDING, WAITING_ONLINE, *IN_FLIGHT):
+        if switch is not None and (switch["state"] in (PENDING, WAITING_ONLINE, *IN_FLIGHT)
+                or (switch["state"] == FAILED and switch.get("reason") == "rollback_failed")):
             task = self._spawn(base.connectorId, base.runtimeId, user_id)
             # Wait for configuration application, never for running tasks to end.
             try:
@@ -729,6 +739,9 @@ class ModelChannelService:
                 continue
             switch = await self._store.get_channel_switch(runtime.connectorId, runtime.runtimeId)
             sync = await self._store.get_channel_sync(runtime.connectorId, runtime.runtimeId)
+            if recovery_due(switch, sync):
+                self._spawn(runtime.connectorId, runtime.runtimeId, user_id)
+                continue
             due = sync is not None and (sync["desired_generation"] != sync["applied_generation"]
                     or (switch is not None and switch["state"] in UNFINISHED))
             if not due and not reconnect:
@@ -816,7 +829,13 @@ class ModelChannelService:
             async with self._store.channel_transaction(user_id):
                 context = await self._context(runtime, user_id=user_id)
                 sync = await self._store.get_channel_sync(connector_id, runtime_id)
+            recovering = recovery_due(switch, sync)
+            if switch["state"] in NEEDS_RETRY and not recovering and switch.get("targetGeneration") == (sync or {}).get("desired_generation"):
+                return
             if not await self._runtimes.is_connector_online(connector_id):
+                if recovering:
+                    await self._store.channel_retry(connector_id, runtime_id, "device_offline", automatic=True)
+                    return
                 # An applied target has nothing to wait for; coming back verifies it.
                 if switch["state"] != APPLIED or not sync or sync["applied_generation"] != sync["desired_generation"]:
                     await self._wait_online(connector_id, runtime_id, user_id)
@@ -824,13 +843,14 @@ class ModelChannelService:
             if not await self._runtimes.connector_supports(connector_id, "channelReconcileFence"):
                 await self._settle(connector_id, runtime_id, user_id, UNSUPPORTED, reason="connector_upgrade_required")
                 return
-            if switch["state"] in NEEDS_RETRY and switch.get("targetGeneration") == (sync or {}).get("desired_generation"):
-                return
             if sync and sync["applied_generation"] == sync["desired_generation"] and context.desired == context.actual:
                 target = context.actual_target
                 report = await self._runtimes.read_connector_config(connector_id, target.runtimeId, target.runtimeType)
                 if report is None:
                     # An unanswered check does not undo an applied target; the next scan asks again.
+                    if recovering:
+                        await self._store.channel_retry(connector_id, runtime_id, "device_offline", automatic=True)
+                        return
                     if switch["state"] != APPLIED:
                         await self._store.channel_retry(connector_id, runtime_id, "device_offline", automatic=True)
                         await self._store.save_channel_switch(connector_id, runtime_id, {"state": PENDING, "reason": "device_offline"})
@@ -851,6 +871,9 @@ class ModelChannelService:
                         if switch["state"] != APPLIED or status_changed:
                             await self._settle(connector_id, runtime_id, user_id, APPLIED)
                     return
+            if recovering:
+                await self._store.channel_retry(connector_id, runtime_id, "config_mismatch", automatic=True)
+                return
             if context.desired == context.actual and not (
                 context.assignment is not None and _outdated(context.assignment, context.profiles)
             ):

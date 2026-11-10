@@ -1,0 +1,43 @@
+# Fork 2.5.5 运行恢复与升级
+
+本次修复已部署至 Fork Server/Web、甲骨文 ARM、instabox1 与 instabox2 的独立 Connector。无 API 或数据库结构变更，不复制原生凭据、会话或项目；官方容器保持原样。
+
+## 防复发范围
+
+- 固定 Unix 身份选择进入 Connector 包的共用逻辑，本地登录、模型发现、SDK 会话使用同一入口；代理不存在或版本检查失败时禁止退回到另一身份。只有 Fork 启用该逻辑。
+- DSH 的接入文件不再重复替换未变化的内容，替换后恢复既有的 ai-dsh 精确用户权限；不放宽其他用户权限。
+- 渠道自动恢复仅处理 rollback_failed 且期望/已应用代际一致的情况，通过设备实际运行状态与配置摘要重新核对后解除阻塞。每次失败沿用指数退避，最多三次；不匹配或离线时不重写配置、不调用模型、不重发任务。其他失败仍需明确重试。
+- Web 设备页分别显示进程、账号最近验证缓存、渠道状态和模型列表检查。没有记录、缓存过期或账号错误时不展示为账号有效；模型读取结果在运行配置变化后失效。
+- Codex 刷新令牌确实失效时仍需用户本人登录。恢复配置状态不等于刷新了账号授权。
+
+## 后续升级
+
+旧的 upgrade-fork-connector-2.5.4.py 入口已退役。三台设备均保存了当前安装包与新工具：
+
+```bash
+sudo /opt/agents-anywhere-fork-connector/bin/upgrade-fork-connector --check-only
+sudo /opt/agents-anywhere-fork-connector/bin/upgrade-fork-connector --wheel /opt/agents-anywhere-fork-connector/releases/2.5.5/anywhere_cli-2.5.5-py3-none-any.whl
+```
+
+安装前核对 wheel SHA256；备份代码并保留配对文件摘要。安装后验证 Codex 的 SQLite 初始化、账号读取、模型列表，以及启用的 DSH 服务实际用户能否读取接入文件并连接 Router。验收失败自动恢复原代码和原服务状态；账号失效会提示登录，重装不能代替用户授权。脚本只升级已有 aa-fork 安装，不创建用户或重新配对。
+
+原生交互登录使用独立配置：
+
+```bash
+sudo -u aa-fork -H /home/aa-fork/.venv/bin/anywhere-cli fork-login codex
+```
+
+ARM 主机存在可信的固定身份代理 socket 时，本地登录也自动使用代理。其他主机继续使用 aa-fork 自己的原生配置。
+
+## 验证与部署记录
+
+- Connector：82 项相关回归通过，覆盖官方/Fork 隔离、代理缺失不降级、CLI/SDK 身份一致、DSH 描述变化及损坏恢复、只读协议和升级失败回滚。
+- Server：模型渠道与配置、架构边界相关测试通过；一项旧仪表盘快照时序测试在初次组合运行中失败，单独复跑通过。追加验证离线只退避、不重放配置。
+- Web：4 个相关测试文件、TypeScript、协议类型检查和静态生产构建通过。交互测试覆盖渠道重试、错误提示和配置变化后清除旧模型检查结果。
+- 三台机器最终升级自检全部通过：Codex 初始化、原有账号、8 个模型和 DSH Bridge 实际用户的文件/Socket 访问。
+- 部署后经网页同一 API 处理链路和真实 Connector RPC，三台各自 Codex 8、Claude 5、DSH 2 个模型目录均读取成功，共九组。
+- Server/Web 2.5.5；数据库仍为原 schema，用户/项目/会话数量、注册策略、附件挂载和官方容器未变。服务端部署备份：/opt/agents-anywhere-fork/backups/before-2.5.5-20261110T070846Z。
+- 本次未执行真实模型生成任务或整机重启，未重打 Windows/Mac/Android 安装包；已更新的是服务端 Web 与三台工作设备的 Connector。
+- 临时 SSH 授权按用户要求保留，待用户验收后撤销；不得将私钥或账号凭据提交到仓库。
+
+最终 Connector wheel SHA256：1de2a36032dc713fd5645e9c7f9376f030212c303179c2e90a731f5d07831c08。

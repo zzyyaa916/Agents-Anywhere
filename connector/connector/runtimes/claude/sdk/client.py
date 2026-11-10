@@ -4,6 +4,7 @@ import inspect
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from typing import Any
 
+from connector.core.fork_profile import broker_executable
 from connector.runtimes.claude.domain.models import model_selection_from_selection_id
 from connector.runtimes.claude.domain.permissions import (
     permission_mode_from_selection_id,
@@ -97,7 +98,7 @@ def build_sdk_options(
         permission_mode = "plan"
     if permission_mode is not None:
         kwargs["permission_mode"] = permission_mode
-    executable_path = values.get("executablePath")
+    executable_path = broker_executable("claude") or values.get("executablePath")
     if isinstance(executable_path, str) and executable_path:
         kwargs["cli_path"] = executable_path
     environment = claude_sdk_environment(values)

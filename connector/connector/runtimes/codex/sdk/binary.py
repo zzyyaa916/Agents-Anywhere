@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from connector.core.fork_profile import broker_executable
 from connector.launch import launch_target
 from connector.logging import logger
 
@@ -140,7 +141,7 @@ def select_codex_runtime_binary(
     *,
     configured_path: str | None = None,
 ) -> CodexRuntimeBinarySelection:
-    candidate = configured_path
+    candidate = broker_executable("codex") or configured_path
     if candidate is not None:
         candidate = (
             find_executable_on_path(candidate, environment.get("PATH")) or candidate
@@ -166,6 +167,8 @@ def select_codex_runtime_binary(
                 else None,
             )
         reason = f"{source} Codex version check failed: {error}"
+        if broker_executable("codex"):
+            raise RuntimeError(reason)
         logger.warning("{}; falling back to SDK Codex path={}", reason, candidate)
 
     return CodexRuntimeBinarySelection(

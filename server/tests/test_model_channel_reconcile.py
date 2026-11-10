@@ -6,6 +6,10 @@ import asyncio
 from types import SimpleNamespace
 from typing import Any
 
+from agent_server.api.connector_ingress import _complete_runtime_discovery
+from agent_server.deps import model_channel_service_for
+from agent_server.infra.db.schema import connectors
+from agent_server.services import model_channels
 from sqlalchemy import update
 from test_model_config import (
     CODEX_LIKE,
@@ -17,11 +21,6 @@ from test_model_config import (
     _set_channel,
     state_user,
 )
-
-from agent_server.api.connector_ingress import _complete_runtime_discovery
-from agent_server.deps import model_channel_service_for
-from agent_server.infra.db.schema import connectors
-from agent_server.services import model_channels
 
 
 def _reconcilable(tmp_path):
@@ -288,3 +287,66 @@ def test_admissions_of_another_runtime_or_past_their_time_are_not_counted(tmp_pa
         return counts
 
     assert asyncio.run(scenario()) == (1, 0, 0)
+
+
+def _failed_rollback(client, connector_id):
+    asyncio.run(client.app.state.store.save_channel_switch(connector_id, 'codex', {
+        'state': 'failed', 'reason': 'rollback_failed', 'message': 'old initialization error',
+    }))
+
+
+def test_recovered_rollback_is_verified_before_catalog_admission_without_restarting(tmp_path, server_secret):
+    client, rpc, connector_id, headers, _ = _applied_on(tmp_path)
+    _failed_rollback(client, connector_id)
+    channels = model_channel_service_for(client.app.state)
+    uid = state_user(client, headers)
+    assert asyncio.run(channels.prepare_runtime(connector_id, 'codex', user_id=uid)) == 'codex'
+    assert _switch(client, connector_id)['state'] == 'applied'
+    assert [r[1] for r in rpc.requests] == ['runtime.config']
+
+
+def test_failed_rollback_recovery_is_bounded_and_never_rewrites_a_mismatch(tmp_path, server_secret):
+    client, rpc, connector_id, headers, _ = _applied_on(tmp_path)
+    _failed_rollback(client, connector_id)
+    store = client.app.state.store
+    uid = state_user(client, headers)
+    original = rpc.request
+
+    async def mismatched(target, method, params, **kwargs):
+        answer = await original(target, method, params, **kwargs)
+        if method == 'runtime.config':
+            answer = {**answer, 'running': False}
+        return answer
+
+    rpc.request = mismatched
+    for _ in range(3):
+        # Move only the backoff clock forward; retain the attempt counter.
+        from agent_server.infra.db.schema import runtime_channel_sync
+        from sqlalchemy import update
+        async def due():
+            async with store._engine.begin() as conn:
+                await conn.execute(update(runtime_channel_sync).where(
+                    runtime_channel_sync.c.connector_id == connector_id,
+                    runtime_channel_sync.c.runtime_id == 'codex').values(next_retry_at=None))
+        asyncio.run(due())
+        _periodic_scan(client, connector_id, uid)
+    sync = asyncio.run(store.get_channel_sync(connector_id, 'codex'))
+    assert sync['retry_count'] == 3
+    assert sync['next_retry_at'] is not None
+    requests = len(rpc.requests)
+    _periodic_scan(client, connector_id, uid)
+    assert len(rpc.requests) == requests
+    assert _switch(client, connector_id)['state'] == 'failed'
+    assert not _restarted(rpc)
+    assert {r[1] for r in rpc.requests} == {'runtime.config'}
+
+
+def test_failed_rollback_stays_failed_while_device_is_offline(tmp_path, server_secret):
+    client, rpc, connector_id, headers, _ = _applied_on(tmp_path)
+    _failed_rollback(client, connector_id)
+    rpc.online = False
+    _periodic_scan(client, connector_id, state_user(client, headers))
+    assert _switch(client, connector_id)['state'] == 'failed'
+    sync = asyncio.run(client.app.state.store.get_channel_sync(connector_id, 'codex'))
+    assert sync['retry_count'] == 1 and sync['next_retry_at']
+    assert rpc.requests == []

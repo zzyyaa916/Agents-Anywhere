@@ -10,6 +10,7 @@ PROFILE_ENV = "AA_CONNECTOR_PROFILE"
 PROTECTED_PROFILE_ENV = frozenset(
     {
         PROFILE_ENV,
+        "AA_FORK_RUNTIME_BROKER",
         "HOME",
         "USERPROFILE",
         "CODEX_HOME",
@@ -32,6 +33,25 @@ def fork_enabled() -> bool:
     if value not in {"", "fork"}:
         raise RuntimeError("Unknown Connector profile")
     return value == "fork"
+
+
+def broker_executable(runtime: str) -> str | None:
+    """Keep fixed Unix identities across package upgrades; never fall back."""
+    if not fork_enabled():
+        return None
+    enabled = os.environ.get("AA_FORK_RUNTIME_BROKER") == "1"
+    # Local interactive login must use the same broker as the system service.
+    if not enabled and system_home() == Path("/home/aa-fork"):
+        socket = Path("/run/aa-fork-runtime/launch.sock")
+        enabled = socket.is_socket() and socket.stat().st_uid == 0
+    if not enabled:
+        return None
+    if runtime not in {"codex", "claude"}:
+        raise ValueError("Unsupported broker runtime")
+    path = Path("/opt/agents-anywhere-fork-connector/bin") / runtime
+    if not path.is_file() or not os.access(path, os.X_OK):
+        raise RuntimeError(f"Missing fixed-identity {runtime} launcher")
+    return str(path)
 
 
 def fork_root(home: Path | None = None) -> Path:
