@@ -2648,7 +2648,7 @@
     "newTask": "Write a new task",
     "readyToStart": "Ready for {n} agents. Nothing is sent until you click Start.",
     "forward": "Forward to another AI",
-    "forwardDescription": "Share this conclusion and a copy of the code with another AI. Say what you want it to do, then send.",
+    "forwardDescription": "Send your instructions, the original task, a code snapshot and recent conversation text (possibly truncated). The recipient starts a new session without the full history or hidden model context.",
     "forwardInstructions": "What should the other AI do?",
     "forwardExample": "For example: Check this result for problems. Do not change the code yet.",
     "conclusion": "View the conclusion to forward",
@@ -2663,6 +2663,8 @@
     "model": "Model",
     "permission": "Permissions",
     "loadingAgent": "Loading agent settings…",
-    "retry": "Retry"
+    "retry": "Retry",
+    "workspaceRequired": "Choose a working directory below the composer, then open collaboration.",
+    "resolvingProject": "Reading the current project…"
   }
 }

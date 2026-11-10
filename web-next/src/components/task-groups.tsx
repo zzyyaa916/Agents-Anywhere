@@ -4,7 +4,7 @@ import * as React from "react"
 import { useTranslations } from "next-intl"
 import { TaskGroupAgentSelect } from "@/components/task-group-agent-select"
 import { dashboardApi } from "@/features/dashboard/api"
-import type { DeviceRuntimeView } from "@/features/dashboard/types"
+import type { DeviceRuntimeView, ProjectView } from "@/features/dashboard/types"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
@@ -18,26 +18,38 @@ import { taskGroupsApi, type TaskGroup, type CandidateDiff, type CandidateTarget
 
 const operationId = () => createClientId("group").replaceAll("_", "-")
 
-export function TaskGroupsButton() {
+export function TaskGroupsButton({ workspace }: { workspace: { connectorId: string; path: string } | null }) {
   const [open, setOpen] = React.useState(false)
   const { session } = useAuth()
-  const { newSessionProject } = useWorkspace()
+  const { resolveProject } = useWorkspace()
+  const [project, setProject] = React.useState<ProjectView | null>(null)
+  const [resolving, setResolving] = React.useState(false)
+  const [error, setError] = React.useState("")
   const t = useTranslations("taskGroups")
-  return <><Button variant="ghost" size="sm" className="min-w-0 shrink text-muted-foreground" disabled={!newSessionProject} onClick={() => setOpen(true)}>{t("entry")}</Button>
+  async function openWorkbench() {
+    setOpen(true); setError(""); setProject(null)
+    if (!workspace?.connectorId || !workspace.path) { setError(t("workspaceRequired")); return }
+    setResolving(true)
+    try { setProject(await resolveProject({ connectorId: workspace.connectorId, workspacePath: workspace.path })) }
+    catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+    finally { setResolving(false) }
+  }
+  return <><Button variant="ghost" size="sm" className="min-w-0 shrink text-muted-foreground" disabled={resolving} onClick={() => void openWorkbench()}>{t("entry")}</Button>
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent className="max-h-[94dvh] overflow-y-auto sm:max-w-[calc(100vw-2rem)]">
         <DialogHeader><DialogTitle>{t("title")}</DialogTitle><DialogDescription>{t("description")}</DialogDescription></DialogHeader>
-        {open && <TaskGroupsWorkbench key={`${session?.userId}:${newSessionProject?.id}`} />}
+        {resolving && <p role="status" className="text-sm text-muted-foreground">{t("resolvingProject")}</p>}
+        {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+        {open && project && <TaskGroupsWorkbench key={`${session?.userId}:${project.id}`} project={project} />}
       </DialogContent>
     </Dialog></>
 }
 
-function TaskGroupsWorkbench() {
+function TaskGroupsWorkbench({ project }: { project: ProjectView }) {
   const t = useTranslations("taskGroups")
   const { session } = useAuth()
-  const { newSessionProject, refreshData } = useWorkspace()
+  const { refreshData } = useWorkspace()
   const token = session?.accessToken ?? ""
-  const project = newSessionProject
   const projectId = project?.id ?? ""
   const [runtimes, setRuntimes] = React.useState<DeviceRuntimeView[]>([])
   const [content, setContent] = React.useState("")

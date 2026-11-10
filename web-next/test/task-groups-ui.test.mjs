@@ -38,6 +38,7 @@ globalThis.testWorkspace = {
   projects: [{ id: 'p', connectorId: 'c', name: 'Project' }], connectors: [{ id: 'c', deviceOs: 'linux' }],
   newSessionProject: { id: 'p', connectorId: 'c', name: 'Project' },
   runtimes: ['codex', 'claude', 'dsh'].map(runtime => ({ connectorId: 'c', runtimeId: runtime, runtimeType: runtime, displayName: runtime, status: 'running' })),
+  resolveProject: async body => { calls.push(['resolveProject', body]); return { id: 'p', connectorId: body.connectorId, workspacePath: body.workspacePath, name: 'Project' } },
   refreshData: async () => {}, upsertSession: () => {}, reportSessionStreamProgress: () => {},
 }
 const fullInventory = globalThis.testWorkspace.runtimes
@@ -100,8 +101,9 @@ for (const count of [1, 2, 3]) test(`${count} agents open independent chats; pan
   }
   const pane = slot => container.querySelector(`[data-pane-key="${'a'.repeat(40)}:${slot}"]`)
   try {
-    await act(async () => root.render(h(TaskGroupsButton)))
+    await act(async () => root.render(h(TaskGroupsButton, { workspace: { connectorId: 'c', path: '/chosen/project' } })))
     await click('entry')
+    assert.deepEqual(calls.shift(), ['resolveProject', { connectorId: 'c', workspacePath: '/chosen/project' }])
     assert.equal(calls.length, 0)
     assert.equal(container.querySelector('[aria-label="execution"]').value, '1')
     assert.equal(container.querySelector('[aria-label="project"]'), null)
@@ -159,17 +161,19 @@ for (const count of [1, 2, 3]) test(`${count} agents open independent chats; pan
   } finally { await act(async () => root.unmount()); container.remove() }
 })
 
-test('collaboration requires the current project and blocks preparation until failed DSH settings recover', async () => {
+test('collaboration works without a project route, explains missing workspace and retries failed DSH settings', async () => {
   const project = globalThis.testWorkspace.newSessionProject
   const original = globalThis.testDashboard.getConnectorRuntimeModelCatalog
   const container = document.createElement('div'); document.body.append(container)
   const root = createRoot(container)
   try {
     globalThis.testWorkspace.newSessionProject = null
-    await act(async () => root.render(h(TaskGroupsButton)))
-    assert.equal(container.querySelector('button').disabled, true)
-    globalThis.testWorkspace.newSessionProject = project
-    await act(async () => root.render(h(TaskGroupsButton)))
+    await act(async () => root.render(h(TaskGroupsButton, { workspace: null })))
+    assert.equal(container.querySelector('button').disabled, false)
+    await act(async () => container.querySelector('button').click())
+    assert.match(container.textContent, /workspaceRequired/)
+    assert.equal(container.querySelector('[aria-label="task"]'), null)
+    await act(async () => root.render(h(TaskGroupsButton, { workspace: { connectorId: 'c', path: '/chosen/project' } })))
     await act(async () => container.querySelector('button').click())
     globalThis.testDashboard.getConnectorRuntimeModelCatalog = async () => { throw new Error('DSH catalog unavailable') }
     await act(async () => {

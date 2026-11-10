@@ -1230,7 +1230,7 @@ export function TaskComposer() {
               </>
             )}
 
-            <TaskGroupsButton />
+            <TaskGroupsButton workspace={workspace?.path && workspace.connectorId === selectedConnectorId ? { connectorId: selectedConnectorId, path: workspace.path } : null} />
 
             {showCatalogStatus ? (
               <div className="flex min-w-0 items-center gap-1">

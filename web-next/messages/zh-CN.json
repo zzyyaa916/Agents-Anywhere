@@ -2648,7 +2648,7 @@
     "newTask": "填写新任务",
     "readyToStart": "已为 {n} 个 AI 准备好任务，点击“开始执行”后才会发送。",
     "forward": "转发给其他 AI",
-    "forwardDescription": "把这个 AI 的结论和当前代码一起交给另一个 AI。写下你希望对方做什么，再点击发送。",
+    "forwardDescription": "发送你的指令、原始任务、当前代码快照和最近一段对话文字（可能截断）。接收方会新建独立会话，不会继承完整历史或原 AI 的隐藏上下文。",
     "forwardInstructions": "你希望对方怎么处理？",
     "forwardExample": "例如：帮我检查这个结果有没有问题，先不要修改代码。",
     "conclusion": "查看将要转发的结论",
@@ -2663,6 +2663,8 @@
     "model": "模型",
     "permission": "权限",
     "loadingAgent": "正在读取 AI 配置…",
-    "retry": "重试"
+    "retry": "重试",
+    "workspaceRequired": "请先在输入框下方选择工作目录，再打开多 AI 协作。",
+    "resolvingProject": "正在读取当前项目…"
   }
 }
