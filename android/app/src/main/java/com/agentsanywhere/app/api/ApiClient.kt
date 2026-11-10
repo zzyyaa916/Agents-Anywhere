@@ -230,6 +230,7 @@ class ApiClient(
                         message = parseErrorMessage(responseText) ?: defaultErrorMessage(responseCode),
                         statusCode = responseCode,
                         errorCode = parseErrorCode(responseText),
+                            blockingSessionIds = runCatching { JSONObject(responseText).optJSONObject("detail")?.optJSONArray("sessionIds")?.let { ids -> (0 until ids.length()).map { ids.optString(it) }.filter { it.startsWith("sess_") } } ?: emptyList() }.getOrDefault(emptyList()),
                     )
                 }
                 if (responseText.isBlank()) JSONObject() else JSONObject(responseText)
@@ -309,6 +310,7 @@ class ApiClient(
                             message = parseErrorMessage(responseText) ?: defaultErrorMessage(response.code),
                             statusCode = response.code,
                             errorCode = parseErrorCode(responseText),
+                            blockingSessionIds = runCatching { JSONObject(responseText).optJSONObject("detail")?.optJSONArray("sessionIds")?.let { ids -> (0 until ids.length()).map { ids.optString(it) }.filter { it.startsWith("sess_") } } ?: emptyList() }.getOrDefault(emptyList()),
                         )
                     }
 
@@ -366,6 +368,7 @@ class ApiClient(
                         message = parseErrorMessage(responseText) ?: defaultErrorMessage(response.code),
                         statusCode = response.code,
                         errorCode = parseErrorCode(responseText),
+                            blockingSessionIds = runCatching { JSONObject(responseText).optJSONObject("detail")?.optJSONArray("sessionIds")?.let { ids -> (0 until ids.length()).map { ids.optString(it) }.filter { it.startsWith("sess_") } } ?: emptyList() }.getOrDefault(emptyList()),
                     )
                 }
                 val body = response.body ?: throw ApiException("The server returned an empty file.", response.code)
@@ -507,4 +510,5 @@ class ApiException(
     val statusCode: Int? = null,
     cause: Throwable? = null,
     val errorCode: String? = null,
+    val blockingSessionIds: List<String> = emptyList(),
 ) : Exception(message, cause)

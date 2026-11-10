@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="fork_usage">账号剩余用量</string>
+    <string name="fork_refresh">刷新缓存</string>
+    <string name="fork_close">关闭</string>
+    <string name="fork_wait_native">等待原生用量数据</string>
+    <string name="fork_unavailable">用量不可用</string>
+    <string name="fork_stale">缓存数据 · %1$s 更新</string>
+    <string name="fork_updated">%1$s 更新</string>
+    <string name="fork_remaining">剩余 %1$d%% · %2$s 重置</string>
+    <string name="fork_expired">数据已过期 · 等待原生更新</string>
+    <string name="fork_five_hour">5 小时</string>
+    <string name="fork_weekly">每周</string>
+    <string name="fork_no_probe">Claude 随原生任务更新；刷新不会启动任务，采集仍遵守间隔限制。</string>
+    <string name="fork_delete">永久删除</string>
+    <string name="fork_delete_session">删除会话？</string>
+    <string name="fork_delete_project">删除项目？</string>
+    <string name="fork_delete_session_body">将删除此会话、消息和上传附件，无法撤销。</string>
+    <string name="fork_delete_project_body">将删除全部 %1$d 个会话（含已归档）及上传附件，保留设备上的项目文件。请输入项目名称确认。</string>
+    <string name="fork_confirm_name">项目名称</string>
+    <string name="fork_cancel">取消</string>
+    <string name="fork_loading">正在加载…</string>
+    <string name="fork_failed">请求失败，请检查连接后重试。</string>
+    <string name="fork_forbidden">你无权删除此对象。</string>
+    <string name="fork_busy">请先停止运行中的会话：%1$s</string>
+    <string name="fork_count_changed">会话数量已变化，请核对新数量并重新确认。</string>
+    <string name="fork_retry">重试</string>
+    <string name="fork_quota_wait">已达用量限额</string>
+    <string name="fork_reset_at">%1$s 后可继续</string>
+    <string name="fork_reset_unknown">恢复时间未知</string>
+    <string name="fork_quota_ready">限额等待已结束，可在原会话继续。</string>
+    <string name="fork_recheck">重新检查</string>
+    <string name="fork_queue">待发送消息</string>
+    <string name="fork_queue_hint">发送后排队，当前任务继续执行</string>
+    <string name="fork_queue_pause">暂停队列</string>
+    <string name="fork_queue_resume">继续排队发送</string>
+    <string name="fork_queue_remove">移除</string>
+    <string name="fork_queue_send">立即发送</string>
+    <string name="fork_queue_steer">立即补充</string>
+    <string name="fork_queue_failed">发送失败或结果未知，请先检查会话再重试。</string>
+    <string name="fork_queue_sending">发送中…</string>
+    <string name="fork_queue_storage">无法保存队列，已保留输入草稿。</string>
+    <string name="fork_queue_restored">已恢复队列，当前已暂停。</string>
+    <string name="fork_limited_label">限额等待</string>
+</resources>

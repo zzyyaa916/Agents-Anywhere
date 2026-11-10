@@ -73,13 +73,14 @@ internal fun HomeSessionActionOverlay(
     onRename: () -> Unit,
     onTogglePinned: () -> Unit,
     onToggleArchived: () -> Unit,
+    onDelete: (() -> Unit)? = null,
 ) {
     val colors = LocalAAColors.current
     val darkMode = colors.canvas == Color(0xFF09090B)
     val density = LocalDensity.current
     val row = menu.rowBounds
     val menuWidth = 252.dp
-    val menuHeight = 168.dp
+    val menuHeight = if (onDelete == null) 168.dp else 218.dp
     val gap = 10.dp
     val margin = 18.dp
     val menuWidthPx = with(density) { menuWidth.toPx() }
@@ -132,6 +133,7 @@ internal fun HomeSessionActionOverlay(
             onRename = onRename,
             onTogglePinned = onTogglePinned,
             onToggleArchived = onToggleArchived,
+            onDelete = onDelete,
         )
     }
 }
@@ -164,6 +166,7 @@ private fun HomeSessionActionMenuCard(
     onRename: () -> Unit,
     onTogglePinned: () -> Unit,
     onToggleArchived: () -> Unit,
+    onDelete: (() -> Unit)? = null,
 ) {
     val colors = LocalAAColors.current
     val darkMode = colors.canvas == Color(0xFF09090B)
@@ -175,13 +178,14 @@ private fun HomeSessionActionMenuCard(
     Column(
         modifier = modifier
             .width(252.dp)
-            .height(168.dp)
+            .height(if (onDelete == null) 168.dp else 218.dp)
             .shadow(34.dp, RoundedCornerShape(22.dp), ambientColor = shadow, spotColor = shadow)
             .clip(RoundedCornerShape(22.dp))
             .background(surface)
             .border(1.dp, border, RoundedCornerShape(22.dp))
             .padding(vertical = 7.dp),
     ) {
+        onDelete?.let { remove -> HomeSessionActionMenuRow(label = stringResource(R.string.fork_delete), iconRes = R.drawable.ic_session_action_archive_black, textColor = Color(0xFFC62828), onClick = remove) }
         HomeSessionActionMenuRow(
             label = stringResource(R.string.home_rename),
             iconRes = if (darkMode) R.drawable.ic_session_action_rename_white else R.drawable.ic_session_action_rename_black,

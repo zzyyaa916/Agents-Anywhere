@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="fork_usage">Account usage</string>
+    <string name="fork_refresh">Refresh cache</string>
+    <string name="fork_close">Close</string>
+    <string name="fork_wait_native">Waiting for native usage data</string>
+    <string name="fork_unavailable">Usage unavailable</string>
+    <string name="fork_stale">Cached data · %1$s</string>
+    <string name="fork_updated">Updated %1$s</string>
+    <string name="fork_remaining">%1$d%% remaining · resets %2$s</string>
+    <string name="fork_expired">Expired · waiting for native update</string>
+    <string name="fork_five_hour">5 hours</string>
+    <string name="fork_weekly">Weekly</string>
+    <string name="fork_no_probe">Claude updates from native tasks; refresh never starts a task. Collection limits still apply.</string>
+    <string name="fork_delete">Delete permanently</string>
+    <string name="fork_delete_session">Delete session?</string>
+    <string name="fork_delete_project">Delete project?</string>
+    <string name="fork_delete_session_body">Delete this session and its messages and uploaded attachments? This cannot be undone.</string>
+    <string name="fork_delete_project_body">This deletes all %1$d sessions, including archived sessions, and their uploaded attachments. Project files on the device are kept. Type the project name to confirm.</string>
+    <string name="fork_confirm_name">Project name</string>
+    <string name="fork_cancel">Cancel</string>
+    <string name="fork_loading">Loading…</string>
+    <string name="fork_failed">Request failed. Check the connection and retry.</string>
+    <string name="fork_forbidden">You do not own this item.</string>
+    <string name="fork_busy">Stop these running sessions before deleting: %1$s</string>
+    <string name="fork_count_changed">Session count changed. Review the updated count and confirm again.</string>
+    <string name="fork_retry">Retry</string>
+    <string name="fork_quota_wait">Usage limit reached</string>
+    <string name="fork_reset_at">Resume after %1$s</string>
+    <string name="fork_reset_unknown">Reset time unknown</string>
+    <string name="fork_quota_ready">Limit wait ended. Continue in this conversation.</string>
+    <string name="fork_recheck">Check again</string>
+    <string name="fork_queue">Pending messages</string>
+    <string name="fork_queue_hint">Send to queue; current task continues</string>
+    <string name="fork_queue_pause">Pause queue</string>
+    <string name="fork_queue_resume">Continue queue</string>
+    <string name="fork_queue_remove">Remove</string>
+    <string name="fork_queue_send">Send now</string>
+    <string name="fork_queue_steer">Supplement now</string>
+    <string name="fork_queue_failed">Send failed or result unknown. Check the conversation before retrying.</string>
+    <string name="fork_queue_sending">Sending…</string>
+    <string name="fork_queue_storage">Could not save queue. Your draft is kept.</string>
+    <string name="fork_queue_restored">Restored queue is paused.</string>
+    <string name="fork_limited_label">Limit wait</string>
+</resources>

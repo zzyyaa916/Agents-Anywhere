@@ -140,6 +140,7 @@ fun AgentsAnywhereApp(
             sessionStore = sessionStore,
         )
     }
+    val forkController = remember(sessionStore, apiClient) { com.agentsanywhere.app.feature.fork.ForkController(com.agentsanywhere.app.api.ForkApi(apiClient), sessionStore) }
     val sessionsController = remember(context, sessionStore, apiClient) {
         SessionsController(
             sessionsApi = SessionsApi(apiClient),
@@ -520,6 +521,7 @@ fun AgentsAnywhereApp(
     }
 
     AgentsAnywhereNavHost(
+        forkController = forkController,
         currentDestination = currentDestination,
         sessionsState = sessionsState,
         modelConfigState = modelConfigState,

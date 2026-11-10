@@ -91,6 +91,7 @@ enum class HomeTab { Active, Archived, Devices }
 
 @Composable
 fun HomeScreen(
+    forkController: com.agentsanywhere.app.feature.fork.ForkController? = null,
     navigate: (AppDestination) -> Unit,
     state: SessionsState,
     selectedTab: HomeTab,
@@ -140,6 +141,8 @@ fun HomeScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+    var deletingSession by remember { mutableStateOf<AgentSession?>(null) }
+    var deletingProject by remember { mutableStateOf<AgentProject?>(null) }
     var actionMenu by remember { mutableStateOf<HomeSessionActionMenu?>(null) }
     var renamingSession by remember { mutableStateOf<AgentSession?>(null) }
     var renameErrorMessage by remember { mutableStateOf<String?>(null) }
@@ -242,9 +245,15 @@ fun HomeScreen(
                 deviceAgentPreviews = deviceAgentPreviews,
                 onPairDevice = onPairDevice,
             )
+            forkController?.let { fork ->
+                com.agentsanywhere.app.ui.screens.fork.ForkUsageButton(fork, Modifier.align(Alignment.BottomStart).padding(start = 16.dp, bottom = 24.dp))
+                deletingSession?.let { target -> com.agentsanywhere.app.ui.screens.fork.ForkDeleteDialog(fork, target.id, target.title, false, { deletingSession = null }, { deletingSession = null; onRefresh() }) }
+                deletingProject?.let { target -> com.agentsanywhere.app.ui.screens.fork.ForkDeleteDialog(fork, target.id, target.name, true, { deletingProject = null }, { deletingProject = null; onRefresh() }) }
+            }
             actionMenu?.let { menu ->
                 HomeSessionActionOverlay(
                     menu = menu,
+                    onDelete = if (forkController == null) null else ({ deletingSession = menu.session; actionMenu = null }),
                     onDismiss = { actionMenu = null },
                     onRename = {
                         actionMenu = null
@@ -281,6 +290,7 @@ fun HomeScreen(
             projectActionMenu?.let { menu ->
                 HomeProjectActionOverlay(
                     menu = menu,
+                    onDelete = if (forkController == null) null else ({ deletingProject = menu.project; projectActionMenu = null }),
                     onDismiss = { projectActionMenu = null },
                     onEdit = {
                         projectActionMenu = null

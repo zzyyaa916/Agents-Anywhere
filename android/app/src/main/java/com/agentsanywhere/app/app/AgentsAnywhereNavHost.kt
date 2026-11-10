@@ -75,6 +75,7 @@ import com.agentsanywhere.app.ui.screens.terminal.TerminalScreen
 
 @Composable
 internal fun AgentsAnywhereNavHost(
+    forkController: com.agentsanywhere.app.feature.fork.ForkController,
     currentDestination: AppDestination,
     sessionsState: SessionsState,
     modelConfigState: ModelConfigState,
@@ -273,6 +274,7 @@ internal fun AgentsAnywhereNavHost(
                     mobileLoginQr = pendingMobileLoginQr,
                 )
                 AppDestination.Sessions -> HomeScreen(
+                    forkController = forkController,
                     navigate = navigate,
                     state = sessionsState,
                     selectedTab = selectedHomeTab,
@@ -341,6 +343,7 @@ internal fun AgentsAnywhereNavHost(
                     onCreateProject = onCreateProject,
                 ) }
                 AppDestination.SessionDetail -> SessionDetailScreen(
+                    forkController = forkController,
                     navigate = navigate,
                     sessionId = selectedSessionId,
                     initialSession = preparedSessionDraft?.previewSession() ?: sessionsState.sessions

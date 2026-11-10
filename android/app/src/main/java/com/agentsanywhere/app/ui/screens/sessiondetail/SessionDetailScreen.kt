@@ -163,6 +163,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SessionDetailScreen(
+    forkController: com.agentsanywhere.app.feature.fork.ForkController? = null,
     navigate: (AppDestination) -> Unit,
     sessionId: String?,
     initialSession: AgentSession?,

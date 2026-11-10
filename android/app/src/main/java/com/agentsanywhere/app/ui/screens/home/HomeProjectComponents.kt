@@ -76,6 +76,7 @@ import com.agentsanywhere.app.model.AgentSession
 import com.agentsanywhere.app.model.runtimeTypeLabel
 import com.agentsanywhere.app.ui.designsystem.LocalAAColors
 import com.agentsanywhere.app.ui.screens.common.AppEmptyState
+import com.composables.icons.lucide.Trash2
 import com.composables.icons.lucide.Archive
 import com.composables.icons.lucide.ChevronDown
 import com.composables.icons.lucide.ChevronLeft
@@ -530,10 +531,11 @@ internal fun HomeProjectActionOverlay(
     onEdit: () -> Unit,
     onTogglePinned: () -> Unit,
     onArchive: () -> Unit,
+    onDelete: (() -> Unit)? = null,
 ) {
     menu.anchorBounds?.let { anchor ->
         HomeProjectAnchoredPopup(anchor, onDismiss) {
-            HomeProjectActionCard(menu.project, Modifier, onEdit, onTogglePinned, onArchive)
+            HomeProjectActionCard(menu.project, Modifier, onEdit, onTogglePinned, onArchive, onDelete)
         }
         return
     }
@@ -542,7 +544,7 @@ internal fun HomeProjectActionOverlay(
     val density = LocalDensity.current
     val row = menu.rowBounds
     val menuWidth = 252.dp
-    val menuHeight = 168.dp
+    val menuHeight = if (onDelete == null) 168.dp else 218.dp
     val gap = 10.dp
     val margin = 18.dp
     val menuWidthPx = with(density) { menuWidth.toPx() }
@@ -580,6 +582,7 @@ internal fun HomeProjectActionOverlay(
             onEdit = onEdit,
             onTogglePinned = onTogglePinned,
             onArchive = onArchive,
+            onDelete = onDelete,
         )
     }
 }
@@ -616,6 +619,7 @@ private fun HomeProjectActionCard(
     onEdit: () -> Unit,
     onTogglePinned: () -> Unit,
     onArchive: () -> Unit,
+    onDelete: (() -> Unit)? = null,
 ) {
     val colors = LocalAAColors.current
     val darkMode = colors.canvas == Color(0xFF09090B)
@@ -624,12 +628,13 @@ private fun HomeProjectActionCard(
     Column(
         modifier = modifier
             .width(252.dp)
-            .height(168.dp)
+            .height(if (onDelete == null) 168.dp else 218.dp)
             .clip(RoundedCornerShape(22.dp))
             .background(surface)
             .border(1.dp, border, RoundedCornerShape(22.dp))
             .padding(vertical = 7.dp),
     ) {
+        onDelete?.let { HomeProjectActionRow(Lucide.Trash2, stringResource(R.string.fork_delete), true, it) }
         HomeProjectActionRow(Lucide.Pencil, stringResource(R.string.home_project_edit), false, onEdit)
         HomeProjectActionRow(
             Lucide.Pin,
