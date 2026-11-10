@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import type { AttachedFile } from "@/components/attachment-input"
 import { Forward, Maximize2, Minimize2, X } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { Button } from "@/components/ui/button"
@@ -11,8 +12,10 @@ import { candidateStopped, type CandidateDiff, type TaskGroup } from "@/features
 
 export type ChatPaneMode = "open" | "minimized" | "closed"
 
-export function TaskGroupChatPane({ group, slot, title, token, mode, pending, diff, onModeChange, onForward, onInspect, onSelect }: {
+export function TaskGroupChatPane({ group, slot, title, token, mode, pending, diff, onModeChange, onForward, onInspect, onSelect, onQueueReady, onForwardCommand }: {
   group: TaskGroup; slot: number; title: string; token: string; mode: ChatPaneMode; pending: boolean; diff?: CandidateDiff
+  onForwardCommand?: (text: string, attachments: AttachedFile[]) => Promise<boolean | null>
+  onQueueReady?: (enqueue: ((text: string) => boolean) | null) => void
   onModeChange: (mode: ChatPaneMode) => void
   onForward: (conclusion: string) => void
   onInspect: () => void
@@ -32,7 +35,7 @@ export function TaskGroupChatPane({ group, slot, title, token, mode, pending, di
   const stopped = candidateStopped(candidate)
   const minimized = mode === "minimized"
   return <article data-pane-key={`${group.id}:${slot}`} data-session-id={candidate.sessionId ?? ""} aria-label={title}
-    className={`flex min-w-0 flex-col overflow-hidden rounded-lg border bg-background ${minimized ? "" : "h-[60dvh] min-h-80"}`}>
+    className={`${mode === "closed" ? "hidden" : "flex"} min-w-0 flex-col overflow-hidden rounded-lg border bg-background ${minimized ? "" : "h-[60dvh] min-h-80"}`}>
     <header className="flex shrink-0 items-center justify-between gap-2 border-b px-3 py-2">
       <div className="min-w-0">
         <h3 className="truncate text-sm font-medium" title={title}>{title}{group.selected === slot ? ` · ${t("selected")}` : ""}</h3>
@@ -48,7 +51,7 @@ export function TaskGroupChatPane({ group, slot, title, token, mode, pending, di
       {candidate.error && <p role="alert" className="px-3 py-2 text-xs text-destructive">{candidate.error}</p>}
       <div className="min-h-0 flex-1 overflow-hidden">
         {candidate.sessionId ? <SessionDetail key={candidate.sessionId} token={token} sessionId={candidate.sessionId}
-          fallbackSession={null} connectorDeviceOs={deviceOs} onSessionUpdated={upsertSession}
+          onForwardCommand={onForwardCommand} onQueueReady={onQueueReady} fallbackSession={null} connectorDeviceOs={deviceOs} onSessionUpdated={upsertSession}
           onStreamProgress={reportSessionStreamProgress} onMemorySnapshotUpdated={snapshot} />
           : <p className="p-4 text-sm text-muted-foreground">{t("waitingForSession")}</p>}
       </div>

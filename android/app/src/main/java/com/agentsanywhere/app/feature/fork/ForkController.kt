@@ -17,6 +17,8 @@ class ForkController(private val api: ForkApi, private val auth: AuthSessionRead
             action(server, token)
         }
     }
+    fun workbenchSession(role: String) = WorkbenchSession(auth.readServerUrl(), JSONObject()
+        .put("accessToken", auth.readAccessToken()).put("userId", auth.readUserId()).put("role", role).toString())
     suspend fun usage(refresh: Boolean = false) = request { s, t -> UsageCache.parse(api.usage(s, t, refresh)) }
     suspend fun deletionCount(id: String) = request { s, t -> api.deletionCount(s, t, id) }
     suspend fun deleteSession(id: String) = request { s, t -> api.deleteSession(s, t, id) }
@@ -62,3 +64,12 @@ data class QuotaWait(val state: String, val resetsAt: String?) {
         fun parse(value: JSONObject) = QuotaWait(value.optString("state"), value.optString("resetsAt").takeUnless { it.isBlank() || it == "null" })
     }
 }
+
+// Authentication stays in the app and is injected only into the configured server origin.
+data class WorkbenchSession(val origin: String, val sessionJson: String)
+
+internal fun workbenchAllowsNavigation(origin: String, url: String): Boolean = runCatching {
+    val target = java.net.URI(url)
+    val source = java.net.URI(origin)
+    target.rawUserInfo == null && target.scheme == source.scheme && target.host == source.host && target.port == source.port
+}.getOrDefault(false)

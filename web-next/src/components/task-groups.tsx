@@ -12,6 +12,9 @@ import { Label } from "@/components/ui/label"
 import { useAuth } from "@/components/auth/auth-context"
 import { useWorkspace } from "@/components/workspace-context"
 import { TaskGroupChatPane, type ChatPaneMode } from "@/components/task-group-chat-pane"
+import { CAPABILITY, capabilityIsUsable } from "@/components/session/capabilities"
+import { catalogItemEnabled, selectionIdForModelCatalog } from "@/components/session/catalog-selection"
+import { parseForwardCommand } from "@/features/task-groups/forward-command"
 import { createClientId } from "@/lib/id"
 import { taskGroupsApi, type TaskGroup, type CandidateDiff, type CandidateTarget } from "@/features/task-groups/api"
 
@@ -104,29 +107,31 @@ export function TaskGroupConversation({ initialGroup, starting = false, onBack }
   const [broadcast, setBroadcast] = React.useState("")
   const [sending, setSending] = React.useState(false)
   const delivery = React.useRef<{ content: string; ids: Map<string, string>; sent: Set<string> } | null>(null)
-  const broadcastReady = current.candidates.every(row => row.phase === "sent" && row.status === "idle" && row.sessionId)
+  const queues = React.useRef(new Map<string, (text: string) => boolean>())
+  const queueCallbacks = React.useRef(new Map<string, (enqueue: ((text: string) => boolean) | null) => void>())
+  const registerQueue = (id: string) => {
+    if (!queueCallbacks.current.has(id)) queueCallbacks.current.set(id, enqueue => {
+      if (enqueue) queues.current.set(id, enqueue)
+      else queues.current.delete(id)
+    })
+    return queueCallbacks.current.get(id)!
+  }
+  const broadcastReady = current.candidates.every(row => row.phase === "sent" && row.sessionId)
   async function sendBroadcast() {
-    const sessions = current.candidates.map(row => row.sessionId)
-    if (sending || !broadcastReady || !broadcast.trim() || sessions.some(id => !id)) return
+    if (sending || !broadcastReady || !broadcast.trim()) return
     if (delivery.current?.content !== broadcast) delivery.current = { content: broadcast, ids: new Map(), sent: new Set() }
     const batch = delivery.current!
     setSending(true); setError("")
-    setCurrent(row => ({ ...row, candidates: row.candidates.map(candidate => ({ ...candidate, status: "pending" })) }))
     try {
-      const results = await Promise.allSettled(sessions.map(async id => {
-        if (!id || batch.sent.has(id)) return
-        if (!batch.ids.has(id)) batch.ids.set(id, createClientId("message"))
-        const result = await dashboardApi.sendSessionMessage(token, id, batch.content, { clientMessageId: batch.ids.get(id) })
-        if (!result.ok) throw new Error(t("broadcastFailed"))
+      for (const candidate of current.candidates) {
+        const id = candidate.sessionId!
+        if (batch.sent.has(id)) continue
+        if (!queues.current.get(id)?.(batch.content)) throw new Error(t("broadcastFailed"))
         batch.sent.add(id)
-      }))
-      if (results.some(row => row.status === "rejected")) throw new Error(t("broadcastFailed"))
+      }
       setBroadcast(""); delivery.current = null
     } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
-    finally {
-      try { updateGroup(await taskGroupsApi.get(token, current.id)) } catch { /* Polling refreshes status after reconnect. */ }
-      setSending(false)
-    }
+    finally { setSending(false) }
   }
 
   const panes = current ? [current, ...forwarded].flatMap(group => group.candidates.map((candidate, slot) => ({ group, candidate, slot, key: `${group.id}:${slot}` }))) : []
@@ -158,7 +163,48 @@ export function TaskGroupConversation({ initialGroup, starting = false, onBack }
         <p className="text-xs text-muted-foreground">{t("windowHint")}</p>
         <div className="flex flex-wrap gap-2">{panes.filter(pane => paneModes[pane.key] === "closed").map(pane => <Button key={pane.key} variant="outline" size="sm" onClick={() => setPaneModes(rows => ({ ...rows, [pane.key]: "open" }))}>{t("reopen")} · {paneTitle(pane)}</Button>)}</div>
         <div className="overflow-x-auto"><div className="grid items-start gap-3" data-chat-grid style={{ gridTemplateColumns: visible.map(pane => paneModes[pane.key] === "minimized" ? "minmax(190px,0.35fr)" : "minmax(320px,1fr)").join(" ") }}>
-          {visible.map(pane => <TaskGroupChatPane key={pane.key} group={pane.group} slot={pane.slot} title={paneTitle(pane)} token={token}
+          {panes.map(pane => <TaskGroupChatPane key={pane.key} group={pane.group} slot={pane.slot} title={paneTitle(pane)} token={token}
+            onQueueReady={pane.candidate.sessionId ? registerQueue(pane.candidate.sessionId) : undefined}
+            onForwardCommand={async (text, attachments) => {
+              const command = parseForwardCommand(text)
+              if (!command) return null
+              const matches = available.filter(runtime => [runtime.runtimeId, runtime.runtimeType, runtime.name, runtime.displayName].some(name => name?.toLowerCase() === command.target.toLowerCase()))
+              if (matches.length !== 1) { setError("目标 AI 不存在或名称不唯一，请使用转发按钮选择。"); return false }
+              const runtime = matches[0]!
+              let target = current.request.candidates.find(row => row.runtimeId === runtime.runtimeId)
+              const signature = JSON.stringify([pane.key, command, attachments.map(file => file.uploaded?.fileId)])
+              if (forwardIdentity.current.signature !== signature) forwardIdentity.current = { signature, id: operationId() }
+              const forwardOperationId = forwardIdentity.current.id
+              try {
+                if (!target) {
+                  const { capabilitySet } = await dashboardApi.getConnectorRuntimeCapabilities(token, project!.connectorId, runtime.runtimeId)
+                  const scope = { runtimeId: runtime.runtimeId, runtimeType: runtime.runtimeType }
+                  const selections: Record<string, string | null> = {}
+                  if (capabilityIsUsable(capabilitySet, CAPABILITY.modelCatalog, scope)) {
+                    const { catalog } = await dashboardApi.getConnectorRuntimeModelCatalog(token, project!.connectorId, runtime.runtimeId)
+                    const model = catalog.models.find(row => row.default && catalogItemEnabled(row)) ?? catalog.models.find(catalogItemEnabled)
+                    const reasoning = model?.reasoningItems.find(row => row.default && catalogItemEnabled(row)) ?? model?.reasoningItems.find(catalogItemEnabled)
+                    const selected = selectionIdForModelCatalog(catalog, model?.id ?? "", reasoning?.id ?? "")
+                    if (!selected) throw new Error("目标 AI 没有可用模型，请使用转发按钮检查设置。")
+                    selections.model = selected
+                  }
+                  if (capabilityIsUsable(capabilitySet, CAPABILITY.permissionCatalog, scope)) {
+                    const { catalog } = await dashboardApi.getConnectorRuntimePermissionCatalog(token, project!.connectorId, runtime.runtimeId)
+                    const permission = catalog.permissions.find(row => row.default && catalogItemEnabled(row)) ?? catalog.permissions.find(catalogItemEnabled)
+                    if (!permission) throw new Error("目标 AI 没有可用权限，请使用转发按钮检查设置。")
+                    selections.permission = permission.selectionId
+                  }
+                  target = { runtime: runtime.runtimeType, runtimeId: runtime.runtimeId, selections }
+                }
+                if (attachments.some(file => !file.uploaded)) throw new Error("请等待附件上传完成。")
+                const group = await taskGroupsApi.handoff(token, pane.group.id, { operationId: forwardOperationId, slot: pane.slot, mode: "continue", target, instructions: command.instructions, attachments: attachments.map(file => ({ fileId: file.uploaded!.fileId })) })
+                setForwarded(rows => [...rows.filter(row => row.id !== group.id), group])
+                updateGroup(await taskGroupsApi.start(token, group.id, 0))
+                await refreshData()
+                if (forwardIdentity.current.id === forwardOperationId) forwardIdentity.current = { signature: "", id: "" }
+                return true
+              } catch (e) { setError(e instanceof Error ? e.message : String(e)); return false }
+            }}
             mode={paneModes[pane.key] ?? "open"} pending={pending} diff={diffs[pane.key]}
             onModeChange={mode => setPaneModes(rows => ({ ...rows, [pane.key]: mode }))}
             onForward={conclusion => { setForward({ group: pane.group, slot: pane.slot, conclusion }); setForwardTarget(null); setInstructions(""); forwardIdentity.current = { signature: "", id: "" } }}

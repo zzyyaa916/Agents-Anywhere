@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 from typing import Any, Protocol
 
-from agent_server.core.models import SessionCreateAndStartRequest
+from agent_server.core.models import InlineAttachmentRef, SessionCreateAndStartRequest
 from agent_server.core.task_groups import TaskGroupCreate, TaskGroupHandoff
 from agent_server.services.session_run import SessionRunService
 
@@ -12,6 +12,7 @@ class TaskGroupRepository(Protocol):
     async def get_project(self, project_id: str, *, user_id: str) -> Any: ...
     async def ensure_project_for_workspace(self, **values: Any) -> Any: ...
     async def get_session(self, session_id: str, *, user_id: str) -> Any: ...
+    async def read_uploaded_file(self, *, session_id: str, file_id: str, user_id: str) -> dict: ...
     async def get_active_run(self, session_id: str) -> dict | None: ...
     async def list_timeline_latest(self, *, session_id: str, limit: int) -> Any: ...
     async def put_task_group(self, identifier: str, **values: Any) -> dict: ...
@@ -143,6 +144,7 @@ class TaskGroupService:
                     cwd=candidate_project.workspacePath,
                     title=f"方案 {slot + 1} · {row['request']['content'][:60]}",
                     content=row.get("handoffBrief", row["request"]["content"]),
+                    attachments=row["request"].get("attachments", []),
                     clientMessageId=f"{identifier}-{slot}",
                     **target,
                 )
@@ -197,11 +199,28 @@ class TaskGroupService:
     ) -> dict:
         row, project = await self.stopped(identifier, payload.slot, user_id=user_id)
         next_id = group_id(user_id, payload.operationId)
+        source_session = row["candidates"][payload.slot]["sessionId"]
+        items, _more = await self.store.list_timeline_latest(session_id=source_session, limit=100)
+        attachments = list(row["request"].get("attachments", []))
+        seen = {attachment["fileId"] for attachment in attachments}
+        attachment_lists = [item.content.get("attachments", []) for item in items if item.type == "message" and isinstance(item.content, dict)]
+        attachment_lists.append([a.model_dump() for a in payload.attachments])
+        for attachment_list in attachment_lists:
+            for attachment in attachment_list:
+                file_id = attachment.get("fileId") if isinstance(attachment, dict) else None
+                if not file_id or file_id in seen:
+                    continue
+                saved = await self.store.read_uploaded_file(session_id=source_session, file_id=file_id, user_id=user_id)
+                attachments.append(InlineAttachmentRef(**{key: saved[key] for key in InlineAttachmentRef.model_fields if key in saved}).model_dump())
+                seen.add(file_id)
+        if len(attachments) > 10:
+            raise ValueError("转发附件超过 10 个，请减少附件后重试。")
         request = {
             "operationId": payload.operationId,
             "projectId": project.id,
             "content": row["request"]["content"],
             "candidates": [payload.target.model_dump(mode="json")],
+            "attachments": attachments,
             "source": {
                 "groupId": identifier,
                 "slot": payload.slot,
@@ -234,10 +253,6 @@ class TaskGroupService:
                 timeout=180,
             )
             self.validate_workspace_result(prepared, 1)
-            source_session = row["candidates"][payload.slot]["sessionId"]
-            items, _more = await self.store.list_timeline_latest(
-                session_id=source_session, limit=30
-            )
             messages = []
             for item in items:
                 if (

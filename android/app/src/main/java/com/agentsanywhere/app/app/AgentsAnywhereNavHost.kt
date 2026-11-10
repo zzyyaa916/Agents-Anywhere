@@ -322,6 +322,7 @@ internal fun AgentsAnywhereNavHost(
                     onPairDevice = { navigate(AppDestination.DeviceSetup) },
                 )
                 AppDestination.NewSession, AppDestination.NewProject -> androidx.compose.runtime.key(serverUrl, userId, destination) { NewSessionScreen(
+                    collaborationSession = forkController.workbenchSession(role),
                     navigate = navigate,
                     sessionsState = sessionsState,
                     projectSessionsById = projectSessionsById,

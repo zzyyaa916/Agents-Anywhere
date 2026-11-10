@@ -2,7 +2,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from agent_server.core.models import RuntimeName
+from agent_server.core.models import RuntimeName, InlineAttachmentRef, AttachmentRef
 
 
 class CandidateTarget(BaseModel):
@@ -17,6 +17,7 @@ class TaskGroupCreate(BaseModel):
     operationId: str = Field(pattern=r"^[a-zA-Z0-9-]{8,80}$")
     projectId: str = Field(min_length=1)
     content: str = Field(min_length=1, max_length=32_000)
+    attachments: list[InlineAttachmentRef] = Field(default_factory=list, max_length=10)
     candidates: list[CandidateTarget] = Field(min_length=1, max_length=3)
 
     @model_validator(mode="after")
@@ -35,4 +36,5 @@ class TaskGroupHandoff(TaskGroupSelection):
     operationId: str = Field(pattern=r"^[a-zA-Z0-9-]{8,80}$")
     mode: Literal["review", "continue"]
     target: CandidateTarget
+    attachments: list[AttachmentRef] = Field(default_factory=list, max_length=10)
     instructions: str = Field(default="", max_length=8000)

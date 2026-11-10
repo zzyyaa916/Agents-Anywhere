@@ -6,6 +6,7 @@ import { useWorkspacePreparation } from "@/components/session/use-workspace-prep
 import { RuntimeCreationStatus } from "@/components/session/runtime-creation-status"
 import { TaskGroupConversation } from "@/components/task-groups"
 import { MultiAgentSettings } from "@/components/session/multi-agent-settings"
+import { inlineAttachmentsFromFiles } from "@/components/session/session-creation"
 import { taskGroupsApi, type CandidateTarget, type TaskGroup } from "@/features/task-groups/api"
 import { creationConfigurationDefaults } from "@/features/dashboard/runtime-forms"
 
@@ -564,7 +565,7 @@ export function TaskComposer() {
   const imagesAllowed = !Array.isArray(selectedInputs) || selectedInputs.includes("image")
   const [restoredAttachments] = React.useState(() => (creationEditorDraft?.attachments ?? []).map(file => ({ ...file, preview: undefined })))
   const { attachments, isDragging, add, remove, clear, onDragEnter, onDragLeave, onDragOver, onDrop,
-    attachmentsAllowed, attachmentError } = useAttachments({ enabled: canUseAttachments, allowedMimeTypes, imagesAllowed, initialAttachments: restoredAttachments })
+    attachmentsAllowed, attachmentError } = useAttachments({ enabled: multiAgent || canUseAttachments, allowedMimeTypes: multiAgent ? undefined : allowedMimeTypes, imagesAllowed: multiAgent || imagesAllowed, initialAttachments: restoredAttachments })
 
   const models = React.useMemo(
     () => modelCatalog?.models.map((item) => ({
@@ -793,7 +794,7 @@ export function TaskComposer() {
     && (selectedConnectorId !== creationEditorDraft.request.connectorId || selectedAgent !== creationEditorDraft.request.runtimeId))
   const capabilitiesReady = loadedCatalogScope === catalogScope && runtimeCapabilities !== null && selectedRuntime?.status === "running"
   const canCreate = multiAgent ? Boolean(authSession?.accessToken && selectedConnector && workspace?.path && workspace.connectorId === selectedConnectorId
-    && !creating && prompt.trim() && attachments.length === 0 && multiRuntimes.length === selectedAgents.length && multiRuntimes.every(row => row.status === "running" && agentTargets[row.runtimeId])) :
+    && !creating && (prompt.trim() || attachments.length > 0) && multiRuntimes.length === selectedAgents.length && multiRuntimes.every(row => row.status === "running" && agentTargets[row.runtimeId])) :
     capabilitiesReady &&
     !recoveryTargetUnavailable &&
     Boolean(authSession?.accessToken && selectedConnector && selectedRuntime && workspace?.path) &&
@@ -831,7 +832,7 @@ export function TaskComposer() {
       creatingRef.current = true; setCreating(true)
       try {
         const project = await resolveProject({ connectorId: selectedConnectorId, workspacePath: workspace.path })
-        const body = { projectId: project.id, content: prompt, candidates: selectedAgents.map(id => agentTargets[id]!) }
+        const body = { projectId: project.id, content: prompt.trim() || t("attachmentOnlyPrompt"), attachments: await inlineAttachmentsFromFiles(attachments), candidates: selectedAgents.map(id => agentTargets[id]!) }
         const signature = JSON.stringify(body)
         if (groupCreation.current.signature !== signature) groupCreation.current = { signature, id: createClientId("group").replaceAll("_", "-") }
         const group = await taskGroupsApi.create(authSession.accessToken, { ...body, operationId: groupCreation.current.id })
@@ -840,7 +841,7 @@ export function TaskComposer() {
         setConversation(await taskGroupsApi.get(authSession.accessToken, group.id))
         await refreshData()
         if (results.some(row => row.status === "rejected")) toast.error(tGroups("checkBeforeRetry"))
-        setPrompt("")
+        setPrompt(""); clear()
       } catch (e) { toast.error(e instanceof Error ? e.message : t("createFailed")) }
       finally { creatingRef.current = false; setCreating(false) }
       return
@@ -1124,7 +1125,6 @@ export function TaskComposer() {
             {planningCreation && <Badge variant="outline">{tPlanning("creationIntent")}</Badge>}
             <AttachmentPreviewList attachments={attachments} onRemove={remove} />
             {multiAgent && selectedAgents.some(id => !agentTargets[id]) && <p role="status" className="text-xs text-muted-foreground">{tGroups("checkSettings")}</p>}
-            {multiAgent && attachments.length > 0 && <p role="alert" className="text-xs text-destructive">{tGroups("multiAttachments")}</p>}
             {attachmentError ? <p role="alert" className="text-xs text-destructive">{attachmentError}</p> : null}
             <Textarea
               value={prompt}
@@ -1154,7 +1154,7 @@ export function TaskComposer() {
               onAttach={add}
               isDragging={isDragging}
               allowedMimeTypes={allowedMimeTypes}
-              disabled={multiAgent || !canUseAttachments}
+              disabled={!multiAgent && !canUseAttachments}
             />
 
             {selectorsLoading ? (

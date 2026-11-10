@@ -55,11 +55,11 @@ import {
   ToolMarkerRowContent,
 } from "@/components/session/session-tool-cards"
 import { timelineRunCounts } from "@/components/session/timeline-summary"
-import { RuntimeCreationStatus } from "@/components/session/runtime-creation-status"
-import { NativeSessionHandoff } from "@/components/session/native-session-handoff"
 import { needsOlderTimelinePage } from "@/components/session/timeline-autofill"
 import { createTimelineScrollFollow } from "@/components/session/timeline-scroll-follow"
 import { createSessionEventBuffer } from "@/components/session/session-event-buffer"
+import { RuntimeCreationStatus } from "@/components/session/runtime-creation-status"
+import { NativeSessionHandoff } from "@/components/session/native-session-handoff"
 import { CAPABILITY, capabilityIsUsable, findCapability } from "@/components/session/capabilities"
 import { SessionComposer, type AttachedFile } from "@/components/session/session-composer"
 import { commandResult, commandTransportFailure, type CommandOutcome } from "@/components/session/runtime-command-model"
@@ -93,6 +93,8 @@ import { sessionRuntimeId, sessionRuntimeType } from "@/features/dashboard/runti
 import { useWorkspace } from "@/components/workspace-context"
 
 type SessionDetailProps = {
+  onForwardCommand?: (text: string, attachments: AttachedFile[]) => Promise<boolean | null>
+  onQueueReady?: (enqueue: ((text: string) => boolean) | null) => void
   token: string
   sessionId: string
   fallbackSession: SessionView | null
@@ -335,6 +337,8 @@ export function SessionDetail({
   onSessionUpdated,
   onMemorySnapshotUpdated,
   onStreamProgress,
+  onQueueReady,
+  onForwardCommand,
 }: SessionDetailProps) {
   const { session: accountSession } = useAuth()
   const tSession = useTranslations("dashboard.session")
@@ -1209,6 +1213,10 @@ export function SessionDetail({
     options: { model?: string; permission?: string; clientMessageId?: string; steer?: boolean },
   ): Promise<boolean> => {
     if (!session || (!content.trim() && attachments.length === 0)) return false
+    if (onForwardCommand) {
+      const forwarded = await onForwardCommand(content, attachments)
+      if (forwarded !== null) return forwarded
+    }
     if (capabilityIsUsable(effectiveCapabilities,"session.goal",sessionRuntimeScope) && /^\/goal(?:\s|$)/.test(content.trimStart())) {
       const objective=content.trimStart().slice(5).trim()
       const refs=attachments.flatMap(file=>file.uploaded?[file.uploaded]:[])
@@ -1863,6 +1871,7 @@ export function SessionDetail({
           <div hidden={planReview !== null}>
           <GoalPanel goals={goals}/>
           <SessionComposer
+            onQueueReady={onQueueReady}
             allowQueueDelivery={planReview === null}
             queueScope={accountSession ? `aa-message-queue:${JSON.stringify([accountSession?.serverUrl || window.location.origin, accountSession.userId, session.id])}` : undefined}
             token={token}

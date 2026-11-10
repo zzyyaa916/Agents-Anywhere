@@ -39,7 +39,14 @@ User = Annotated[str, Depends(current_user_id)]
 
 async def invoke(action):
     try:
-        return await action
+        result = await action
+        def public(value):
+            if isinstance(value, dict):
+                return {key: public(item) for key, item in value.items() if key != "contentBase64"}
+            if isinstance(value, list):
+                return [public(item) for item in value]
+            return value
+        return public(result)
     except KeyError:
         raise HTTPException(404, "任务组或来源项目不存在。") from None
     except ValueError as error:

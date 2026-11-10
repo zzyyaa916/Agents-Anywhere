@@ -78,6 +78,7 @@ export type { AttachedFile }
 export function SessionComposer({
   token,
   queueScope,
+  onQueueReady,
   allowQueueDelivery = true,
   session,
   runtimeState,
@@ -102,6 +103,7 @@ export function SessionComposer({
   onToggleTakeover,
 }: {
   allowQueueDelivery?: boolean
+  onQueueReady?: (enqueue: ((text: string) => boolean) | null) => void
   queueScope?: string
   token: string
   session: SessionView
@@ -239,6 +241,10 @@ export function SessionComposer({
     canSteer: canSteer && session.takeover && !sending && !interrupting && !commandPending,
     onSend,
   })
+  React.useEffect(() => {
+    onQueueReady?.(text => messageQueue.enqueue(text, []))
+    return () => onQueueReady?.(null)
+  }, [onQueueReady, messageQueue.enqueue])
   const hasInput = value.trim().length > 0 || attachments.length > 0
   const attachmentsReady = attachmentsAllowed && (attachments.length === 0 || (allUploaded && !uploadsPending && !uploadFailed))
   const activeSessionCanInterrupt = Boolean(

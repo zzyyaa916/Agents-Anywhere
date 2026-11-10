@@ -9,7 +9,7 @@ import { dashboardApi } from "@/features/dashboard/api"
 import type { DeviceRuntimeView, ProtocolModelCatalog, ProtocolPermissionCatalog } from "@/features/dashboard/types"
 import type { CandidateTarget } from "@/features/task-groups/api"
 import { CAPABILITY, capabilityIsUsable, findCapability } from "@/components/session/capabilities"
-import { catalogItemEnabled, selectionIdForModelCatalog } from "@/components/session/catalog-selection"
+import { catalogItemEnabled, catalogI18nText, permissionCatalogI18nText, selectionIdForModelCatalog } from "@/components/session/catalog-selection"
 
 export function useAgentConfiguration(token: string, connectorId: string, runtime: DeviceRuntimeView | undefined, onChange: (target: CandidateTarget | null) => void) {
   const runtimeId = runtime?.runtimeId ?? ""
@@ -63,6 +63,7 @@ export function useAgentConfiguration(token: string, connectorId: string, runtim
 
 export function AgentConfigurationFields({ config, label, disabled }: { config: ReturnType<typeof useAgentConfiguration>; label: string; disabled: boolean }) {
   const t = useTranslations("taskGroups")
+  const tNew = useTranslations("dashboard.new")
   const { catalogs, modelId, selectModel, reasoningId, setReasoningId, permissionId, setPermissionId, error, retry } = config
   const reasoning = catalogs?.model?.models.find(row => row.id === modelId)?.reasoningItems ?? []
   return <div className="space-y-2">
@@ -70,10 +71,10 @@ export function AgentConfigurationFields({ config, label, disabled }: { config: 
       {catalogs.model.models.map(row => <NativeSelectOption key={row.id} value={row.id} disabled={!catalogItemEnabled(row)}>{row.group?.displayName ? `${row.group.displayName} · ` : ""}{row.displayName}</NativeSelectOption>)}
     </NativeSelect></Label>}
     {reasoning.length > 0 && <Label className="grid gap-2">{t("reasoning")}<NativeSelect aria-label={`${label} ${t("reasoning")}`} value={reasoningId} disabled={disabled} onChange={e => setReasoningId(e.target.value)}>
-      {reasoning.map(row => <NativeSelectOption key={row.id} value={row.id} disabled={!catalogItemEnabled(row)}>{row.displayName}</NativeSelectOption>)}
+      {reasoning.map(row => <NativeSelectOption key={row.id} value={row.id} disabled={!catalogItemEnabled(row)}>{catalogI18nText(tNew, row.metadata, "labelKey", row.displayName)}</NativeSelectOption>)}
     </NativeSelect></Label>}
     {catalogs?.permission && <Label className="grid gap-2">{t("permission")}<NativeSelect aria-label={`${label} ${t("permission")}`} value={permissionId} disabled={disabled} onChange={e => setPermissionId(e.target.value)}>
-      {catalogs.permission.permissions.map(row => <NativeSelectOption key={row.id} value={row.id} disabled={!catalogItemEnabled(row)}>{row.displayName}</NativeSelectOption>)}
+      {catalogs.permission.permissions.map(row => <NativeSelectOption key={row.id} value={row.id} disabled={!catalogItemEnabled(row)}>{permissionCatalogI18nText(tNew, catalogs.permission, row, "labelKey")}</NativeSelectOption>)}
     </NativeSelect></Label>}
     {!catalogs && !error && <p role="status" className="text-xs text-muted-foreground">{t("loadingAgent")}</p>}
     {error && <p role="alert" className="text-xs text-destructive">{error} <Button variant="ghost" size="sm" onClick={retry}>{t("retry")}</Button></p>}

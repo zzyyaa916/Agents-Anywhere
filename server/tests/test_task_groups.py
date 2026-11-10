@@ -236,3 +236,32 @@ def test_candidate_count_and_empty_tasks_are_rejected():
                 content=content,
                 candidates=[{"runtime": "codex", "runtimeId": "codex"}] * count,
             )
+
+
+def test_initial_attachments_reach_all_candidates_and_forward_without_text_expansion(setup):
+    s = setup
+    attachment = {"fileId": "initial-file", "name": "task.txt", "mediaType": "text/plain", "contentBase64": "aGVsbG8="}
+    s.request["attachments"] = [attachment]
+    row = create(s)
+    assert "contentBase64" not in row["request"]["attachments"][0]
+    for slot in range(3):
+        asyncio.run(s.svc.start(row["id"], slot, user_id=s.user_id))
+    assert all(call.attachments[0].contentBase64 == "aGVsbG8=" for call in s.runs.calls)
+    payload = TaskGroupHandoff(operationId="forward-attachment-001", slot=0, mode="review", target={"runtime": "claude", "runtimeId": "claude"})
+    forwarded = asyncio.run(s.svc.handoff(row["id"], payload, user_id=s.user_id))
+    asyncio.run(s.svc.start(forwarded["id"], 0, user_id=s.user_id))
+    assert s.runs.calls[-1].attachments[0].name == "task.txt"
+    assert "aGVsbG8=" not in s.runs.calls[-1].content
+
+
+def test_forward_explicit_attachment_checks_source_session_ownership(setup):
+    s = setup
+    row = create(s)
+    source = asyncio.run(s.svc.start(row["id"], 0, user_id=s.user_id))
+    saved = asyncio.run(s.store.save_user_uploaded_file(session_id=source["candidates"][0]["sessionId"], user_id=s.user_id, name="review.txt", data=b"review", media_type="text/plain"))
+    payload = TaskGroupHandoff(operationId="forward-extra-file-001", slot=0, mode="review", attachments=[{"fileId": saved["fileId"]}], target={"runtime":"claude", "runtimeId":"claude"})
+    forwarded = asyncio.run(s.svc.handoff(row["id"], payload, user_id=s.user_id))
+    assert forwarded["request"]["attachments"][0]["contentBase64"] == "cmV2aWV3"
+    invalid = payload.model_copy(update={"operationId":"forward-extra-file-002", "attachments":[type(payload.attachments[0])(fileId="missing-file")]})
+    with pytest.raises(KeyError):
+        asyncio.run(s.svc.handoff(row["id"], invalid, user_id=s.user_id))

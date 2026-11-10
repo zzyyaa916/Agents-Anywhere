@@ -2635,7 +2635,7 @@
     },
     "readyToStart": "Ready for {n} agents. Nothing is sent until you click Start.",
     "forward": "Forward to another AI",
-    "forwardDescription": "Send your instructions, the original task, a code snapshot and recent conversation text (possibly truncated). The recipient starts a new session without the full history or hidden model context.",
+    "forwardDescription": "Send your instructions, the original task, a code snapshot and recent conversation text (possibly truncated). The recipient starts a new session without the full history or hidden model context. Attachments are forwarded separately. You can type 转发给 Codex: followed by your instructions.",
     "forwardInstructions": "What should the other AI do?",
     "forwardExample": "For example: Check this result for problems. Do not change the code yet.",
     "conclusion": "View the conclusion to forward",
@@ -2662,6 +2662,6 @@
     "broadcastSend": "Send to all",
     "broadcastFailed": "Some deliveries are unconfirmed. Retry reuses message IDs and skips confirmed recipients.",
     "checkSettings": "Loading agent settings. If they remain unavailable, open Settings to check.",
-    "broadcastWait": "Send to all once the original agents are idle. While running, queue messages in each pane."
+    "broadcastWait": "Send after the chats are created. Idle agents receive immediately; busy agents use their own queues."
   }
 }

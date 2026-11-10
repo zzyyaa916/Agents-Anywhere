@@ -78,6 +78,7 @@ export type { AttachedFile }
 export function SessionComposer({
   token,
   queueScope,
+  onQueueReady,
   allowQueueDelivery = true,
   session,
   runtimeState,
@@ -102,6 +103,7 @@ export function SessionComposer({
   onToggleTakeover,
 }: {
   allowQueueDelivery?: boolean
+  onQueueReady?: (enqueue: ((text: string) => boolean) | null) => void
   queueScope?: string
   token: string
   session: SessionView
@@ -239,6 +241,10 @@ export function SessionComposer({
     canSteer: canSteer && session.takeover && !sending && !interrupting && !commandPending,
     onSend,
   })
+  React.useEffect(() => {
+    onQueueReady?.(text => messageQueue.enqueue(text, []))
+    return () => onQueueReady?.(null)
+  }, [onQueueReady, messageQueue.enqueue])
   const hasInput = value.trim().length > 0 || attachments.length > 0
   const attachmentsReady = attachmentsAllowed && (attachments.length === 0 || (allUploaded && !uploadsPending && !uploadFailed))
   const activeSessionCanInterrupt = Boolean(
@@ -380,12 +386,12 @@ export function SessionComposer({
   }
   const placeholder = creatingSession
     ? tSession("creatingPlaceholder")
+    : sourceUnavailable
+      ? tSession("sourceUnavailablePlaceholder")
+    : !session.takeover
+    ? tSession("readOnlyPlaceholder")
     : isDisconnected || !connectorOnline
       ? tSession("deviceOfflinePlaceholder")
-      : sourceUnavailable
-        ? tSession("sourceUnavailablePlaceholder")
-        : !session.takeover
-          ? tSession("readOnlyPlaceholder")
       : pendingInteractionCount > 0
         ? tSession("waitingApprovalPlaceholder")
         : isWaiting
@@ -834,7 +840,7 @@ export function SessionComposer({
                 }
               }}
               placeholder={placeholder}
-              disabled={!connectorOnline || isDisconnected || creatingSession || sourceUnavailable}
+              disabled={!connectorOnline || creatingSession || sourceUnavailable}
               className="min-h-12 max-h-40 resize-none overflow-y-auto rounded-none border-0 bg-transparent p-0 text-sm shadow-none focus-visible:ring-0 dark:bg-transparent"
             />
           </div>
@@ -847,7 +853,7 @@ export function SessionComposer({
               isDragging={isDragging}
               className="size-8"
               allowedMimeTypes={allowedMimeTypes}
-              disabled={!canUseAttachments || isDisconnected || sourceUnavailable || creatingSession}
+              disabled={!canUseAttachments || sourceUnavailable || creatingSession}
             />
             {hasSelectors ? (
               compactSelectors ? (
@@ -887,9 +893,7 @@ export function SessionComposer({
                         <span className="size-1.5 shrink-0 rounded-full bg-primary" />
                         <span className="min-w-0 truncate text-foreground">{permissionLabel}</span>
                         {permissionPending ? <Badge variant="secondary">{tNew("nextTurn")}</Badge> : null}
-                        {permissionItems.find((item) => item.id === selectedPermissionMode)?.badge
-                          ? <Badge variant="secondary">EXP</Badge>
-                          : null}
+                        {permissionItems.find((item) => item.id === selectedPermissionMode)?.badge ? <Badge variant="secondary">EXP</Badge> : null}
                         <ChevronDown className="size-3.5 opacity-60" />
                       </Button>
                     </DropdownMenuTrigger>

@@ -76,6 +76,7 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun NewSessionScreen(
+    collaborationSession: com.agentsanywhere.app.feature.fork.WorkbenchSession? = null,
     navigate: (AppDestination) -> Unit,
     sessionsState: SessionsState,
     projectSessionsById: Map<String, List<AgentSession>>,
@@ -98,6 +99,8 @@ fun NewSessionScreen(
         Result.failure(IllegalStateException("Project creation is not connected."))
     },
 ) {
+    var collaborationOpen by remember { mutableStateOf(false) }
+    if (collaborationOpen && collaborationSession != null) com.agentsanywhere.app.ui.screens.fork.CollaborationWorkbench(collaborationSession) { collaborationOpen = false }
     val colors = LocalAAColors.current
     val darkMode = colors.canvas == Color(0xFF09090B)
     val context = LocalContext.current
@@ -925,6 +928,7 @@ fun NewSessionScreen(
                     .padding(start = 18.dp, top = 12.dp, end = 18.dp),
                 verticalArrangement = Arrangement.spacedBy(18.dp),
             ) {
+                if (!projectOnly && collaborationSession != null) TextButton(onClick = { collaborationOpen = true }) { Text("多 AI 工作台 · 分屏、附件与转发") }
                 NewSessionConfigurationCard(
                     fields = configurationFields,
                     modifier = if (darkMode) Modifier else Modifier.border(1.dp, Color(0xFFE7E6E2), RoundedCornerShape(18.dp)),

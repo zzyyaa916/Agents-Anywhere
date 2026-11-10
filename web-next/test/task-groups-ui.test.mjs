@@ -70,7 +70,7 @@ const hooks = registerHooks({ load(url, context, next) {
     '/components/session/runtime-creation-status.tsx': 'export const RuntimeCreationStatus=()=>null',
     '/components/sidebar/project-editor-dialog.tsx': 'export const ProjectEditorDialog=()=>null',
     '/components/workspace-picker.tsx': 'export const WorkspacePicker=()=>null',
-    '/components/attachment-input.tsx': 'export const AttachmentButton=()=>null;export const AttachmentPreviewList=()=>null;export const DragOverlay=()=>null;const result={attachments:[],attachmentsAllowed:true,clear:()=>{},add:()=>{},remove:()=>{}};export const useAttachments=()=>result',
+    '/components/attachment-input.tsx': 'export const AttachmentButton=()=>null;export const AttachmentPreviewList=()=>null;export const DragOverlay=()=>null;const result={attachments:[],attachmentsAllowed:true,clear:()=>{},add:()=>{},remove:()=>{}};export const useAttachments=()=>({...result,attachments:globalThis.testInitialAttachments??[]})',
     '/components/ui/badge.tsx': 'import * as React from "react";export const Badge=({children})=>React.createElement("span",null,children)',
     '/components/ui/separator.tsx': 'import * as React from "react";export const Separator=()=>React.createElement("hr")',
     '/components/ui/drawer.tsx': `import * as React from "react";const Context=React.createContext(null);
@@ -83,8 +83,9 @@ const hooks = registerHooks({ load(url, context, next) {
     '/components/workspace-context.tsx': 'export const useWorkspace=()=>globalThis.testWorkspace',
     '/features/task-groups/api.ts': 'export const taskGroupsApi=globalThis.testTaskGroups;export const candidateStopped=c=>c.phase==="sent"&&c.status==="idle"',
     '/components/session-detail.tsx': `import * as React from "react";
-      export function SessionDetail({sessionId,onMemorySnapshotUpdated}) {
+      export function SessionDetail({sessionId,onMemorySnapshotUpdated,onQueueReady}) {
         const [value,setValue]=React.useState('');
+        React.useEffect(()=>{onQueueReady?.(text=>{globalThis.testChatCalls.push(['queued',sessionId,text]);return !globalThis.testQueueFailure?.(sessionId)});return ()=>onQueueReady?.(null)},[sessionId,onQueueReady]);
         React.useEffect(()=>{onMemorySnapshotUpdated({items:[{type:'message',role:'assistant',content:{text:'Result for '+sessionId}}]})},[sessionId,onMemorySnapshotUpdated]);
         return React.createElement('div',{'data-chat':sessionId},React.createElement('textarea',{'aria-label':'chat-'+sessionId,value,onChange:e=>setValue(e.target.value)}),
           React.createElement('button',{onClick:()=>{globalThis.testChatCalls.push(['message',sessionId,value]);setValue('')}},'chat-send'))
@@ -132,9 +133,8 @@ for (const count of [1, 2, 3]) test(`${count} agents open independent chats; pan
     assert.equal(container.querySelector('[data-chat-grid]').style.gridTemplateColumns.split('minmax').length - 1, count)
     await input(container.querySelector('[aria-label^="broadcastLabel"]'), 'Run the tests for your result')
     await click('broadcastSend')
-    const broadcasts = calls.filter(row => row[0] === 'broadcast')
+    const broadcasts = calls.filter(row => row[0] === 'queued')
     assert.equal(broadcasts.length, count)
-    assert.equal(new Set(broadcasts.map(row => row[3].clientMessageId)).size, count)
     assert.ok(broadcasts.every(row => row[2] === 'Run the tests for your result'))
     await input(pane(0).querySelector('textarea'), 'Message only for AI 1')
     if (count > 1) await input(pane(1).querySelector('textarea'), 'Unsent draft for AI 2')
@@ -145,7 +145,7 @@ for (const count of [1, 2, 3]) test(`${count} agents open independent chats; pan
     assert.ok(pane(0).querySelector('[data-chat]').closest('.hidden'))
     await act(async () => pane(0).querySelector('[aria-label="restore"]').click())
     await act(async () => pane(0).querySelector('[aria-label="close"]').click())
-    assert.equal(pane(0), null)
+    assert.ok(pane(0).classList.contains("hidden"))
     const reopen = [...container.querySelectorAll('button')].find(b => b.textContent.startsWith('reopen'))
     await act(async () => reopen.click())
     assert.ok(pane(0))
@@ -176,6 +176,7 @@ for (const count of [1, 2, 3]) test(`${count} agents open independent chats; pan
 
 for (const count of [1, 2, 3]) test(`main composer selects ${count} agents and sends the original prompt with each agent's settings`, async () => {
   calls.length = 0; groups.clear(); window.localStorage.clear()
+  globalThis.testInitialAttachments = count > 1 ? [{id:"spec-file",name:"task.txt",type:"file",size:5,mediaType:"text/plain",file:new File(["hello"],"task.txt",{type:"text/plain"}),uploadStatus:"local"}] : []
   const container = document.createElement('div'); document.body.append(container)
   const root = createRoot(container)
   const clickText = async text => {
@@ -209,7 +210,7 @@ for (const count of [1, 2, 3]) test(`main composer selects ${count} agents and s
     await input(container.querySelector('textarea[placeholder="placeholder"]'), 'Implement exactly this shared task')
     const send = container.querySelector('[aria-label="sendTask"]')
     assert.equal(send.disabled, false)
-    await act(async () => send.click())
+    await act(async () => { send.click(); for (let n=0; n<50 && !calls.some(row => row[0] === "single" || row[0] === "start"); n++) await new Promise(resolve => setTimeout(resolve, 5)) })
     if (count === 1) {
       const single = calls.find(row => row[0] === 'single')
       assert.ok(single)
@@ -220,11 +221,13 @@ for (const count of [1, 2, 3]) test(`main composer selects ${count} agents and s
       assert.equal(prepared.content, 'Implement exactly this shared task')
       assert.equal(prepared.projectId, 'p')
       assert.equal(prepared.candidates.length, count)
+      assert.equal(prepared.attachments[0].contentBase64, 'aGVsbG8=')
+      assert.equal(prepared.attachments[0].name, 'task.txt')
       assert.equal(calls.filter(row => row[0] === 'start').length, count)
       assert.equal(container.querySelectorAll('[data-chat]').length, count)
       if (count === 3) assert.deepEqual(prepared.candidates.find(row => row.runtime === 'dsh').selections, { model: 'dsh-model-high', permission: 'dsh-permission-write' })
     }
-  } finally { await act(async () => root.unmount()); container.remove() }
+  } finally { globalThis.testInitialAttachments=[]; await act(async () => root.unmount()); container.remove() }
 })
 
 test('agent selection keeps one selected, caps at three and retains choices when the drawer closes', async () => {
@@ -251,29 +254,27 @@ test('agent selection keeps one selected, caps at three and retains choices when
   } finally { await act(async()=>root.unmount());container.remove() }
 })
 
-test('shared follow-up retry skips confirmed recipients and reuses the unconfirmed message ID', async () => {
-  calls.length = 0;groups.clear()
+test('shared follow-up queues busy and hidden panes independently and retries only rejected queues', async () => {
+  calls.length=0;groups.clear()
   const row=await globalThis.testTaskGroups.create('',{content:'Task',candidates:[{runtime:'codex',runtimeId:'codex'},{runtime:'dsh',runtimeId:'dsh'}]})
   await globalThis.testTaskGroups.start('',row.id,0);await globalThis.testTaskGroups.start('',row.id,1)
   const started=await globalThis.testTaskGroups.get('',row.id)
-  const original=globalThis.testDashboard.sendSessionMessage
+  started.candidates[1].status='running'
   let failed=false
-  globalThis.testDashboard.sendSessionMessage=async (...args)=>{ const result=await original(...args);if(args[1].endsWith('-1')&&!failed){failed=true;throw new Error('connection lost')}return result }
-  const container=document.createElement('div');document.body.append(container)
-  const root=createRoot(container)
-  const send=async()=>{await act(async()=>[...container.querySelectorAll('button')].find(row=>row.textContent==='broadcastSend').click())}
+  globalThis.testQueueFailure=id=>id.endsWith('-1')&&!failed&&(failed=true)
+  const container=document.createElement('div');document.body.append(container);const root=createRoot(container)
   try {
     await act(async()=>root.render(h(TaskGroupConversation,{initialGroup:started,onBack:()=>{}})))
+    await act(async()=>container.querySelectorAll('[aria-label="close"]')[1].click())
     await input(container.querySelector('[aria-label^="broadcastLabel"]'),'Review your result')
+    const send=()=>act(async()=>[...container.querySelectorAll('button')].find(row=>row.textContent==='broadcastSend').click())
+    await send();assert.match(container.textContent,/broadcastFailed/)
     await send()
-    assert.match(container.textContent,/broadcastFailed/)
-    await send()
-    const sent=calls.filter(row=>row[0]==='broadcast')
+    const sent=calls.filter(row=>row[0]==='queued')
     assert.equal(sent.filter(row=>row[1].endsWith('-0')).length,1)
-    const repeated=sent.filter(row=>row[1].endsWith('-1'))
-    assert.equal(repeated.length,2)
-    assert.equal(repeated[0][3].clientMessageId,repeated[1][3].clientMessageId)
-  } finally { globalThis.testDashboard.sendSessionMessage=original;await act(async()=>root.unmount());container.remove() }
+    assert.equal(sent.filter(row=>row[1].endsWith('-1')).length,2)
+    assert.equal(container.querySelector('[aria-label^="broadcastLabel"]').value,'')
+  } finally { delete globalThis.testQueueFailure;await act(async()=>root.unmount());container.remove() }
 })
 
 test('main composer blocks multi-agent dispatch when an agent configuration fails and recovers via settings', async () => {
