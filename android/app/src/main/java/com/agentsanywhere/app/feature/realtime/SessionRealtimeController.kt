@@ -25,6 +25,8 @@ class SessionRealtimeController(
     private val clientId: String,
     private val retryDelay: (Int) -> Long = ::reconnectDelayMillis,
 ) {
+    fun independent(sessionId: String) = SessionRealtimeController(transport, sessionStore, "$clientId:$sessionId", retryDelay)
+
     private val retryNow = Channel<Unit>(Channel.CONFLATED)
     private val connectionLock = Any()
     private val activeSocket = AtomicReference<WebSocket?>()

@@ -3,6 +3,7 @@ package com.agentsanywhere.app.api
 import org.json.JSONObject
 
 class ForkApi(private val client: ApiClient) {
+    val taskGroups = TaskGroupsApi(client)
     fun usage(server: String, token: String, refresh: Boolean): JSONObject =
         if (refresh) client.postJson(server, "/account-usage/refresh", JSONObject(), token)
         else client.getJson(server, "/account-usage", token)

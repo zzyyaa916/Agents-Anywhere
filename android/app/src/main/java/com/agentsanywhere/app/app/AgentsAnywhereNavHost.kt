@@ -237,6 +237,28 @@ internal fun AgentsAnywhereNavHost(
         SessionComposerDraftStore(context.applicationContext, userId)
     }
 
+    var collaborationProjectId by rememberSaveable(serverUrl, userId) { mutableStateOf<String?>(null) }
+    val collaborationProject = sessionsState.projects.firstOrNull { it.id == collaborationProjectId }
+    if (collaborationProject != null) com.agentsanywhere.app.ui.screens.fork.CollaborationWorkbench(
+        project = collaborationProject,
+        controller = forkController.taskGroups,
+        onListRuntimes = onListNewSessionRuntimes,
+        onLoadCapabilities = onLoadNewSessionRuntimeCapabilities,
+        onLoadModels = onLoadNewSessionModelCatalog,
+        onLoadPermissions = onLoadNewSessionPermissionCatalog,
+        onClose = { collaborationProjectId = null },
+    ) { session, queueReady, forward ->
+        val realtime = remember(session, sessionRealtimeController) { sessionRealtimeController.independent(session) }
+        SessionDetailScreen(
+            forkController = forkController, navigate = { target -> collaborationProjectId = null; navigate(target) },
+            sessionId = session, initialSession = null, devices = sessionsState.devices,
+            controller = sessionDetailController, realtimeController = realtime,
+            filesController = filesController, terminalPool = remoteTerminalPool,
+            composerDraftStore = sessionComposerDraftStore, onSessionChanged = onSessionChanged,
+            onQueueReady = queueReady, onForwardCommand = forward,
+        )
+    }
+
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = colors.canvas,
@@ -322,7 +344,7 @@ internal fun AgentsAnywhereNavHost(
                     onPairDevice = { navigate(AppDestination.DeviceSetup) },
                 )
                 AppDestination.NewSession, AppDestination.NewProject -> androidx.compose.runtime.key(serverUrl, userId, destination) { NewSessionScreen(
-                    collaborationSession = forkController.workbenchSession(role),
+                    onOpenCollaboration = { project -> collaborationProjectId = project.id },
                     navigate = navigate,
                     sessionsState = sessionsState,
                     projectSessionsById = projectSessionsById,

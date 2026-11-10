@@ -1,6 +1,6 @@
 # 独立方案任务组（2.6 Web 测试版）
 
-所有端点位于 `/api/v2/task-groups`，要求登录，按用户及项目归属鉴权。旧客户端不受影响；本期 Web 提供入口，Desktop/Android 先继续使用原有会话，后续通过应用内更新交付对应入口；iOS 不提供此功能。
+所有端点位于 `/api/v2/task-groups`，要求登录，按用户及项目归属鉴权。旧客户端不受影响；Web、Desktop 和 Android 原生多 AI 工作台提供入口；Android 2.5.9 起直接调用 API 并复用原生会话，不依赖 WebView；iOS 不提供此功能。
 
 - `POST /`：`{operationId, projectId, content, attachments?:InlineAttachmentRef[], candidates:[{runtime,runtimeId,selections:{}}]}`；候选数为 1–3，含 2 个，operationId 为 8–80 位字母/数字/连字符。同一 operationId 及正文重试返回同组，不重复创建；正文不同返回 409。只准备工作区，不自动调用模型。
 - `GET /?projectId=...`：列出项目的任务组。

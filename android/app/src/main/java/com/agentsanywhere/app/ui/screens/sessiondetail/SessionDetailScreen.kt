@@ -185,6 +185,8 @@ fun SessionDetailScreen(
     terminalPool: RemoteTerminalPool,
     composerDraftStore: SessionComposerDraftStore,
     onSessionChanged: (AgentSession) -> Unit = {},
+    onQueueReady: (((String) -> Boolean)?) -> Unit = {},
+    onForwardCommand: suspend (String, List<TimelineAttachment>, String) -> Result<Boolean> = { _, _, _ -> Result.success(false) },
 ) {
     var planningCreation by remember(sessionId, preparedSession?.localSessionId) { mutableStateOf(false) }
     var goalState by remember(sessionId){mutableStateOf<com.agentsanywhere.app.api.RemoteGoalState?>(null)}
@@ -845,6 +847,15 @@ fun SessionDetailScreen(
                 return@launch
             }
             val uploadedAttachments = pendingAttachments.mapNotNull { it.remote }
+            val forwarded = onForwardCommand(text, uploadedAttachments, clientMessageId)
+            if (forwarded.isFailure) {
+                retryClientMessageId = clientMessageId
+                saveComposerDraft(text, pendingAttachments, clientMessageId)
+                showError(forwarded.exceptionOrNull()?.message ?: "转发失败，请查询任务组后重试")
+                return@launch
+            }
+            if (forwarded.getOrNull() == true) { clearComposerDraft(); return@launch }
+
             val optimisticAttachments = pendingAttachments.mapNotNull { attachment ->
                 attachment.remote?.copy(
                     localPreviewUri = attachment.uri.toString().takeIf { attachment.isImage },
@@ -1564,6 +1575,9 @@ fun SessionDetailScreen(
             var pendingState: SessionDetailState? = null
             val beforeRuntimeSequence = state.runtime.updatedSeq
             try {
+                val forwarded = onForwardCommand(item.text, item.attachments, item.id)
+                if (forwarded.isFailure) { showError(forwarded.exceptionOrNull()?.message ?: "转发失败"); return@launch }
+                if (forwarded.getOrNull() == true) { accepted = true; return@launch }
                 state = controller.addOptimisticMessage(current, state, item.text, item.id, item.attachments)
                 pendingState = state
                 val result = controller.sendMessage(current, item.text, item.id, uploadedAttachments = item.attachments, steer = steer, expectedScope = queueScope)
@@ -1579,6 +1593,16 @@ fun SessionDetailScreen(
                 queueItems = queue.messages; queueVersion++
             }
         }
+    }
+    val acceptUnified by rememberUpdatedState<(String) -> Boolean>({ text ->
+        val queue = queueStore
+        if (queue != null && !isPreparedSession && state.session?.archived != true && queue.enqueue(text, emptyList())) {
+            queueItems = queue.messages; queueVersion++; true
+        } else false
+    })
+    DisposableEffect(sessionId, queueStore) {
+        if (queueStore != null) onQueueReady { acceptUnified(it) }
+        onDispose { onQueueReady(null) }
     }
     LaunchedEffect(queueItems, queuePaused, runtimeStatus, canDeliverQueue) {
         val head = queueItems.firstOrNull()
