@@ -32,6 +32,7 @@ class LocalRpcHandler:
         "terminal.snapshot",
         "terminal.relay.connect",
         "worktree.prepare",
+        "worktree.adopt",
         "worktree.diff",
         "worktree.handoff",
     }
@@ -54,7 +55,7 @@ class LocalRpcHandler:
     async def dispatch(self, method: str, params: dict[str, Any]) -> Any:
         if method.startswith("worktree."):
             from connector.local import worktrees
-            operation = {"worktree.prepare": worktrees.prepare, "worktree.diff": worktrees.diff, "worktree.handoff": worktrees.handoff}[method]
+            operation = {"worktree.adopt": worktrees.adopt, "worktree.prepare": worktrees.prepare, "worktree.diff": worktrees.diff, "worktree.handoff": worktrees.handoff}[method]
             return await asyncio.to_thread(operation, params)
         if method == "fs.prepareDownload":
             return await self.local_ops.prepare_download(params)

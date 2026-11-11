@@ -106,3 +106,8 @@ async def handoff(
     identifier: str, payload: TaskGroupHandoff, service: Service, user_id: User
 ):
     return await invoke(service.handoff(identifier, payload, user_id=user_id))
+
+
+@router.post("/from-session/{session_id}/handoffs")
+async def handoff_session(session_id: str, payload: TaskGroupHandoff, service: Service, user_id: User):
+    return await invoke(service.handoff_session(session_id, payload, user_id=user_id))

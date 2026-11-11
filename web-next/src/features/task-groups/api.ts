@@ -18,6 +18,7 @@ export const taskGroupsApi = {
   diff: (token: string, id: string, slot: number) => apiClient.get<CandidateDiff>(`${path(id)}/candidates/${slot}/diff`, { token }),
   select: (token: string, id: string, slot: number) => apiClient.post<TaskGroup>(`${path(id)}/select`, { slot }, { token }),
   handoff: (token: string, id: string, body: { operationId: string; slot: number; mode: "review" | "continue"; target: CandidateTarget; instructions?: string; attachments?: { fileId: string }[] }) => apiClient.post<TaskGroup>(`${path(id)}/handoffs`, body, { token }),
+  handoffSession: (token: string, id: string, body: { operationId: string; slot: number; mode: "review" | "continue"; target: CandidateTarget; instructions?: string; attachments?: { fileId: string }[] }) => apiClient.post<TaskGroup>(`/task-groups/from-session/${encodeURIComponent(id)}/handoffs`, body, { token }),
 }
 
 export function candidateStopped(candidate: TaskGroup["candidates"][number]) {

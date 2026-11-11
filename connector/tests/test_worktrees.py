@@ -188,3 +188,19 @@ def test_native_runtime_workspace_access_precedes_model_dispatch(monkeypatch, ru
     target = SimpleNamespace(identity=SimpleNamespace(runtime=runtime), create_and_start_session=create)
     asyncio.run(dispatch_session_create(target, {"sessionId": "sess_test", "content": "test", "cwd": "/managed/workspace"}))
     assert calls == [("access", "/managed/workspace", runtime), ("model",)]
+
+
+def test_adopt_dirty_repository_snapshots_without_changing_source(repo):
+    request = params(repo, count=1)
+    original_head = wt.git(repo, "rev-parse", "HEAD")
+    (repo / "file.txt").write_text("dirty result")
+    (repo / "new.txt").write_text("new result")
+    original_index = wt.git(repo, "diff", "--cached")
+    assert wt.adopt(request) == wt.adopt(request)
+    result = wt.handoff({**request, "slot": 0, "targetGroupId": "b" * 40})
+    target = Path(result["paths"][0])
+    assert (target / "file.txt").read_text() == "dirty result"
+    assert (target / "new.txt").read_text() == "new result"
+    assert wt.git(repo, "rev-parse", "HEAD") == original_head
+    assert wt.git(repo, "diff", "--cached") == original_index
+    assert (repo / "file.txt").read_text() == "dirty result"

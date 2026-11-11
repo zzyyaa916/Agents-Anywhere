@@ -4,6 +4,7 @@ import { SessionQuotaNotice } from "@/components/session-quota"
 import { SessionUsageNotice } from "@/components/account-usage"
 
 import * as React from "react"
+import { useSessionForward } from "@/components/session/session-forward"
 
 import { SessionDetail, type SessionMemorySnapshot } from "@/components/session-detail"
 import {
@@ -66,6 +67,7 @@ export function SessionView() {
   const detailSessionId = activeSessionId ?? session?.id ?? null
   const connector = connectors.find((item) => item.id === session?.connectorId)
   const token = authSession?.accessToken ?? null
+  const sessionForward = useSessionForward(token ?? "", memorySnapshot?.session ?? session, true)
   const connectorId = session?.connectorId ?? null
   const root = session?.cwd ?? "."
   const viewRef = React.useRef<HTMLDivElement | null>(null)
@@ -242,6 +244,7 @@ export function SessionView() {
             session={session}
             connectorName={connector?.name}
             memorySnapshot={memorySnapshot}
+            forwardControl={sessionForward.control}
             onExportMemoryTimeline={handleExportMemoryTimeline}
             onExportRemoteTimeline={handleExportRemoteTimeline}
             exporting={exporting}
@@ -258,6 +261,7 @@ export function SessionView() {
             {token ? (
               <SessionFilePreviewProvider onOpenFilePreview={handleOpenFilePreview}>
                 <SessionDetail
+                  onForwardCommand={sessionForward.handleCommand}
                   token={token}
                   sessionId={detailSessionId ?? session.id}
                   fallbackSession={activeSessionFallback}

@@ -21,6 +21,7 @@ import { sessionRuntimeType } from "@/features/dashboard/runtime-instances"
 
 type SessionViewHeaderProps = {
   session: SessionViewModel
+  forwardControl?: React.ReactNode
   connectorName?: string | null
   memorySnapshot: SessionMemorySnapshot | null
   onExportMemoryTimeline?: () => void
@@ -32,6 +33,7 @@ type SessionViewHeaderProps = {
 
 export function SessionViewHeader({
   session,
+  forwardControl,
   connectorName,
   memorySnapshot,
   onExportMemoryTimeline,
@@ -122,6 +124,7 @@ export function SessionViewHeader({
         exporting={exporting}
       />
       <div className="ml-auto flex items-center gap-1">
+        {forwardControl}
         {!toolsOpen ? (
           <WorkspaceSidebarToggleButton side="right" aria-expanded={false}
             aria-label={tSession("tools.toggle")} title={tSession("tools.toggle")}

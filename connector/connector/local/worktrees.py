@@ -175,12 +175,34 @@ def prepare(params: dict[str, Any]) -> dict[str, Any]:
         return {"base": manifest["base"], "paths": paths}
 
 
+def adopt(params: dict[str, Any]) -> dict[str, Any]:
+    repo, directory = managed(params["root"], params["groupId"])
+    with locked(directory):
+        if (directory / "manifest.json").exists():
+            manifest = load(directory)
+            if manifest.get("existingPath") != str(repo):
+                raise ValueError("Source workspace identity conflict")
+        else:
+            conversation = directory.parent.parent == connector_data_dir() / "conversations"
+            manifest = {
+                "base": "conversation" if conversation else git(repo, "rev-parse", "HEAD^{commit}").decode().strip(),
+                "count": 1,
+                "existingPath": str(repo),
+            }
+            save(directory / "manifest.json", manifest)
+        return {"base": manifest["base"], "paths": [str(repo)]}
+
+
 def source(params: dict[str, Any]) -> tuple[Path, Path, dict[str, Any], Path]:
     repo, directory = managed(params["root"], params["groupId"])
     manifest = load(directory)
     slot = params["slot"]
     if type(slot) is not int or not 0 <= slot < manifest["count"]:
         raise ValueError("Invalid candidate")
+    if "existingPath" in manifest:
+        if manifest["existingPath"] != str(repo) or slot != 0:
+            raise ValueError("Source workspace identity conflict")
+        return repo, directory, manifest, repo
     return repo, directory, manifest, workspace(repo, directory, slot, manifest["base"])
 
 

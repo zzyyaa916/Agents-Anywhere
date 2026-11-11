@@ -11,8 +11,13 @@ from agent_server.services.session_run import SessionRunService
 class TaskGroupRepository(Protocol):
     async def get_project(self, project_id: str, *, user_id: str) -> Any: ...
     async def get_session(self, session_id: str, *, user_id: str) -> Any: ...
-    async def read_uploaded_file(self, *, session_id: str, file_id: str, user_id: str) -> dict: ...
+    async def read_uploaded_file(
+        self, *, session_id: str, file_id: str, user_id: str
+    ) -> dict: ...
     async def get_active_run(self, session_id: str) -> dict | None: ...
+    async def list_timeline_since(
+        self, *, session_id: str, after_seq: int, limit: int
+    ) -> Any: ...
     async def list_timeline_latest(self, *, session_id: str, limit: int) -> Any: ...
     async def put_task_group(self, identifier: str, **values: Any) -> dict: ...
     async def get_task_group(self, identifier: str, *, user_id: str) -> dict: ...
@@ -173,11 +178,15 @@ class TaskGroupService:
         return row, project
 
     async def diff(self, identifier: str, slot: int, *, user_id: str) -> dict:
-        _, project = await self.stopped(identifier, slot, user_id=user_id)
+        row, project = await self.stopped(identifier, slot, user_id=user_id)
         return await self.rpc.request(
             project.connectorId,
             "worktree.diff",
-            {"root": project.workspacePath, "groupId": identifier, "slot": slot},
+            {
+                "root": row.get("workspaceRoot", project.workspacePath),
+                "groupId": identifier,
+                "slot": slot,
+            },
             timeout=180,
         )
 
@@ -188,28 +197,158 @@ class TaskGroupService:
         )
         return await self.get(identifier, user_id=user_id)
 
+    async def handoff_session(
+        self, session_id: str, payload: TaskGroupHandoff, *, user_id: str
+    ) -> dict:
+        session = await self.store.get_session(session_id, user_id=user_id)
+        if payload.slot != 0 or not session.projectId or not session.cwd:
+            raise ValueError("来源会话缺少项目或工作目录。")
+        project = await self.store.get_project(session.projectId, user_id=user_id)
+        active = await self.store.get_active_run(session_id)
+        if session.status not in {"idle", "error", "limited"} or (
+            active
+            and active.get("status")
+            in {
+                "pending",
+                "running",
+                "waiting",
+                "waiting_approval",
+                "stopping",
+                "blocked",
+            }
+        ):
+            raise ValueError("请等待来源 AI 完成后再转发。")
+        for group in await self.store.list_task_groups(project.id, user_id=user_id):
+            for slot, candidate in enumerate(group["candidates"]):
+                if (
+                    group["phase"] == "ready"
+                    and candidate.get("sessionId") == session_id
+                ):
+                    return await self.handoff(
+                        group["id"],
+                        payload.model_copy(update={"slot": slot}),
+                        user_id=user_id,
+                    )
+        identifier = group_id(user_id, "source-session:" + session_id)
+        try:
+            await self.store.get_task_group(identifier, user_id=user_id)
+        except KeyError:
+            items, _ = await self.store.list_timeline_since(
+                session_id=session_id, after_seq=0, limit=100
+            )
+            first = next(
+                (
+                    item
+                    for item in items
+                    if item.type == "message"
+                    and item.role == "user"
+                    and isinstance(item.content, dict)
+                ),
+                None,
+            )
+            attachments = []
+            for ref in first.content.get("attachments", []) if first else []:
+                saved = await self.store.read_uploaded_file(
+                    session_id=session_id, file_id=ref["fileId"], user_id=user_id
+                )
+                attachments.append(
+                    InlineAttachmentRef(
+                        **{
+                            key: saved[key]
+                            for key in InlineAttachmentRef.model_fields
+                            if key in saved
+                        }
+                    ).model_dump()
+                )
+            await self.store.put_task_group(
+                identifier,
+                user_id=user_id,
+                request={
+                    "operationId": "source-session:" + session_id,
+                    "projectId": project.id,
+                    "content": first.content.get("text", "")
+                    if first
+                    else session.title or "",
+                    "attachments": attachments,
+                    "candidates": [
+                        {
+                            "runtime": session.runtime,
+                            "runtimeId": session.runtimeId,
+                            "selections": {},
+                        }
+                    ],
+                },
+                state={
+                    "phase": "preparing",
+                    "selected": None,
+                    "workspaceRoot": session.cwd,
+                    "candidates": [{"phase": "sent", "sessionId": session_id}],
+                },
+            )
+        row = await self.store.get_task_group(identifier, user_id=user_id)
+        if row["phase"] == "preparing":
+            prepared = await self.rpc.request(
+                project.connectorId,
+                "worktree.adopt",
+                {"root": session.cwd, "groupId": identifier},
+                timeout=180,
+            )
+            self.validate_workspace_result(prepared, 1)
+            await self.store.change_task_group(
+                identifier,
+                user_id=user_id,
+                expected="preparing",
+                patch={
+                    "phase": "ready",
+                    "base": prepared["base"],
+                    "paths": prepared["paths"],
+                },
+            )
+        return await self.handoff(identifier, payload, user_id=user_id)
+
     async def handoff(
         self, identifier: str, payload: TaskGroupHandoff, *, user_id: str
     ) -> dict:
         row, project = await self.stopped(identifier, payload.slot, user_id=user_id)
         next_id = group_id(user_id, payload.operationId)
         source_session = row["candidates"][payload.slot]["sessionId"]
-        items, _more = await self.store.list_timeline_latest(session_id=source_session, limit=100)
+        items, _more = await self.store.list_timeline_latest(
+            session_id=source_session, limit=100
+        )
         attachments = list(row["request"].get("attachments", []))
         seen = {attachment["fileId"] for attachment in attachments}
-        contents = {(attachment["name"], attachment["contentBase64"]) for attachment in attachments}
-        attachment_lists = [item.content.get("attachments", []) for item in items if item.type == "message" and isinstance(item.content, dict)]
+        contents = {
+            (attachment["name"], attachment["contentBase64"])
+            for attachment in attachments
+        }
+        attachment_lists = [
+            item.content.get("attachments", [])
+            for item in items
+            if item.type == "message" and isinstance(item.content, dict)
+        ]
         attachment_lists.append([a.model_dump() for a in payload.attachments])
         for attachment_list in attachment_lists:
             for attachment in attachment_list:
-                file_id = attachment.get("fileId") if isinstance(attachment, dict) else None
+                file_id = (
+                    attachment.get("fileId") if isinstance(attachment, dict) else None
+                )
                 if not file_id or file_id in seen:
                     continue
-                saved = await self.store.read_uploaded_file(session_id=source_session, file_id=file_id, user_id=user_id)
+                saved = await self.store.read_uploaded_file(
+                    session_id=source_session, file_id=file_id, user_id=user_id
+                )
                 seen.add(file_id)
                 identity = (saved["name"], saved["contentBase64"])
                 if identity not in contents:
-                    attachments.append(InlineAttachmentRef(**{key: saved[key] for key in InlineAttachmentRef.model_fields if key in saved}).model_dump())
+                    attachments.append(
+                        InlineAttachmentRef(
+                            **{
+                                key: saved[key]
+                                for key in InlineAttachmentRef.model_fields
+                                if key in saved
+                            }
+                        ).model_dump()
+                    )
                     contents.add(identity)
         if len(attachments) > 10:
             raise ValueError("转发附件超过 10 个，请减少附件后重试。")
@@ -243,7 +382,7 @@ class TaskGroupService:
                 project.connectorId,
                 "worktree.handoff",
                 {
-                    "root": project.workspacePath,
+                    "root": row.get("workspaceRoot", project.workspacePath),
                     "groupId": identifier,
                     "slot": payload.slot,
                     "targetGroupId": next_id,
@@ -299,6 +438,7 @@ class TaskGroupService:
                     "paths": prepared["paths"],
                     "originalBase": prepared["originalBase"],
                     "handoffBrief": brief,
+                    "workspaceRoot": row.get("workspaceRoot", project.workspacePath),
                 },
             )
         return await self.get(next_id, user_id=user_id)

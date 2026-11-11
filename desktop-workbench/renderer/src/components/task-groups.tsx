@@ -2,13 +2,13 @@
 
 import * as React from "react"
 import { useTranslations } from "next-intl"
-import { TaskGroupAgentSelect } from "@/components/task-group-agent-select"
+import { TaskGroupForwardDialog } from "@/components/task-group-forward-dialog"
+import { forwardToTargets } from "@/features/task-groups/forward-to-targets"
 import { dashboardApi } from "@/features/dashboard/api"
 import type { DeviceRuntimeView } from "@/features/dashboard/types"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
-import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
 import { useAuth } from "@/components/auth/auth-context"
 import { useWorkspace } from "@/components/workspace-context"
 import { TaskGroupChatPane, type ChatPaneMode } from "@/components/task-group-chat-pane"
@@ -34,9 +34,7 @@ export function TaskGroupConversation({ initialGroup, starting = false, onBack }
   const [diffs, setDiffs] = React.useState<Record<string, CandidateDiff>>({})
   const [paneModes, setPaneModes] = React.useState<Record<string, ChatPaneMode>>({})
   const [forward, setForward] = React.useState<{ group: TaskGroup; slot: number; conclusion: string } | null>(null)
-  const [forwardTarget, setForwardTarget] = React.useState<CandidateTarget | null>(null)
   const [instructions, setInstructions] = React.useState("")
-  const forwardIdentity = React.useRef({ signature: "", id: "" })
   const forwardOperations = React.useRef(new Map<string, string>())
   const available = runtimes.filter(r => r.connectorId === project?.connectorId && r.status === "running")
   React.useEffect(() => {
@@ -97,19 +95,20 @@ export function TaskGroupConversation({ initialGroup, starting = false, onBack }
     setForwarded(rows => rows.map(row => row.id === group.id ? group : row))
   }
 
-  async function sendForward() {
-    if (!forward || !forwardTarget || !instructions.trim()) return
-    const body = { slot: forward.slot, mode: "continue" as const, target: forwardTarget, instructions: instructions.trim() }
-    const signature = JSON.stringify([forward.group.id, body])
-    if (forwardIdentity.current.signature !== signature) forwardIdentity.current = { signature, id: operationId() }
+  async function sendForward(targets: CandidateTarget[], instructions: string, attachments: { fileId: string }[]) {
+    if (!forward) return
     const turn = generation.current
-    const group = await taskGroupsApi.handoff(token, forward.group.id, { ...body, operationId: forwardIdentity.current.id })
+    const source = forward
+    await forwardToTargets({ token, source: `${source.group.id}:${source.slot}`, targets, instructions, attachments, operations: forwardOperations.current,
+      create: (target, operationId) => taskGroupsApi.handoff(token, source.group.id, { slot: source.slot, mode: "continue", target, instructions, attachments, operationId }),
+      onUpdate: group => {
+        if (turn !== generation.current) return
+        setForwarded(rows => [...rows.filter(row => row.id !== group.id), group])
+        setPaneModes(rows => ({ ...rows, [`${group.id}:0`]: "open" }))
+      },
+    })
     if (turn !== generation.current) return
-    setForwarded(rows => [...rows.filter(row => row.id !== group.id), group])
-    setPaneModes(rows => ({ ...rows, [`${group.id}:0`]: "open" }))
-    const started = await taskGroupsApi.start(token, group.id, 0)
-    if (turn !== generation.current) return
-    updateGroup(started); setForward(null); await refreshData()
+    setForward(null); await refreshData()
   }
 
   const [broadcast, setBroadcast] = React.useState("")
@@ -218,7 +217,7 @@ export function TaskGroupConversation({ initialGroup, starting = false, onBack }
             }}
             mode={paneModes[pane.key] ?? "open"} pending={pending} diff={diffs[pane.key]}
             onModeChange={mode => setPaneModes(rows => ({ ...rows, [pane.key]: mode }))}
-            onForward={conclusion => { setForward({ group: pane.group, slot: pane.slot, conclusion }); setForwardTarget(null); setInstructions(""); forwardIdentity.current = { signature: "", id: "" } }}
+            onForward={conclusion => { setForward({ group: pane.group, slot: pane.slot, conclusion }); setInstructions("") }}
             onInspect={() => void run(async () => { const turn = generation.current; const result = await taskGroupsApi.diff(token, pane.group.id, pane.slot); if (turn === generation.current) setDiffs(rows => ({ ...rows, [pane.key]: result })) })}
             onSelect={() => void run(async () => updateGroup(await taskGroupsApi.select(token, pane.group.id, pane.slot)))} />)}
         </div></div>
@@ -231,17 +230,11 @@ export function TaskGroupConversation({ initialGroup, starting = false, onBack }
         </div>
       </>}
     </section>}
-    <Dialog open={Boolean(forward)} onOpenChange={open => { if (!open && !pending) setForward(null) }}>
-      <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-xl">
-        <DialogHeader><DialogTitle>{t("forward")}</DialogTitle><DialogDescription>{t("forwardDescription")}</DialogDescription></DialogHeader>
-        {forward && <TaskGroupAgentSelect key={`${forward.group.id}:${forward.slot}`} token={token} connectorId={project!.connectorId} runtimes={available}
-          initialRuntimeId={available.find(r => r.runtimeId !== forward.group.request.candidates[forward.slot]?.runtimeId)?.runtimeId}
-          label={t("handoffAgent")} disabled={pending} onChange={setForwardTarget} />}
-        <details><summary className="cursor-pointer text-sm">{t("conclusion")}</summary><p className="max-h-48 overflow-auto whitespace-pre-wrap text-sm">{forward?.conclusion}</p></details>
-        <Label className="grid gap-2">{t("forwardInstructions")}<Textarea aria-label={t("forwardInstructions")} value={instructions} maxLength={8000} disabled={pending} placeholder={t("forwardExample")} onChange={e => setInstructions(e.target.value)} /></Label>
-        {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-        <DialogFooter><Button variant="outline" disabled={pending} onClick={() => setForward(null)}>{t("cancel")}</Button><Button disabled={pending || !forwardTarget || !instructions.trim()} onClick={() => void run(sendForward)}>{t("sendForward")}</Button></DialogFooter>
-      </DialogContent>
-    </Dialog>
+    {forward && <TaskGroupForwardDialog key={`${forward.group.id}:${forward.slot}`} token={token} connectorId={project!.connectorId}
+      sessionId={forward.group.candidates[forward.slot]!.sessionId!} runtimes={available}
+      initialRuntimeId={available.find(r => r.runtimeId !== forward.group.request.candidates[forward.slot]?.runtimeId)?.runtimeId}
+      initialInstructions={instructions} conclusion={forward.conclusion} pending={pending} error={error}
+      onClose={() => setForward(null)} onSend={(targets, instructions, attachments) => run(() => sendForward(targets, instructions, attachments))} />}
+
   </div>
 }

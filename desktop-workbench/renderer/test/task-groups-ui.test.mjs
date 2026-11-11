@@ -29,7 +29,9 @@ globalThis.testTaskGroups = {
   select: async (_token, id, slot) => { const row = groups.get(id); row.selected = slot; return structuredClone(row) },
   handoff: async (_token, id, body) => {
     calls.push(['handoff', id, body])
-    const row = { id: 'b'.repeat(40), projectId: 'p', phase: 'ready', selected: null, base: 'snapshot', handoffBrief: body.instructions,
+    const existing = [...groups.values()].find(row => row.operationId === body.operationId)
+    if (existing) return structuredClone(existing)
+    const row = { id: String.fromCharCode(97 + groups.size).repeat(40), operationId: body.operationId, projectId: 'p', phase: 'ready', selected: null, base: 'snapshot', handoffBrief: body.instructions,
       request: { content: 'Forwarded task', candidates: [body.target], source: { groupId: id, slot: body.slot } }, candidates: [pending()] }
     groups.set(row.id, row); return structuredClone(row)
   },
@@ -102,7 +104,9 @@ const hooks = registerHooks({ load(url, context, next) {
 } })
 const { TaskGroupConversation } = await import('../src/components/task-groups.tsx')
 const { AgentSelectionDrawer } = await import('../src/components/session/agent-selection-drawer.tsx')
+const { useSessionForward } = await import('../src/components/session/session-forward.tsx')
 const { TaskComposer } = await import('../src/components/task-composer.tsx')
+const { forwardToTargets } = await import('../src/features/task-groups/forward-to-targets.ts')
 hooks.deregister(); source.deregister()
 
 async function input(element, value) {
@@ -158,15 +162,15 @@ for (const count of [1, 2, 3]) test(`${count} agents open independent chats; pan
     assert.match(pane(0).textContent, /independent result/)
     await act(async () => pane(0).querySelector('[aria-label="forward"]').click())
     assert.equal(calls.filter(c => c[0] === 'start').length, count)
-    assert.equal(container.querySelector('[aria-label="handoffAgent"]').value, count === 1 ? 'codex' : 'claude')
-    assert.equal([...container.querySelectorAll('button')].find(b => b.textContent === 'sendForward').disabled, true)
-    await click('cancel')
+    assert.equal(container.querySelector('[aria-label="目标 AI 1"]').value, count === 1 ? 'codex' : 'claude')
+    assert.equal([...container.querySelectorAll('button')].find(b => b.textContent === '发送').disabled, true)
+    await click('取消')
     assert.equal(calls.filter(c => c[0] === 'handoff').length, 0)
     await act(async () => pane(0).querySelector('[aria-label="forward"]').click())
-    await act(async () => { const select = container.querySelector('[aria-label="handoffAgent"]'); select.value = 'dsh'; select.dispatchEvent(new dom.window.Event('change', { bubbles: true })) })
-    await input(container.querySelector('[aria-label="forwardInstructions"]'), 'Check this result; do not change any code.')
+    await act(async () => { const select = container.querySelector('[aria-label="目标 AI 1"]'); select.value = 'dsh'; select.dispatchEvent(new dom.window.Event('change', { bubbles: true })) })
+    await input(container.querySelector('[aria-label="补充指令"]'), 'Check this result; do not change any code.')
     assert.match(container.textContent, /Result for session-a-0/)
-    await click('sendForward')
+    await click('发送')
     const forwarded = calls.find(c => c[0] === 'handoff')[2]
     assert.equal(forwarded.target.runtime, 'dsh')
     assert.deepEqual(forwarded.target.selections, { model: 'dsh-model-low', permission: 'dsh-permission-read' })
@@ -360,4 +364,117 @@ test('a failed forward keeps its operation identity when another pane forwards b
     assert.equal(forwards[0][2].operationId,forwards[2][2].operationId)
     assert.notEqual(forwards[0][2].operationId,forwards[1][2].operationId)
   } finally {globalThis.testTaskGroups.handoff=original;await act(async()=>root.unmount());container.remove()}
+})
+
+
+test('ordinary session forwards and opens target in the original project', async () => {
+  calls.length = 0
+  const container = document.createElement('div'); document.body.append(container)
+  const root = createRoot(container)
+  globalThis.testWorkspace.openSession = id => calls.push(['open', id])
+  globalThis.testTaskGroups.handoffSession = async (_token, id, body) => {
+    calls.push(['single-handoff', id, body])
+    const row = { id: 'c'.repeat(40), projectId: 'p', phase: 'ready', request: { candidates: [body.target] }, candidates: [pending()] }
+    groups.set(row.id, row); return row
+  }
+  function Ordinary() {
+    const forward = useSessionForward('test-token', { id: 'ordinary', projectId: 'p', connectorId: 'c', status: 'idle' }, true)
+    return forward.control
+  }
+  await act(async () => root.render(h(Ordinary)))
+  const click = async text => {
+    const button = [...container.querySelectorAll('button')].find(row => row.textContent === text)
+    assert.ok(button, text); assert.equal(button.disabled, false)
+    await act(async () => button.click())
+  }
+  await click('转发给其他 AI')
+  assert.match(container.textContent, /当前项目下/)
+  await click('发送')
+  const sent = calls.find(row => row[0] === 'single-handoff')
+  assert.equal(sent[1], 'ordinary')
+  assert.equal(sent[2].target.runtime, 'codex')
+  assert.ok(calls.some(row => row[0] === 'open' && row[1] === 'session-c-0'))
+  assert.equal(calls.filter(row => row[0] === 'start').length, 1)
+  await act(async () => root.unmount()); container.remove()
+})
+
+
+test('ordinary session forwards attachments to three configured recipients without creating projects', async () => {
+  calls.length = 0; groups.clear()
+  globalThis.testInitialAttachments = [{ id: 'extra', uploaded: { fileId: 'file_extra' }, uploadStatus: 'uploaded' }]
+  const operations = new Map()
+  globalThis.testTaskGroups.handoffSession = async (_token, id, body) => {
+    calls.push(['single-handoff', id, body])
+    if (operations.has(body.operationId)) return operations.get(body.operationId)
+    const row = { id: String.fromCharCode(98 + operations.size).repeat(40), projectId: 'p', phase: 'ready', request: { candidates: [body.target] }, candidates: [pending()] }
+    operations.set(body.operationId, row); groups.set(row.id, row); return row
+  }
+  const container = document.createElement('div'); document.body.append(container); const root = createRoot(container)
+  function Ordinary() { return useSessionForward('test-token', { id: 'ordinary', connectorId: 'c', status: 'idle' }, true).control }
+  const click = async text => {
+    const button = [...container.querySelectorAll('button')].find(row => row.textContent === text)
+    assert.ok(button, text); assert.equal(button.disabled, false)
+    await act(async () => button.click())
+  }
+  try {
+    await act(async () => root.render(h(Ordinary)))
+    await click('转发给其他 AI'); await click('添加目标 AI'); await click('添加目标 AI')
+    assert.equal(container.querySelector('[aria-label="目标 AI 3"]').value, 'dsh')
+    await click('发送')
+    const sent = calls.filter(row => row[0] === 'single-handoff')
+    assert.deepEqual(sent.map(row => row[2].target.runtimeId), ['codex', 'claude', 'dsh'])
+    assert.ok(sent.every(row => row[1] === 'ordinary' && row[2].attachments[0].fileId === 'file_extra'))
+    assert.deepEqual(sent[2][2].target.selections, { model: 'dsh-model-low', permission: 'dsh-permission-read' })
+    assert.equal(new Set(sent.map(row => row[2].operationId)).size, 3)
+    assert.equal(calls.filter(row => row[0] === 'start').length, 3)
+    assert.equal(calls.some(row => row[0] === 'resolveProject'), false)
+  } finally { delete globalThis.testInitialAttachments; await act(async () => root.unmount()); container.remove() }
+})
+
+test('multi-AI pane uses the same multiple-recipient attachment forwarding dialog', async () => {
+  calls.length = 0; groups.clear()
+  globalThis.testInitialAttachments = [{ id: 'extra', uploaded: { fileId: 'file_extra' }, uploadStatus: 'uploaded' }]
+  const row = await globalThis.testTaskGroups.create('', { content: 'Task', candidates: [{ runtime: 'codex', runtimeId: 'codex', selections: {} }] })
+  await globalThis.testTaskGroups.start('', row.id, 0)
+  const container = document.createElement('div'); document.body.append(container); const root = createRoot(container)
+  const click = async text => {
+    const button = [...container.querySelectorAll('button')].find(row => row.textContent === text)
+    assert.ok(button, text); assert.equal(button.disabled, false); await act(async () => button.click())
+  }
+  try {
+    await act(async () => root.render(h(TaskGroupConversation, { initialGroup: groups.get(row.id), onBack: () => {} })))
+    await act(async () => container.querySelector('[aria-label="forward"]').click())
+    await click('添加目标 AI')
+    await input(container.querySelector('[aria-label="补充指令"]'), 'Review with the attachment')
+    await click('发送')
+    const sent = calls.filter(row => row[0] === 'handoff')
+    assert.equal(sent.length, 2)
+    assert.ok(sent.every(item => item[1] === row.id && item[2].attachments[0].fileId === 'file_extra'))
+    assert.equal(container.querySelectorAll('[data-chat]').length, 3)
+    assert.equal(calls.some(row => row[0] === 'resolveProject'), false)
+  } finally { delete globalThis.testInitialAttachments; await act(async () => root.unmount()); container.remove() }
+})
+
+test('partial recipient failure keeps successful recipients and stable operation identities on retry', async () => {
+  calls.length = 0; groups.clear()
+  const operations = new Map(); const identities = []; const rows = new Map(); let fail = true
+  const targets = ['codex', 'claude'].map(runtime => ({ runtime, runtimeId: runtime, selections: {} }))
+  const updates = []
+  const options = { token: '', source: 'ordinary', targets, instructions: 'Review', attachments: [{ fileId: 'extra' }], operations,
+    create: async (target, operationId) => {
+      identities.push([target.runtimeId, operationId])
+      if (!rows.has(operationId)) {
+        const row = { id: String.fromCharCode(98 + rows.size).repeat(40), candidates: [pending()], request: { candidates: [target] } }
+        rows.set(operationId, row); groups.set(row.id, row)
+      }
+      if (target.runtimeId === 'claude' && fail) { fail = false; throw new Error('Lost response') }
+      return rows.get(operationId)
+    }, onUpdate: group => updates.push(group.id),
+  }
+  await assert.rejects(() => forwardToTargets(options), /claude: Lost response/)
+  assert.ok(updates.includes('b'.repeat(40)), 'successful recipient stays visible')
+  const completed = await forwardToTargets(options)
+  assert.equal(completed.length, 2)
+  assert.deepEqual(identities.slice(0, 2), identities.slice(2))
+  assert.equal(rows.size, 2, 'retry reuses both prepared groups')
 })

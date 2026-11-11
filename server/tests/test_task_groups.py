@@ -331,3 +331,87 @@ def test_candidates_and_forwards_stay_in_original_project_after_sync(setup):
             await s.store.create_session(connector_id=session.connectorId, project_id=session.projectId, user_id=s.user_id, runtime="codex", runtime_id="codex", external_session_id=None, title="Invalid", cwd=row["paths"][1], session_id="sess_tg_unclaimed")
     asyncio.run(scenario())
     assert len(s.client.get("/projects", headers=s.headers).json()["projects"]) == project_count
+
+
+def test_single_session_forward_stays_in_project_and_never_replays_source(setup):
+    from agent_server.core.models import TimelineItemIn
+    s = setup
+    project = asyncio.run(s.store.get_project(s.request['projectId'], user_id=s.user_id))
+    session = asyncio.run(s.store.create_session(
+        connector_id=project.connectorId, project_id=project.id, user_id=s.user_id,
+        runtime='codex', runtime_id='codex', external_session_id='ordinary-native',
+        title='Original question', cwd=project.workspacePath, session_id='sess_ordinary_forward', takeover=True,
+    ))
+    saved = asyncio.run(s.store.save_user_uploaded_file(session_id=session.id, user_id=s.user_id, name='original.txt', data=b'original', media_type='text/plain'))
+    asyncio.run(s.store.upsert_timeline_item(session_id=session.id, item=TimelineItemIn(
+        id='original-message', sessionId=session.id, type='message', status='done', role='user',
+        content={'text':'Original task', 'attachments':[{'fileId':saved['fileId']}]}, source={'runtime':'codex'}, orderSeq=1, contentHash='original',
+    )))
+    (s.repo / 'file.txt').write_text('dirty source')
+    body = {'operationId':'single-forward-001', 'slot':0, 'mode':'review', 'instructions':'Check this', 'target':{'runtime':'dsh', 'runtimeId':'dsh'}}
+    url = f'/api/v2/task-groups/from-session/{session.id}/handoffs'
+    result = s.client.post(url, headers=s.headers, json=body)
+    assert result.status_code == 200, result.text
+    row = result.json()
+    assert row['projectId'] == project.id
+    assert 'Original task' in row['handoffBrief'] and 'Check this' in row['handoffBrief']
+    assert row['request']['attachments'][0]['name'] == 'original.txt'
+    assert 'contentBase64' not in row['request']['attachments'][0]
+    assert not s.runs.calls
+    assert s.client.post(url, headers=s.headers, json=body).json()['id'] == row['id']
+    assert not s.runs.calls
+    for _ in range(2):
+        started = asyncio.run(s.svc.start(row['id'], 0, user_id=s.user_id))
+    assert len(s.runs.calls) == 1
+    target = asyncio.run(s.store.get_session(started['candidates'][0]['sessionId'], user_id=s.user_id))
+    assert target.projectId == project.id
+    assert s.runs.calls[0].runtime == 'dsh'
+    assert s.runs.calls[0].attachments[0].name == 'original.txt'
+    from pathlib import Path
+    assert (Path(s.runs.calls[0].cwd) / 'file.txt').read_text() == 'dirty source'
+    asyncio.run(s.store.start_active_run(session_id=session.id, runtime='codex', status='running'))
+    refused = s.client.post(url, headers=s.headers, json={**body, 'operationId':'single-forward-busy'})
+    assert refused.status_code == 409
+    assert s.client.post(url, json=body).status_code == 401
+
+
+def test_single_session_fanout_keeps_project_and_delivers_history_and_extra_attachments(setup):
+    from agent_server.core.models import TimelineItemIn
+
+    s = setup
+    project = asyncio.run(s.store.get_project(s.request['projectId'], user_id=s.user_id))
+    source = asyncio.run(s.store.create_session(
+        connector_id=project.connectorId, project_id=project.id, user_id=s.user_id,
+        runtime='codex', runtime_id='codex', external_session_id='fanout-source',
+        title='Original task', cwd=project.workspacePath, session_id='sess_fanout_source', takeover=True,
+    ))
+    original = asyncio.run(s.store.save_user_uploaded_file(session_id=source.id, user_id=s.user_id, name='original.txt', data=b'original', media_type='text/plain'))
+    extra = asyncio.run(s.store.save_user_uploaded_file(session_id=source.id, user_id=s.user_id, name='extra.txt', data=b'extra', media_type='text/plain'))
+    asyncio.run(s.store.upsert_timeline_item(session_id=source.id, item=TimelineItemIn(
+        id='fanout-original', sessionId=source.id, type='message', status='done', role='user',
+        content={'text': 'Original task', 'attachments': [{'fileId': original['fileId']}]},
+        source={'runtime': 'codex'}, orderSeq=1, contentHash='fanout-original',
+    )))
+    count = len(s.client.get('/projects', headers=s.headers).json()['projects'])
+    created_ids = []
+    for runtime in ['codex', 'claude', 'dsh']:
+        body = {'operationId': f'fanout-forward-{runtime}', 'slot': 0, 'mode': 'continue',
+                'target': {'runtime': runtime, 'runtimeId': runtime}, 'instructions': 'Use both attachments',
+                'attachments': [{'fileId': extra['fileId']}]}
+        response = s.client.post(f'/api/v2/task-groups/from-session/{source.id}/handoffs', headers=s.headers, json=body)
+        assert response.status_code == 200, response.text
+        group = response.json()
+        assert group['projectId'] == project.id
+        assert 'contentBase64' not in response.text
+        assert {a['name'] for a in group['request']['attachments']} == {'original.txt', 'extra.txt'}
+        first = asyncio.run(s.svc.start(group['id'], 0, user_id=s.user_id))
+        second = asyncio.run(s.svc.start(group['id'], 0, user_id=s.user_id))
+        target_id = first['candidates'][0]['sessionId']
+        assert target_id == second['candidates'][0]['sessionId']
+        created_ids.append(target_id)
+        target = asyncio.run(s.store.get_session(target_id, user_id=s.user_id))
+        assert target.projectId == project.id
+        assert {a.name for a in s.runs.calls[-1].attachments} == {'original.txt', 'extra.txt'}
+        assert 'Original task' in s.runs.calls[-1].content
+    assert len(set(created_ids)) == 3 and len(s.runs.calls) == 3
+    assert len(s.client.get('/projects', headers=s.headers).json()['projects']) == count
