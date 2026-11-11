@@ -162,7 +162,8 @@ class FilesApi(
     private fun absoluteDownloadUrl(serverUrl: String, downloadUrl: String): String {
         if (downloadUrl.startsWith("http://") || downloadUrl.startsWith("https://")) return downloadUrl
         val base = serverUrl.trimEnd('/')
-        if (base.endsWith("/api/v2") && downloadUrl.startsWith("/api/v2")) {
+        if (base.endsWith("/api/v2") &&
+            downloadUrl.startsWith("/api/v2")) {
             return base.removeSuffix("/api/v2") + downloadUrl
         }
         return base + "/" + downloadUrl.trimStart('/')

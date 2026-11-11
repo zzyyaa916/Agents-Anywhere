@@ -81,6 +81,14 @@ abstract class LegacyRoutesTask : DefaultTask() {
 
     private fun verifyRuleProbes() {
         val rules = rules()
+        for (method in listOf("deleteJson", "getJson")) {
+            val findings = scanSource(
+                relativePath = "__method_probe__.kt",
+                lines = listOf("client.$method(server, \"/sessions/\${sessionId}\", token)"),
+                rules = rules,
+            )
+            check(findings.isEmpty() == (method == "deleteJson")) { "Session route method probe failed: $method" }
+        }
         LEGACY_ROUTE_PROBES.forEach { (route, expectedRuleId) ->
             val findings = scanSource(
                 relativePath = "app/src/main/java/__legacy_route_probe__.kt",
@@ -115,6 +123,11 @@ abstract class LegacyRoutesTask : DefaultTask() {
                 val segments = withoutNamespace.substringBefore('?').split('/')
                 rules.asSequence()
                     .filter { rule -> rule.matches(segments) }
+                    // DELETE session history is a supported Fork endpoint; the removed metadata route was GET.
+                    .filterNot { rule ->
+                        rule.id == "session-meta-root" &&
+                            line.substring(0, match.range.first).trimEnd().endsWith(".deleteJson(server,")
+                    }
                     .map { rule ->
                         LegacyRouteFinding(
                             rule = rule,
