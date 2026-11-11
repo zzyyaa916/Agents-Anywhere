@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from connector.runtime_protocol import (
     RuntimeConfig,
     RuntimeConflictError,
@@ -206,11 +205,18 @@ async def _test_codex_provider_schema_exposes_ipc_switches_but_no_app_server_mod
     }
 
 
-def test_codex_provider_validates_sdk_config() -> None:
-    asyncio.run(_test_codex_provider_validates_sdk_config())
+@pytest.mark.parametrize("configured_home", [False, True])
+def test_codex_provider_validates_sdk_config(tmp_path, monkeypatch, configured_home) -> None:
+    monkeypatch.delenv("AA_CONNECTOR_PROFILE", raising=False)
+    expected_home = tmp_path / "codex-home" if configured_home else Path.home() / ".codex"
+    if configured_home:
+        monkeypatch.setenv("CODEX_HOME", str(expected_home))
+    else:
+        monkeypatch.delenv("CODEX_HOME", raising=False)
+    asyncio.run(_test_codex_provider_validates_sdk_config(expected_home))
 
 
-async def _test_codex_provider_validates_sdk_config() -> None:
+async def _test_codex_provider_validates_sdk_config(expected_home: Path) -> None:
     provider = CodexProvider(sdk_checker=_available_sdk)
 
     config = await provider.validate_config(
@@ -249,7 +255,7 @@ async def _test_codex_provider_validates_sdk_config() -> None:
                 ],
             }
         ],
-        "codexHome": provider_config.canonical_path(Path.home() / ".codex"),
+        "codexHome": provider_config.canonical_path(expected_home),
     }
     assert config.metadata["sdk"]["available"] is True
     assert config.metadata["runtimeBinary"]["mode"] == "prefer_system"

@@ -120,7 +120,7 @@ class PendingServerRequest:
 class TurnStreamState:
     thread_id: str
     turn_id: str
-    terminal_delivery: asyncio.Task[None] | None = None
+    terminal_delivery: asyncio.Task[bool] | None = None
 
 
 class CodexThreadTurnsListResponse(BaseModel):
@@ -1228,7 +1228,8 @@ class CodexSdkClient:
                 if is_terminal:
                     completed_seen = True
                     delivery = self._start_terminal_delivery(stream_state, message)
-                    await asyncio.shield(delivery)
+                    if not await asyncio.shield(delivery):
+                        break
                 else:
                     await self._emit(message)
         except asyncio.CancelledError:
@@ -1265,12 +1266,25 @@ class CodexSdkClient:
 
     def _start_terminal_delivery(
         self, stream: TurnStreamState, message: CodexNotificationMessage
-    ) -> asyncio.Task[None]:
+    ) -> asyncio.Task[bool]:
         if stream.terminal_delivery is None:
             # The projector performs several awaited host writes. Give the whole
             # terminal one owner so stream cancellation cannot interrupt it.
-            stream.terminal_delivery = asyncio.create_task(self._emit(message))
+            stream.terminal_delivery = asyncio.create_task(self._deliver_terminal(stream, message))
         return stream.terminal_delivery
+
+    async def _deliver_terminal(
+        self, stream: TurnStreamState, message: CodexNotificationMessage
+    ) -> bool:
+        try:
+            await self._emit(message)
+            return True
+        except Exception as exc:  # noqa: BLE001 -- delivery failure must not escape a cancelled shield
+            logger.warning(
+                "codex terminal delivery failed thread_id={} turn_id={} error_type={}",
+                stream.thread_id, stream.turn_id, type(exc).__name__,
+            )
+            return False
 
     async def _finish_terminal_delivery(self, stream: TurnStreamState) -> None:
         delivery = stream.terminal_delivery
