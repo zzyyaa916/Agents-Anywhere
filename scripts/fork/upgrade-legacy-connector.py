@@ -43,6 +43,15 @@ def switch(venv, new, backup, command=run, validate=lambda: None):
         raise
 
 
+def install_package(root, manifest, uv, python, command=subprocess.run):
+    wheel = root / f'anywhere_cli-{VERSION}-py3-none-any.whl'
+    local_wheel = wheel.name in manifest['files']
+    command([uv, 'pip', 'install', '--python', str(python), '--no-deps',
+             '--reinstall-package', 'anywhere-cli',
+             *(['--no-index'] if local_wheel else []),
+             str(wheel if local_wheel else root / 'connector')], check=True)
+
+
 def upgrade(root):
     if os.geteuid() != 0:
         raise RuntimeError('请使用 sudo python3 upgrade-legacy-connector.py 更新包目录')
@@ -80,9 +89,9 @@ def upgrade(root):
     new = VENV.with_name('.venv-fork-' + VERSION + '-' + stamp)
     backup = VENV.with_name('.venv-before-' + VERSION + '-' + stamp)
     new.mkdir(mode=0o700)
-    print('正在复制原环境并安装新版，现有服务继续运行。', flush=True)
+    print('正在复制原环境并安装新版，原环境保留用于回滚。', flush=True)
     subprocess.run(['cp', '-a', '--reflink=auto', str(VENV) + '/.', str(new)], check=True)
-    subprocess.run([uv, 'pip', 'install', '--python', str(new / 'bin/python'), '--no-deps', '--reinstall-package', 'anywhere-cli', str(root / 'connector')], check=True)
+    install_package(root, manifest, uv, new / 'bin/python')
     subprocess.run([uv, 'pip', 'check', '--python', str(new / 'bin/python')], check=True)
     run([new / 'bin/python', '-c', 'import connector.cli; from connector.local import worktrees; from connector.server import local_rpc; from importlib.metadata import version; assert version("anywhere-cli") == "2.6.2"; print("import check OK")'])
     owner = VENV.stat()

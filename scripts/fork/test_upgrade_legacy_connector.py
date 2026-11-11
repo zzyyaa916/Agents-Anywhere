@@ -70,3 +70,18 @@ class SwitchTests(unittest.TestCase):
                 module['switch'](old, new, backup, lambda args: None, validate=failed)
             self.assertTrue(old.is_dir())
             self.assertFalse(old.is_symlink())
+
+
+class InstallPackageTests(unittest.TestCase):
+    def test_verified_wheel_is_installed_without_network_or_build_dependencies(self):
+        calls = []
+        module['install_package'](Path('/bundle'), {'files': {'anywhere_cli-2.6.2-py3-none-any.whl': 'verified'}}, '/uv', Path('/new/bin/python'), lambda args, **kw: calls.append((args, kw)))
+        self.assertIn('--no-index', calls[0][0])
+        self.assertEqual('/bundle/anywhere_cli-2.6.2-py3-none-any.whl', calls[0][0][-1])
+        self.assertTrue(calls[0][1]['check'])
+
+    def test_unlisted_wheel_is_not_trusted(self):
+        calls = []
+        module['install_package'](Path('/bundle'), {'files': {}}, '/uv', Path('/new/bin/python'), lambda args, **kw: calls.append(args))
+        self.assertNotIn('--no-index', calls[0])
+        self.assertEqual('/bundle/connector', calls[0][-1])
