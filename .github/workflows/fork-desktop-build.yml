@@ -7,7 +7,7 @@ on:
         description: Optional successful build run to deliver without rebuilding
         required: false
       deliver_tag:
-        description: Existing unpublished draft tag for delivery
+        description: Existing release tag for verified additive delivery
         required: false
 
 permissions:
@@ -111,7 +111,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
-      - name: Verify build, installer checksums and draft assets
+      - name: Verify build, installer checksums and release assets
         shell: python
         run: |
           import hashlib, json, os, re, subprocess
@@ -129,8 +129,12 @@ jobs:
           assert build['head_repository']['full_name'] == repo
           assert build['path'] == '.github/workflows/fork-desktop-build.yml'
           release = next(row for row in json.loads(gh('api', f'repos/{repo}/releases?per_page=100')) if row['tag_name'] == tag)
-          assert release['draft'], 'Only an unpublished draft may be changed'
-          assert release['target_commitish'] == build['head_sha']
+          assert build['head_sha'] == os.environ['GITHUB_SHA'], 'Delivery must use the tested checkout'
+          assert json.loads(Path('desktop-workbench/package.json').read_text())['version'] == version
+          assert not release['prerelease']
+          if release['draft']:
+              assert release['target_commitish'] == build['head_sha']
+          previous_assets = {row['name']: row for row in release['assets']}
           verified = []
           for platform, extensions in [('win', {'.exe'}), ('mac', {'.dmg', '.pkg'})]:
               directory = Path('installers') / platform
@@ -155,14 +159,23 @@ jobs:
                   name = f'Agents.Anywhere.Fork.Setup.{version}.exe' if file.suffix == '.exe' else f'Agents.Anywhere.Fork-{version}-x64{file.suffix}'
                   target = file.with_name(name)
                   file.rename(target)
-                  gh('release', 'upload', tag, str(target), '--clobber')
+                  existing = previous_assets.get(name)
+                  if existing:
+                      assert existing['digest'] == 'sha256:' + digest.hexdigest(), 'Published assets are immutable'
+                      assert existing['size'] == target.stat().st_size
+                  else:
+                      gh('release', 'upload', tag, str(target))
                   verified.append({'name': name, 'size': target.stat().st_size, 'sha256': digest.hexdigest(), 'run': run_id})
           assets = {row['name']: row for row in json.loads(gh('api', f"repos/{repo}/releases/{release['id']}"))['assets']}
+          for name, previous in previous_assets.items():
+              assert assets[name]['id'] == previous['id']
+              assert assets[name]['digest'] == previous['digest']
+              assert assets[name]['size'] == previous['size']
           for row in verified:
               assert assets[row['name']]['digest'] == 'sha256:' + row['sha256']
               assert assets[row['name']]['size'] == row['size']
           Path('desktop-delivery-verification.json').write_text(json.dumps(verified, indent=2))
-          print(json.dumps({'draft': True, 'source': build['head_sha'], 'verifiedAssets': verified}))
+          print(json.dumps({'draft': release['draft'], 'source': build['head_sha'], 'verifiedAssets': verified}))
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-delivery-verification
