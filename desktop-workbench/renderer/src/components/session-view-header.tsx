@@ -174,6 +174,7 @@ export function SessionViewHeader({
         )}
         {createPortal(
           <TooltipProvider delayDuration={800}>
+            {forwardControl}
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
