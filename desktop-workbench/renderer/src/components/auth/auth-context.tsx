@@ -51,6 +51,8 @@ function hashToScreen(hash: string): AuthScreen {
   const isAppRoute =
     path === "" ||
     path === "app" ||
+    path === "joint" ||
+    path.startsWith("joint/") ||
     path.startsWith("session/") ||
     path.startsWith("new-session/") ||
     path.startsWith("settings") ||

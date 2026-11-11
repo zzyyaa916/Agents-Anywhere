@@ -67,6 +67,27 @@ test("administration routes are app routes that keep the login session", async (
   assert.equal(current().isAuthenticated, true)
 })
 
+test("paired conversation routes stay in the app instead of showing the login page", async (t) => {
+  const { current, me } = await render(t, "#/")
+  for (const hash of ["#/joint", "#/joint/group_1", "#/"]) {
+    await navigate(hash)
+    assert.equal(current().screen, "app", hash)
+    assert.equal(current().isAuthenticated, true, hash)
+    assert.equal(window.localStorage.getItem("aa.session.v1"), stored, hash)
+  }
+  assert.equal(me.mock.callCount(), 1)
+  // A similarly named unknown route keeps the existing fallback.
+  await navigate("#/jointed")
+  assert.equal(current().screen, "login")
+})
+
+test("reopening the app on a paired conversation route restores it", async (t) => {
+  const { current } = await render(t, "#/joint/group_1")
+  assert.equal(current().screen, "app")
+  assert.equal(current().isAuthenticated, true)
+  assert.equal(window.location.hash, "#/joint/group_1")
+})
+
 test("reloading on an administration route stays authenticated across sections", async (t) => {
   const { current } = await render(t, "#/admin/overview")
   assert.equal(current().screen, "app")
