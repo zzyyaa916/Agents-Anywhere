@@ -89,7 +89,9 @@ def update_server(root, manifest):
         result = subprocess.run(['docker', 'exec', '-i', 'agents-anywhere-fork-postgres-1', 'pg_restore', '--list'], stdin=stream, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         if result.returncode:
             raise RuntimeError('数据库备份验证失败，未重启服务。')
-    old_image = run(['docker', 'inspect', '--format={{.Image}}', 'agents-anywhere-fork-server-1'])
+    old_image = run(['docker', 'inspect', '--format={{.Config.Image}}', 'agents-anywhere-fork-server-1'])
+    if run(['docker', 'image', 'inspect', '--format={{.Id}}', old_image]) != run(['docker', 'inspect', '--format={{.Image}}', 'agents-anywhere-fork-server-1']):
+        raise RuntimeError('当前镜像标签与运行中的镜像不一致，未修改服务。')
     image = 'agents-anywhere-fork:2.6.0-desktop-2.5.10-' + manifest['source'][:8]
     print('备份完成，正在构建新镜像；现有服务继续运行。', flush=True)
     run(['docker', 'build', '--network=none', '--build-arg', 'BASE_IMAGE=' + old_image, '-t', image, str(root)], log=backup / 'build.log')
