@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from connector.core.fork_profile import share_runtime_path
 from connector.runtime_protocol import RuntimeAttachment, RuntimeInvalidRequestError
 from connector.runtime_protocol.host import RuntimeHostClient
 
@@ -35,6 +36,8 @@ async def staged_attachments(
     try:
         if attachments:
             directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+            share_runtime_path(directory.parent, "--x")
+            share_runtime_path(directory, "--x")
         for attachment in attachments:
             downloaded = await host.attachment_download(session_id, attachment.file_id)
             content = downloaded.content
@@ -54,6 +57,7 @@ async def staged_attachments(
                 file.write(content)
                 file.flush()
                 os.fsync(file.fileno())
+            share_runtime_path(path, "r--")
             payloads.append({
                 "uploadId": upload_id, "fileId": attachment.file_id,
                 "name": attachment.name or downloaded.name or attachment.file_id,

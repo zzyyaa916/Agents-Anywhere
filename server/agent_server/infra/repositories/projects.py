@@ -151,6 +151,7 @@ class ProjectRepositoryMixin:
         connector_id: str,
         workspace_path: str | None,
         now: str | None = None,
+        session_id: str | None = None,
     ) -> tuple[str, str]:
         """Find or create the project that owns a connector workspace.
 
@@ -184,6 +185,10 @@ class ProjectRepositoryMixin:
             raise MissingWorkspaceError("session workdir is required")
         candidate_path = workspace_path.strip()
         cleaned_path, workspace_key = _clean_workspace_path(candidate_path, device_os)
+        if session_id:
+            parent = await self._task_group_session_project(conn, session_id=session_id, connector_id=connector_id, cwd=cleaned_path, user_id=connector["user_id"])
+            if parent:
+                return parent, cleaned_path
         existing = (
             await conn.execute(
                 select(projects_t.c.id)

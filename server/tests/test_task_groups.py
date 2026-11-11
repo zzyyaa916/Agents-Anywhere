@@ -304,3 +304,30 @@ def test_plain_questions_start_two_ais_and_forward_text_and_attachments(setup, m
         assert ("请审核以下问题" if mode == "review" else "请继续处理以下问题") in brief
         asyncio.run(s.svc.start(forwarded["id"], 0, user_id=s.user_id))
         assert s.runs.calls[-1].attachments[0].name == "question.txt"
+
+
+def test_candidates_and_forwards_stay_in_original_project_after_sync(setup):
+    s = setup
+    row = create(s)
+    project_count = len(s.client.get("/projects", headers=s.headers).json()["projects"])
+    async def scenario():
+        for slot in range(3):
+            started = await s.svc.start(row["id"], slot, user_id=s.user_id)
+            sid = started["candidates"][slot]["sessionId"]
+            session = await s.store.get_session(sid, user_id=s.user_id)
+            assert session.projectId == s.request["projectId"]
+            assert session.cwd == row["paths"][slot]
+            synced = await s.store.update_session_snapshot(session_id=sid, cwd=session.cwd, title="Runtime title")
+            assert synced.projectId == session.projectId and synced.cwd == session.cwd
+            imported = await s.store.upsert_connector_session(connector_id=session.connectorId, session_id=sid, runtime="codex", runtime_id="codex", external_session_id=session.externalSessionId, cwd=session.cwd, title="Synced")
+            assert imported.projectId == session.projectId
+        forwarded = await s.svc.handoff(row["id"], TaskGroupHandoff(operationId="same-project-forward", slot=0, mode="review", target={"runtime": "claude", "runtimeId": "claude"}), user_id=s.user_id)
+        forwarded = await s.svc.start(forwarded["id"], 0, user_id=s.user_id)
+        session = await s.store.get_session(forwarded["candidates"][0]["sessionId"], user_id=s.user_id)
+        assert session.projectId == s.request["projectId"]
+        assert session.cwd == forwarded["paths"][0]
+        assert await s.store.get_task_group_session_project(session_id=session.id, connector_id=session.connectorId, cwd=session.cwd, user_id="another-user") is None
+        with pytest.raises(ValueError, match="workspace"):
+            await s.store.create_session(connector_id=session.connectorId, project_id=session.projectId, user_id=s.user_id, runtime="codex", runtime_id="codex", external_session_id=None, title="Invalid", cwd=row["paths"][1], session_id="sess_tg_unclaimed")
+    asyncio.run(scenario())
+    assert len(s.client.get("/projects", headers=s.headers).json()["projects"]) == project_count

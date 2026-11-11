@@ -106,3 +106,15 @@ def test_attachments_are_staged_under_the_bridge_rendezvous_not_dsh_home(tmp_pat
         result = await runtime.start_turn("session", "native", "", attachments=(image(content=content),), client_message_id="message")
         assert result.ok
     asyncio.run(run())
+
+
+def test_fixed_dsh_account_gets_only_staging_traversal_and_file_read(tmp_path, monkeypatch):
+    from connector.runtimes.dsh import attachments as module
+    calls = []
+    monkeypatch.setattr(module, "share_runtime_path", lambda path, permission: calls.append((path, permission)))
+    async def run():
+        async with staged_attachments(Host(), "session", (image(),), tmp_path) as refs:
+            path = tmp_path / "attachments/staging" / refs[0]["uploadId"]
+            assert calls == [(path.parent.parent, "--x"), (path.parent, "--x"), (path, "r--")]
+        assert not path.exists()
+    asyncio.run(run())

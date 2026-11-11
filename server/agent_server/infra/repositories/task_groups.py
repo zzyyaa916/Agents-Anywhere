@@ -3,12 +3,13 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from sqlalchemy import select, update
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import cast, select, update
+from sqlalchemy.dialects.postgresql import JSONB, insert
 
 from agent_server.core.utc import utc_now
 from agent_server.infra.db.engine import read_connection
-from agent_server.infra.db.schema import task_groups
+from agent_server.infra.db.schema import projects, task_groups
+from agent_server.infra.repositories.projects import _clean_workspace_path
 
 
 def decode(row) -> dict[str, Any]:
@@ -22,6 +23,57 @@ def decode(row) -> dict[str, Any]:
 
 
 class TaskGroupRepositoryMixin:
+    async def _task_group_session_project(
+        self,
+        conn,
+        *,
+        session_id: str,
+        connector_id: str,
+        cwd: str | None,
+        user_id: str | None = None,
+    ) -> str | None:
+        if not session_id.startswith("sess_tg_") or not cwd:
+            return None
+        query = (
+            select(task_groups.c.project_id, task_groups.c.state_json)
+            .join(projects, projects.c.id == task_groups.c.project_id)
+            .where(
+                projects.c.connector_id == connector_id,
+                projects.c.user_id == task_groups.c.user_id,
+                cast(task_groups.c.state_json, JSONB)["candidates"].contains(
+                    [{"sessionId": session_id}]
+                ),
+            )
+        )
+        if user_id is not None:
+            query = query.where(
+                task_groups.c.user_id == user_id, projects.c.user_id == user_id
+            )
+        for row in (await conn.execute(query)).mappings():
+            state = json.loads(row["state_json"])
+            for slot, candidate in enumerate(state.get("candidates", [])):
+                paths = state.get("paths", [])
+                if (
+                    candidate.get("sessionId") == session_id
+                    and slot < len(paths)
+                    and _clean_workspace_path(paths[slot], None)[1]
+                    == _clean_workspace_path(cwd, None)[1]
+                ):
+                    return row["project_id"]
+        return None
+
+    async def get_task_group_session_project(
+        self, *, session_id: str, connector_id: str, cwd: str | None, user_id: str
+    ) -> str | None:
+        async with read_connection(self._engine) as conn:
+            return await self._task_group_session_project(
+                conn,
+                session_id=session_id,
+                connector_id=connector_id,
+                cwd=cwd,
+                user_id=user_id,
+            )
+
     async def put_task_group(
         self, identifier: str, *, user_id: str, request: dict, state: dict
     ) -> dict:

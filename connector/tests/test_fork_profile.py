@@ -258,3 +258,23 @@ def test_fork_disables_desktop_ipc_even_for_previous_saved_values(monkeypatch):
         home / ".agents-anywhere-fork/native/codex"
     )
     assert config.values["useSystemCodex"] is False
+
+
+@pytest.mark.parametrize("runtime", ["codex", "claude", "dsh"])
+def test_runtime_path_acl_is_fixed_user_and_not_world_access(tmp_path, monkeypatch, runtime):
+    import subprocess
+    path = tmp_path / "workspace"
+    path.mkdir()
+    calls = []
+    monkeypatch.setattr(subprocess, "run", lambda args, **kw: calls.append(args))
+    monkeypatch.delenv("AA_CONNECTOR_PROFILE", raising=False)
+    fork_profile.share_runtime_path(path, "rwx", runtime=runtime, inherit=True)
+    assert not calls
+    monkeypatch.setenv("AA_CONNECTOR_PROFILE", "fork")
+    monkeypatch.setenv("AA_FORK_RUNTIME_BROKER", "1")
+    fork_profile.share_runtime_path(path, "rwx", runtime=runtime, inherit=True)
+    assert calls == [["/usr/bin/setfacl", "-m", f"u:ai-{runtime}:rwx,d:u:ai-{runtime}:rwx,d:u:{os.getuid()}:rwx", str(path)]]
+    link = tmp_path / "link"
+    link.symlink_to(path, target_is_directory=True)
+    with pytest.raises(ValueError, match="without links"):
+        fork_profile.share_runtime_path(link, "rwx")

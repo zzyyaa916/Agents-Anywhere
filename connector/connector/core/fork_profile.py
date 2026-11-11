@@ -92,3 +92,25 @@ def prepare_native_profile(home: Path | None = None) -> dict[str, str]:
     for name in ("CODEX_HOME", "CLAUDE_CONFIG_DIR"):
         Path(environment[name]).mkdir(parents=True, mode=0o700, exist_ok=True)
     return environment
+
+
+def share_runtime_path(
+    path: Path, permission: str, *, runtime: str = "dsh", inherit: bool = False
+) -> None:
+    """Fixed runtime accounts need explicit access to Connector-owned files."""
+    if not fork_enabled() or os.environ.get("AA_FORK_RUNTIME_BROKER") != "1":
+        return
+    import subprocess
+
+    if path.is_symlink() or path.stat().st_uid != os.getuid():
+        raise ValueError(
+            "Runtime sharing requires a Connector-owned path without links"
+        )
+    if runtime not in {"codex", "claude", "dsh"}:
+        raise ValueError("Unknown fixed runtime account")
+    entries = f"u:ai-{runtime}:{permission}"
+    if inherit:
+        entries += f",d:u:ai-{runtime}:rwx,d:u:{os.getuid()}:rwx"
+    subprocess.run(
+        ["/usr/bin/setfacl", "-m", entries, str(path)], check=True, capture_output=True
+    )

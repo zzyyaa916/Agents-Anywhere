@@ -148,7 +148,7 @@ export function TaskGroupConversation({ initialGroup, starting = false, onBack }
   const paneTitle = (pane: typeof panes[number]) => {
     const configured = pane.group.request.candidates[pane.slot]
     const runtime = available.find(item => item.runtimeId === configured?.runtimeId)
-    return `${t("candidate", { n: panes.findIndex(item => item.key === pane.key) + 1 })} · ${runtime?.name || runtime?.displayName || configured?.runtime}`
+    return runtime?.name || runtime?.displayName || configured?.runtimeId || configured?.runtime || "AI"
   }
 
   return <div className="min-h-0 min-w-0 flex-1 space-y-3 overflow-auto p-3">

@@ -10,7 +10,6 @@ from agent_server.services.session_run import SessionRunService
 
 class TaskGroupRepository(Protocol):
     async def get_project(self, project_id: str, *, user_id: str) -> Any: ...
-    async def ensure_project_for_workspace(self, **values: Any) -> Any: ...
     async def get_session(self, session_id: str, *, user_id: str) -> Any: ...
     async def read_uploaded_file(self, *, session_id: str, file_id: str, user_id: str) -> dict: ...
     async def get_active_run(self, session_id: str) -> dict | None: ...
@@ -133,15 +132,10 @@ class TaskGroupService:
         )
         if claimed:
             try:
-                candidate_project = await self.store.ensure_project_for_workspace(
-                    connector_id=project.connectorId,
-                    workspace_path=row["paths"][slot],
-                    user_id=user_id,
-                )
                 payload = SessionCreateAndStartRequest(
                     connectorId=project.connectorId,
-                    projectId=candidate_project.id,
-                    cwd=candidate_project.workspacePath,
+                    projectId=project.id,
+                    cwd=row["paths"][slot],
                     title=f"方案 {slot + 1} · {row['request']['content'][:60]}",
                     content=row.get("handoffBrief", row["request"]["content"]),
                     attachments=row["request"].get("attachments", []),

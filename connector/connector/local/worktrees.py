@@ -49,7 +49,10 @@ def managed(root: str, group_id: str) -> tuple[Path, Path]:
         raise ValueError("Select a workspace directory")
     identifier(group_id)
     # Ordinary conversations never inspect or copy the selected directory's files.
-    if not any((parent / ".git").exists() for parent in (repo, *repo.parents)):
+    if not any(
+        (parent / ".git").is_file() or (parent / ".git/HEAD").is_file()
+        for parent in (repo, *repo.parents)
+    ):
         base = connector_data_dir() / "conversations"
         root_id = hashlib.sha256(str(repo).encode()).hexdigest()
         directory = base / root_id / group_id
@@ -285,3 +288,34 @@ def handoff(params: dict[str, Any]) -> dict[str, Any]:
             "paths": [str(destination)],
             "originalBase": value["originalBase"],
         }
+
+
+def prepare_runtime_workspace(cwd: str | None, runtime: str) -> None:
+    """Share only a managed conversation; other project permissions stay user-owned."""
+    from connector.core.fork_profile import fork_enabled, share_runtime_path
+
+    if (
+        runtime not in {"codex", "claude", "dsh"}
+        or not cwd
+        or not fork_enabled()
+        or os.environ.get("AA_FORK_RUNTIME_BROKER") != "1"
+    ):
+        return
+    base = connector_data_dir()
+    path = Path(cwd).absolute()
+    try:
+        parts = path.relative_to(base / "conversations").parts
+    except ValueError:
+        return
+    if (
+        len(parts) != 3
+        or not re.fullmatch(r"[a-f0-9]{64}", parts[0])
+        or not ID.fullmatch(parts[1])
+        or parts[2] not in {"0", "1", "2"}
+    ):
+        raise ValueError("Invalid managed conversation directory")
+    parents = list(reversed(path.relative_to(base).parents))
+    # Traverse metadata directories without exposing their contents or native credentials.
+    for parent in parents:
+        share_runtime_path(base / parent, "--x", runtime=runtime)
+    share_runtime_path(path, "rwx", runtime=runtime, inherit=True)

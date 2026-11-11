@@ -130,6 +130,11 @@ for (const count of [1, 2, 3]) test(`${count} agents open independent chats; pan
     const started = await globalThis.testTaskGroups.get('', initialGroup.id)
     await act(async () => root.render(h(TaskGroupConversation, { initialGroup: started, onBack: () => {} })))
     assert.equal(container.querySelectorAll('[data-chat]').length, count)
+    for (let slot = 0; slot < count; slot++) {
+      const title = pane(slot).querySelector('h3')?.textContent ?? pane(slot).querySelector('[data-pane-title]')?.textContent
+      assert.ok(title, 'Pane title is visible')
+      assert.doesNotMatch(title, /^(?:AI\s*\d|candidate\d)/)
+    }
     assert.equal(container.querySelector('[data-chat-grid]').style.gridTemplateColumns.split('minmax').length - 1, count)
     await input(container.querySelector('[aria-label^="broadcastLabel"]'), 'Run the tests for your result')
     await click('broadcastSend')

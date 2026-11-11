@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from connector.runtime_protocol import AgentRuntime
@@ -26,6 +27,9 @@ async def dispatch_session_create(
     params: dict[str, Any],
 ) -> dict[str, Any]:
     parsed = SessionCreateParams.parse(params)
+    from connector.local.worktrees import prepare_runtime_workspace
+
+    await asyncio.to_thread(prepare_runtime_workspace, parsed.cwd, runtime.identity.runtime)
     if params.get("goalIntent") is not None:
         if runtime.goals is None:
             raise ValueError("goal_unavailable")

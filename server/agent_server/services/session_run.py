@@ -224,6 +224,7 @@ class SessionRunService:
             connector_id=payload.connectorId,
             cwd=payload.cwd,
             user_id=user_id,
+            task_group_session_id=reserved_session_id,
         )
         payload.cwd = project_cwd
         runtime_id = _request_runtime_id(payload)
@@ -557,6 +558,7 @@ class SessionRunService:
         connector_id: str,
         cwd: str | None,
         user_id: str,
+        task_group_session_id: str | None = None,
     ) -> tuple[str, str]:
         if not project_id:
             raise SessionRunInvalidConfigError(
@@ -578,6 +580,10 @@ class SessionRunService:
                     ),
                 }
             )
+        if task_group_session_id and await self._store.get_task_group_session_project(
+            session_id=task_group_session_id, connector_id=connector_id, cwd=cwd, user_id=user_id
+        ) == project.id:
+            return project.id, cwd
         if cwd is None:
             # Keep the connector request and the persisted session on the
             # project's canonical workspace path.

@@ -151,3 +151,40 @@ def test_plain_conversation_rejects_managed_symlink(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match="symbolic"):
         wt.prepare(params(root))
     assert not list(root.iterdir())
+
+
+def test_dsh_only_receives_managed_conversation_access(tmp_path, monkeypatch):
+    from connector.core import fork_profile
+    state = tmp_path / "state"
+    root = tmp_path / "ordinary"
+    state.mkdir()
+    root.mkdir()
+    monkeypatch.setenv("AGENT_CONNECTOR_DATA_DIR", str(state))
+    monkeypatch.setenv("AA_CONNECTOR_PROFILE", "fork")
+    monkeypatch.setenv("AA_FORK_RUNTIME_BROKER", "1")
+    calls = []
+    monkeypatch.setattr(fork_profile, "share_runtime_path", lambda p, permission, **kw: calls.append((p, permission, kw)))
+    path = Path(wt.prepare(params(root, count=2))["paths"][1])
+    wt.prepare_runtime_workspace(str(path), "dsh")
+    assert calls[-1] == (path, "rwx", {"runtime": "dsh", "inherit": True})
+    assert all(permission == "--x" and p in path.parents for p, permission, _ in calls[:-1])
+    assert not any(p == path.parent / "0" or p == state / "native" for p, _, _ in calls)
+    calls.clear()
+    wt.prepare_runtime_workspace(str(root), "dsh")
+    assert not calls
+
+
+@pytest.mark.parametrize("runtime", ["codex", "claude", "dsh"])
+def test_native_runtime_workspace_access_precedes_model_dispatch(monkeypatch, runtime):
+    import asyncio
+    from types import SimpleNamespace
+    from connector.runtime_protocol import RuntimeOperationResult
+    from connector.server.runtime_turn_rpc import dispatch_session_create
+    calls = []
+    monkeypatch.setattr(wt, "prepare_runtime_workspace", lambda cwd, kind: calls.append(("access", cwd, kind)))
+    async def create(*args, **kwargs):
+        calls.append(("model",))
+        return RuntimeOperationResult(ok=True)
+    target = SimpleNamespace(identity=SimpleNamespace(runtime=runtime), create_and_start_session=create)
+    asyncio.run(dispatch_session_create(target, {"sessionId": "sess_test", "content": "test", "cwd": "/managed/workspace"}))
+    assert calls == [("access", "/managed/workspace", runtime), ("model",)]

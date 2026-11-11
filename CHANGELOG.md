@@ -6,6 +6,8 @@
 
 ### Fork 2.5.9 版本对齐与安卓原生工作台
 
+- 修复固定账号运行的 DSH、Claude Code 和 Codex 无法访问普通多 AI 对话目录的问题；多 AI 及转发会话保留在原项目列表，分屏标题只显示 AI 名称。
+
 - 多 AI 支持在非 Git 目录直接提问，每个 AI 使用独立空目录，转发保留原问题、近期对话和附件。（[f73e2fda](https://github.com/zzyyaa916/Agents-Anywhere/commit/f73e2fda)）
 
 - Windows 升级到 2.5.9，与安卓版本号统一，桌面功能沿用 2.5.8，继续支持软件内手动检查更新；Intel Mac 2.5.9 因构建平台阻断暂未发布。（[0f8563f3](https://github.com/zzyyaa916/Agents-Anywhere/commit/0f8563f3d27a39646c15130e64fed127fa8230ac)）

@@ -348,10 +348,12 @@ class SessionRepositoryMixin:
                     connector.device_os,
                 )
                 if cwd_key != project.workspace_key:
-                    raise ValueError(
-                        "project connector and workspace must match the session"
-                    )
-                cwd = project.workspace_path or cleaned_cwd
+                    parent = await self._task_group_session_project(conn, session_id=session_id, connector_id=connector_id, cwd=cleaned_cwd, user_id=user_id)
+                    if parent != project_id:
+                        raise ValueError("project connector and workspace must match the session")
+                    cwd = cleaned_cwd
+                else:
+                    cwd = project.workspace_path or cleaned_cwd
             existing = (await conn.execute(select(sessions_t).where(sessions_t.c.id == session_id))).mappings().first()
             if existing:
                 if existing["connector_id"] != connector_id or existing["project_id"] != project_id or existing["runtime_id"] != str(identity.runtime_id):
@@ -511,6 +513,7 @@ class SessionRepositoryMixin:
                     conn,
                     connector_id=connector_id,
                     workspace_path=cwd,
+                    session_id=session_id,
                     now=now,
                 )
                 await conn.execute(
@@ -587,6 +590,7 @@ class SessionRepositoryMixin:
                         conn,
                         connector_id=connector_id,
                         workspace_path=cwd or current.cwd,
+                        session_id=session_id,
                         now=now,
                     )
                     values["project_id"] = project_id
@@ -1888,6 +1892,7 @@ class SessionRepositoryMixin:
                     conn,
                     connector_id=row.connector_id,
                     workspace_path=cwd if cwd is not None else row.cwd,
+                    session_id=session_id,
                 )
                 values["project_id"] = project_id
                 values["cwd"] = normalized_cwd
