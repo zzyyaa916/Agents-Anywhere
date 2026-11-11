@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import os
 import re
@@ -10,6 +11,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any
+
+from connector.paths import connector_data_dir
 
 ID = re.compile(r"[a-f0-9]{40}")
 MAX_DIFF = 512_000
@@ -42,6 +45,19 @@ def identifier(value: Any) -> str:
 
 def managed(root: str, group_id: str) -> tuple[Path, Path]:
     repo = Path(root).expanduser().resolve(strict=True)
+    if not repo.is_dir():
+        raise ValueError("Select a workspace directory")
+    identifier(group_id)
+    # Ordinary conversations never inspect or copy the selected directory's files.
+    if not any((parent / ".git").exists() for parent in (repo, *repo.parents)):
+        base = connector_data_dir() / "conversations"
+        root_id = hashlib.sha256(str(repo).encode()).hexdigest()
+        directory = base / root_id / group_id
+        for path in (base, directory.parent, directory):
+            if path.is_symlink():
+                raise ValueError("Managed workspaces cannot contain symbolic links")
+            path.mkdir(parents=True, exist_ok=True, mode=0o700)
+        return repo, directory
     top = Path(git(repo, "rev-parse", "--show-toplevel").decode().strip()).resolve()
     if top != repo:
         raise ValueError("Select the Git repository root")
@@ -109,6 +125,9 @@ def workspace(repo: Path, directory: Path, slot: int, base: str) -> Path:
     branch = f"aa-fork/{directory.name}/{slot}"
     if path.is_symlink():
         raise ValueError("Invalid workspace link")
+    if base == "conversation":
+        path.mkdir(exist_ok=True, mode=0o700)
+        return path
     if not path.exists():
         git(repo, "worktree", "add", "-b", branch, str(path), base)
     actual = Path(git(path, "rev-parse", "--show-toplevel").decode().strip()).resolve()
@@ -131,11 +150,20 @@ def prepare(params: dict[str, Any]) -> dict[str, Any]:
             if manifest["count"] != count:
                 raise ValueError("Task group identity conflict")
         else:
-            if git(repo, "status", "--porcelain"):
+            conversation = (
+                directory.parent.parent == connector_data_dir() / "conversations"
+            )
+            if not conversation and git(repo, "status", "--porcelain"):
                 raise ValueError(
                     "Commit or save repository changes before starting independent candidates"
                 )
-            base = git(repo, "rev-parse", "--verify", "HEAD^{commit}").decode().strip()
+            base = (
+                "conversation"
+                if conversation
+                else git(repo, "rev-parse", "--verify", "HEAD^{commit}")
+                .decode()
+                .strip()
+            )
             manifest = {"base": base, "count": count}
             save(directory / "manifest.json", manifest)
         paths = [
@@ -198,6 +226,13 @@ def snapshot(path: Path) -> str:
 def diff(params: dict[str, Any]) -> dict[str, Any]:
     _, directory, manifest, path = source(params)
     with locked(directory):
+        if manifest["base"] == "conversation":
+            return {
+                "base": "conversation",
+                "head": "conversation",
+                "stat": "普通对话没有代码差异。",
+                "diff": "",
+            }
         head = snapshot(path)
         data = git(
             path,
@@ -236,7 +271,9 @@ def handoff(params: dict[str, Any]) -> dict[str, Any]:
                 raise ValueError("Handoff identity conflict")
         else:
             value = {
-                "base": snapshot(path),
+                "base": "conversation"
+                if manifest["base"] == "conversation"
+                else snapshot(path),
                 "count": 1,
                 "source": [directory.name, params["slot"]],
                 "originalBase": manifest["base"],

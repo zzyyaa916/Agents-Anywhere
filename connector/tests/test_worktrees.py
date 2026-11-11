@@ -110,3 +110,44 @@ def test_diff_limit_is_explicit_and_original_tree_is_untouched(repo):
     with pytest.raises(ValueError, match="512 KiB"):
         wt.diff({**params(repo, count=1), "slot": 0})
     assert not (repo / "large.txt").exists()
+
+
+def test_plain_conversation_needs_no_git_or_project_files(tmp_path, monkeypatch):
+    root = tmp_path / "ordinary"
+    root.mkdir()
+    (root / "private.txt").write_text("must not be copied")
+    data = tmp_path / "state"
+    data.mkdir()
+    monkeypatch.setenv("AGENT_CONNECTOR_DATA_DIR", str(data))
+    monkeypatch.setattr(
+        wt,
+        "git",
+        lambda *args, **kwargs: pytest.fail("Git used for plain conversation"),
+    )
+    request = params(root, count=2)
+    first = wt.prepare(request)
+    assert first["base"] == "conversation"
+    assert wt.prepare(request) == first
+    assert len(set(first["paths"])) == 2
+    for path in first["paths"]:
+        assert Path(path).is_relative_to(data)
+        assert list(Path(path).iterdir()) == []
+    assert wt.diff({**request, "slot": 0})["diff"] == ""
+    handoff_request = {**request, "slot": 0, "targetGroupId": "b" * 40}
+    target = wt.handoff(handoff_request)
+    assert target == wt.handoff(handoff_request)
+    assert target["base"] == target["originalBase"] == "conversation"
+    assert list(Path(target["paths"][0]).iterdir()) == []
+    assert list(root.iterdir()) == [root / "private.txt"]
+
+
+def test_plain_conversation_rejects_managed_symlink(tmp_path, monkeypatch):
+    root = tmp_path / "ordinary"
+    root.mkdir()
+    data = tmp_path / "state"
+    data.mkdir()
+    monkeypatch.setenv("AGENT_CONNECTOR_DATA_DIR", str(data))
+    (data / "conversations").symlink_to(root, target_is_directory=True)
+    with pytest.raises(ValueError, match="symbolic"):
+        wt.prepare(params(root))
+    assert not list(root.iterdir())

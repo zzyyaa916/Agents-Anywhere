@@ -6,6 +6,8 @@
 
 ### Fork 2.5.9 版本对齐与安卓原生工作台
 
+- 多 AI 支持在非 Git 目录直接提问，每个 AI 使用独立空目录，转发保留原问题、近期对话和附件。
+
 - Windows 升级到 2.5.9，与安卓版本号统一，桌面功能沿用 2.5.8，继续支持软件内手动检查更新；Intel Mac 2.5.9 因构建平台阻断暂未发布。（[0f8563f3](https://github.com/zzyyaa916/Agents-Anywhere/commit/0f8563f3d27a39646c15130e64fed127fa8230ac)）
 
 - Android 多 AI 工作台改为原生界面，支持选择 AI、模型、推理强度和权限，首轮任务携带附件，分屏复用原生聊天、排队与即时补充。（[b2c04402](https://github.com/zzyyaa916/Agents-Anywhere/commit/b2c04402ff94be21e01d600803271e88dc4c33e8)）

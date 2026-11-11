@@ -10,7 +10,7 @@
 - `POST /{id}/select`：`{slot}`；仅记录选择，不覆盖/合并当前分支，不删除其他方案。
 - `POST /{id}/handoffs`：`{operationId,slot,mode:"review"|"continue",target:{runtime,runtimeId,selections:{}},instructions?:string}`；instructions 为最多 8000 字的用户指令；有值时优先使用该指令，否则保留原 mode 默认提示。源会话停止后固定代码快照并创建独立工作区/会话，复用同样的显式 start 接口；返回新任务组。目标 AI 无法继承厂商私有线程或隐藏上下文。
 
-Connector 新增 `worktree.prepare {root,groupId,count}`、`worktree.diff {root,groupId,slot}`、`worktree.handoff {root,groupId,slot,targetGroupId}`。root 必须来自已鉴权项目；ID、slot 有严格限制，不能传任意命令/目的路径。prepare 固定 clean HEAD，创建 1–3 个独立分支与 worktree；禁止脏基线与非 Git 项目。所有工作区位于该仓库 Git common directory 下的受管理目录；不复制忽略文件、凭据或依赖目录。handoff 使用临时 Git index 捕获已修改、已提交、未跟踪及二进制文件，不改原 index/HEAD；创建失败不删除用户文件。结果和工作区保留，首版不自动回收或合并。
+Connector 新增 `worktree.prepare {root,groupId,count}`、`worktree.diff {root,groupId,slot}`、`worktree.handoff {root,groupId,slot,targetGroupId}`。root 必须来自已鉴权项目；ID、slot 有严格限制，不能传任意命令/目的路径。prepare 固定 clean HEAD，创建 1–3 个独立分支与 worktree；Git 项目仍禁止脏基线；非 Git 目录自动使用普通对话模式，无需安装 Git，不读取或复制所选目录中的文件。普通对话在 Connector 数据目录内为各 AI 创建空的独立目录，base 固定为 `conversation`；diff 返回空改动及说明，转发只携带指令、原始问题、近期对话和附件，不声称提供代码快照。Git 工作区位于该仓库 Git common directory 下的受管理目录；不复制忽略文件、凭据或依赖目录。handoff 使用临时 Git index 捕获已修改、已提交、未跟踪及二进制文件，不改原 index/HEAD；创建失败不删除用户文件。结果和工作区保留，首版不自动回收或合并。
 
 Web 在候选会话产生后自动显示独立聊天栏，按各自 sessionId 复用原有聊天、事件流和消息投递；窗口可收起、关闭及重新打开，关闭不取消任务。每栏的转发对话框选择目标 AI、预览来源结论并填写指令；明确点击发送后才创建交接并启动目标会话，原窗口保留。转发请求沿用 operationId 幂等和 start 的一次性领取，不因失败自动重发。
 

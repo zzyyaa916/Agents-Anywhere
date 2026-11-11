@@ -276,3 +276,31 @@ def test_forward_deduplicates_reuploaded_original_attachment(setup):
     payload = TaskGroupHandoff(operationId="forward-deduplicate-001", slot=0, mode="review", attachments=[{"fileId":saved["fileId"]}], target={"runtime":"claude", "runtimeId":"claude"})
     forwarded = asyncio.run(s.svc.handoff(row["id"], payload, user_id=s.user_id))
     assert len(forwarded["request"]["attachments"]) == 1
+
+
+def test_plain_questions_start_two_ais_and_forward_text_and_attachments(setup, monkeypatch):
+    s = setup
+    ordinary = s.repo.parent / "ordinary"
+    ordinary.mkdir()
+    state = s.repo.parent / "state"
+    state.mkdir()
+    monkeypatch.setenv("AGENT_CONNECTOR_DATA_DIR", str(state))
+    s.rpc.repo = ordinary
+    s.request["content"] = "请解释月食是怎么发生的"
+    s.request["candidates"] = [{"runtime": "codex", "runtimeId": "codex"}, {"runtime": "dsh", "runtimeId": "dsh"}]
+    s.request["attachments"] = [{"fileId": "question", "name": "question.txt", "contentBase64": "aGVsbG8="}]
+    row = create(s)
+    assert row["base"] == "conversation"
+    for slot in range(2):
+        asyncio.run(s.svc.start(row["id"], slot, user_id=s.user_id))
+    assert [call.runtime for call in s.runs.calls] == ["codex", "dsh"]
+    assert all(call.content == s.request["content"] and call.attachments[0].name == "question.txt" for call in s.runs.calls)
+    assert len({call.cwd for call in s.runs.calls}) == 2
+    for mode in ("review", "continue"):
+        forwarded = asyncio.run(s.svc.handoff(row["id"], TaskGroupHandoff(operationId=f"ordinary-forward-{mode}", slot=0, mode=mode, target={"runtime": "dsh", "runtimeId": "dsh"}), user_id=s.user_id))
+        brief = forwarded["handoffBrief"]
+        assert s.request["content"] in brief
+        assert "git diff" not in brief and "交接快照" not in brief
+        assert ("请审核以下问题" if mode == "review" else "请继续处理以下问题") in brief
+        asyncio.run(s.svc.start(forwarded["id"], 0, user_id=s.user_id))
+        assert s.runs.calls[-1].attachments[0].name == "question.txt"

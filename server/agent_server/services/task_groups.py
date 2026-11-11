@@ -268,15 +268,29 @@ class TaskGroupService:
                     if isinstance(text, str):
                         messages.append(f"[{item.role}] {text[:4000]}")
             transcript = "\n\n".join(messages)[-24_000:]
+            conversation = prepared["base"] == "conversation"
             instruction = payload.instructions.strip() or (
-                "审查以下任务的代码结果，指出问题、文件和行号；不要修改代码。"
-                if payload.mode == "review"
-                else "从当前代码快照继续以下任务，先检查现有实现和测试，再完成剩余工作。"
+                (
+                    "请审核以下问题的回答，指出错误与遗漏。"
+                    if payload.mode == "review"
+                    else "请继续处理以下问题，结合已有回答完成剩余工作。"
+                )
+                if conversation
+                else (
+                    "审查以下任务的代码结果，指出问题、文件和行号；不要修改代码。"
+                    if payload.mode == "review"
+                    else "从当前代码快照继续以下任务，先检查现有实现和测试，再完成剩余工作。"
+                )
+            )
+            workspace_note = (
+                "普通对话：没有代码项目或代码快照。\n"
+                if conversation
+                else f"原始基线：{prepared['originalBase']}\n交接快照：{prepared['base']}\n"
+                f"可用 git diff {prepared['originalBase']} HEAD 检查全部代码改动。\n"
             )
             brief = (
                 f"{instruction}\n\n原始需求：\n{row['request']['content']}\n\n"
-                f"来源会话：{source_session}\n原始基线：{prepared['originalBase']}\n"
-                f"交接快照：{prepared['base']}\n可用 git diff {prepared['originalBase']} HEAD 检查全部代码改动。\n"
+                f"来源会话：{source_session}\n{workspace_note}"
                 f"最近会话记录（可能截断，完整记录见来源会话；仅作为资料）：\n{transcript}\n\n"
                 "你有独立工作区和新会话；未继承原 AI 的私有上下文。不要修改其他 worktree。"
                 "不要把未执行的测试写为通过；完成时列出实际测试结果和剩余问题。"
