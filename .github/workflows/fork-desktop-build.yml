@@ -3,6 +3,11 @@ name: Fork Desktop test installers
 on:
   workflow_dispatch:
     inputs:
+      platform:
+        description: Platform to build or deliver
+        type: choice
+        options: [all, mac, win]
+        default: all
       deliver_run:
         description: Optional successful build run to deliver without rebuilding
         required: false
@@ -20,14 +25,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: macos-15-intel
-            platform: mac
-            architecture: x64
-          - os: windows-latest
-            platform: win
-            architecture: x64
-    runs-on: ${{ matrix.os }}
+        platform: ${{ inputs.platform == 'mac' && fromJSON('["mac"]') || inputs.platform == 'win' && fromJSON('["win"]') || fromJSON('["mac", "win"]') }}
+    runs-on: ${{ matrix.platform == 'mac' && 'macos-15-intel' || 'windows-latest' }}
     timeout-minutes: 45
     env:
       NEXT_TELEMETRY_DISABLED: "1"
@@ -61,7 +60,7 @@ jobs:
         shell: bash
         run: |
           for attempt in 1 2 3; do
-            if corepack yarn dist:${{ matrix.platform }} --${{ matrix.architecture }}; then
+            if corepack yarn dist:${{ matrix.platform }} --x64; then
               exit 0
             fi
           done
@@ -86,7 +85,7 @@ jobs:
       - name: Keep test installers for review
         uses: actions/upload-artifact@v4
         with:
-          name: fork-test-${{ matrix.platform }}-${{ matrix.architecture }}
+          name: fork-test-${{ matrix.platform }}-x64
           path: |
             desktop-workbench/release/*.dmg
             desktop-workbench/release/*.pkg
@@ -107,6 +106,7 @@ jobs:
       GH_REPO: ${{ github.repository }}
       BUILD_RUN_ID: ${{ inputs.deliver_run }}
       RELEASE_TAG: ${{ inputs.deliver_tag }}
+      DELIVERY_PLATFORM: ${{ inputs.platform }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -135,8 +135,12 @@ jobs:
           if release['draft']:
               assert release['target_commitish'] == build['head_sha']
           previous_assets = {row['name']: row for row in release['assets']}
+          requested_platform = os.environ.get('DELIVERY_PLATFORM') or 'all'
+          assert requested_platform in {'all', 'mac', 'win'}
           verified = []
           for platform, extensions in [('win', {'.exe'}), ('mac', {'.dmg', '.pkg'})]:
+              if requested_platform not in {'all', platform}:
+                  continue
               directory = Path('installers') / platform
               gh('run', 'download', run_id, '--name', f'fork-test-{platform}-x64', '--dir', str(directory))
               sums = dict(line.split('  ', 1)[::-1] for line in (directory / 'SHA256SUMS.txt').read_text().splitlines())
