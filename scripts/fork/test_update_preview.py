@@ -15,7 +15,7 @@ class UpdatePreviewTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / 'sample').write_text('ok')
-            (root / 'manifest.json').write_text(json.dumps({'files': {'sample': hashlib.sha256(b'ok').hexdigest()}}))
+            (root / 'manifest.json').write_text(json.dumps({'version': module['VERSION'], 'files': {'sample': hashlib.sha256(b'ok').hexdigest()}}))
             module['verify'](root)
             (root / 'sample').write_text('changed')
             with self.assertRaises(RuntimeError):
@@ -24,7 +24,7 @@ class UpdatePreviewTests(unittest.TestCase):
     def test_payload_cannot_escape_update_directory(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / 'manifest.json').write_text(json.dumps({'files': {'../outside': 'bad'}}))
+            (root / 'manifest.json').write_text(json.dumps({'version': module['VERSION'], 'files': {'../outside': 'bad'}}))
             with self.assertRaises(RuntimeError):
                 module['verify'](root)
 

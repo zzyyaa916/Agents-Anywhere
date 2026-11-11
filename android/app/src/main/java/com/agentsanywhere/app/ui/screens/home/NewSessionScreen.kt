@@ -76,7 +76,8 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun NewSessionScreen(
-    onOpenCollaboration: ((AgentProject) -> Unit)? = null,
+    taskGroups: com.agentsanywhere.app.feature.taskgroups.TaskGroupsController? = null,
+    onTaskGroupCreated: (AgentProject, String) -> Unit = { _, _ -> },
     navigate: (AppDestination) -> Unit,
     sessionsState: SessionsState,
     projectSessionsById: Map<String, List<AgentSession>>,
@@ -153,6 +154,11 @@ fun NewSessionScreen(
             ),
         )
     }
+    var selectedAgents by rememberSaveable(selectedDeviceId) { mutableStateOf(emptyList<String>()) }
+    var runtimeTargetsRetry by remember { mutableStateOf(0) }
+    val multiConfigs = com.agentsanywhere.app.ui.screens.fork.rememberRuntimeTargets(
+        selectedDeviceId.takeUnless { projectOnly }, onListRuntimes, onLoadRuntimeCapabilities, onLoadModelCatalog, onLoadPermissionCatalog, runtimeTargetsRetry,
+    )
     var selectedWorkspacePath by rememberSaveable { mutableStateOf("") }
     var homePath by rememberSaveable { mutableStateOf<String?>(null) }
     var choosePath by rememberSaveable { mutableStateOf(false) }
@@ -571,8 +577,9 @@ fun NewSessionScreen(
             NewSessionConfigurationField(
                 key = NewSessionConfigurationKey.Agent,
                 label = stringResource(R.string.new_session_agent),
-                value = selectedRuntime?.labels?.primary ?: stringResource(R.string.new_session_no_agent),
+                value = if (selectedAgents.size > 1) selectedAgents.joinToString("、") { id -> multiConfigs[id]?.selectedRuntime?.labels?.primary ?: id } else selectedRuntime?.labels?.primary ?: stringResource(R.string.new_session_no_agent),
                 selectedId = selectedRuntime?.id,
+                selectedIds = (selectedAgents.ifEmpty { listOfNotNull(selectedRuntime?.id) }).toSet(),
                 options = runtimeSelection.runtimes.map { runtime ->
                     NewSessionConfigurationOption(
                         id = runtime.id,
@@ -584,7 +591,7 @@ fun NewSessionScreen(
                 loading = checkingDevices || checkingAgents || (selectedDevice != null && runtimeSelection.runtimesLoading),
             ),
         )
-        if (!projectOnly && showModelConfiguration) {
+        if (!projectOnly && selectedAgents.size <= 1 && showModelConfiguration) {
             add(
                 NewSessionConfigurationField(
                     key = NewSessionConfigurationKey.Model,
@@ -631,7 +638,7 @@ fun NewSessionScreen(
                 ),
             )
         }
-        if (!projectOnly && showPermissionConfiguration) {
+        if (!projectOnly && selectedAgents.size <= 1 && showPermissionConfiguration) {
             add(
                 NewSessionConfigurationField(
                     key = NewSessionConfigurationKey.Permission,
@@ -926,7 +933,6 @@ fun NewSessionScreen(
                     .padding(start = 18.dp, top = 12.dp, end = 18.dp),
                 verticalArrangement = Arrangement.spacedBy(18.dp),
             ) {
-                if (!projectOnly && onOpenCollaboration != null) TextButton(enabled = selectedProject != null, onClick = { selectedProject?.let(onOpenCollaboration) }) { Text("原生多 AI 工作台 · 分屏、附件与转发") }
                 NewSessionConfigurationCard(
                     fields = configurationFields,
                     modifier = if (darkMode) Modifier else Modifier.border(1.dp, Color(0xFFE7E6E2), RoundedCornerShape(18.dp)),
@@ -941,7 +947,13 @@ fun NewSessionScreen(
                                 selectDevice(id, persist = !creatingProject)
                             }
                             NewSessionConfigurationKey.Agent -> {
-                                runtimeSelection = runtimeSelection.selectRuntime(id)
+                                val current = selectedAgents.ifEmpty { listOfNotNull(selectedRuntime?.id) }
+                                val next = com.agentsanywhere.app.feature.taskgroups.toggleRuntimeTarget(current, id)
+                                if (next.isNotEmpty()) {
+                                    if (current.size == 1) current.singleOrNull()?.let { multiConfigs[it] = runtimeSelection }
+                                    selectedAgents = next
+                                    if (next.size == 1) runtimeSelection = multiConfigs[next.single()] ?: runtimeSelection.selectRuntime(next.single())
+                                }
                             }
                             NewSessionConfigurationKey.Model -> {
                                 runtimeSelection = runtimeSelection.selectModel(id)
@@ -1112,11 +1124,26 @@ fun NewSessionScreen(
                         }
                     }
                 }
-                StartChatButton(
-                    label = stringResource(R.string.new_session_start_chat),
-                    enabled = canStart,
-                    onClick = ::startSession,
-                )
+                if (selectedAgents.size > 1 && !projectOnly && taskGroups != null) {
+                    TextButton(onClick = { runtimeTargetsRetry++ }) { Text(stringResource(R.string.fork_ai_reload)) }
+                    selectedAgents.forEach { id -> multiConfigs[id]?.let { config ->
+                        Text(config.selectedRuntime?.labels?.primary ?: id)
+                        com.agentsanywhere.app.ui.screens.fork.RuntimeConfiguration(config, true) { multiConfigs[id] = it }
+                    } }
+                    val groupProject = selectedProject ?: selectedDevice?.let { workspaceProject(projects, it.id, effectiveWorkspacePath, it.deviceOs) }
+                    if (groupProject == null) Text("请先选择项目") else if (!selectedAgents.all { it in multiConfigs }) Text("正在加载所选 AI 配置…") else com.agentsanywhere.app.ui.screens.fork.TaskGroupComposer(
+                        projectId = groupProject.id,
+                        configs = selectedAgents.mapNotNull(multiConfigs::get),
+                        controller = taskGroups,
+                        onCreated = { onTaskGroupCreated(groupProject, it) },
+                    )
+                } else {
+                    StartChatButton(
+                        label = stringResource(R.string.new_session_start_chat),
+                        enabled = canStart,
+                        onClick = ::startSession,
+                    )
+                }
                 }
         }
     }

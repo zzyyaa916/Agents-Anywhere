@@ -1,5 +1,6 @@
 package com.agentsanywhere.app.ui.screens.sessiondetail
 
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -37,6 +38,8 @@ internal fun SessionDetailHeader(
     onLeftClick: () -> Unit,
     onRightClick: () -> Unit,
     modifier: Modifier = Modifier,
+    onForward: (() -> Unit)? = null,
+    forwardEnabled: Boolean = false,
 ) {
     val colors = LocalAAColors.current
     val surface = if (darkMode) colors.raisedSurface else Color(0xF2FFFFFF)
@@ -62,7 +65,7 @@ internal fun SessionDetailHeader(
         )
         Row(
             modifier = Modifier
-                .width(224.dp)
+                .weight(1f)
                 .height(42.dp)
                 .shadow(18.dp, CircleShape, ambientColor = Color(0x0A000000), spotColor = Color(0x0A000000))
                 .clip(CircleShape)
@@ -81,6 +84,7 @@ internal fun SessionDetailHeader(
                 overflow = TextOverflow.Ellipsis,
             )
         }
+        if (onForward != null) androidx.compose.material3.TextButton(enabled = forwardEnabled, onClick = onForward) { Text(stringResource(R.string.fork_forward)) }
         HeaderImageButton(
             resId = if (darkMode) {
                 R.drawable.ic_session_agent_button_dark

@@ -1,7 +1,7 @@
 # Anywhere CLI
 
-> v2 Connector. Use the source from the same release line as your Server. The
-> Python package version is independent of the 2.0.0 product version.
+> v2 Connector. Use the source from the same release line as your Server. Fork
+> Connector and client package versions use the same release version.
 
 Local runtime connector for Agents Anywhere. It runs on the machine that owns
 the workspace and agent runtimes, connects to the server over HTTP/WebSocket,

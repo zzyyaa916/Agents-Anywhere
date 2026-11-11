@@ -46,4 +46,14 @@
     <string name="fork_stop_wait">停止等待</string>
     <string name="fork_other_window">其他额度窗口</string>
     <string name="fork_low_usage">%1$s · %2$s：5 小时额度剩余 %3$d%% · %4$s 重置</string>
+    <string name="fork_forward">转发</string>
+    <string name="fork_forward_title">转发给其他 AI</string>
+    <string name="fork_joint_entry">联立会话 / 恢复多 AI 任务</string>
+    <string name="fork_joint_show">联立显示</string>
+    <string name="fork_multi_send">发送给所选 AI</string>
+    <string name="fork_multi_history">恢复多 AI 任务</string>
+    <string name="fork_ai_reload">重新加载 AI 配置</string>
+    <string name="fork_forward_instructions">补充指令</string>
+    <string name="fork_joint_publish">发布</string>
+    <string name="fork_joint_select">选择同项目的两条不同 AI 会话</string>
 </resources>

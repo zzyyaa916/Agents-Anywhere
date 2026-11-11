@@ -69,3 +69,7 @@ Agents Anywhere 的产品版本使用 `MAJOR.MINOR.PATCH`，三段各有明确�
 Desktop 构建时（`yarn build:main`）会把 `server/pyproject.toml` 中的版本记录到 `build-info.json`，作为这个 Desktop 对应的 Server 版本。运行时，如果 Server `/health` 返回的版本**大于**这个记录值，就提示有新的 Desktop 可以更新；Desktop 自身的版本号不参与比较。
 
 因此，发布 Desktop 前要确认 `server/pyproject.toml` 已经是最新版本。Server 升级后，只有在发布了基于新 Server 版本构建的 Desktop 之后，旧 Desktop 才应该收到更新提示。
+
+## Fork 发布线
+
+Fork 的 Windows、Mac、Android、Server/Web 与 Connector 使用相同发布版本号（如 2.6.2），覆盖上文 PATCH 可独立发布的默认规则。源码版本同步不代表安装包已构建、功能已移植或服务已部署。DSH 插件保留独立兼容版本。Connector 版本位于 `connector/pyproject.toml`。

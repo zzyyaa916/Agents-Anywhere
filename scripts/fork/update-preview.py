@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import runpy
 from pathlib import Path
 import shutil
 import subprocess
@@ -11,6 +12,9 @@ import sys
 import time
 import urllib.error
 import urllib.request
+
+
+VERSION = '2.6.2'
 
 
 def digest(path):
@@ -23,6 +27,8 @@ def digest(path):
 
 def verify(root):
     manifest = json.loads((root / 'manifest.json').read_text())
+    if manifest.get('version') != VERSION:
+        raise RuntimeError('更新包版本不匹配')
     for name, expected in manifest['files'].items():
         path = root / name
         if path.is_symlink() or not path.resolve().is_relative_to(root.resolve()) or digest(path) != expected:
@@ -73,11 +79,11 @@ def update_server(root, manifest):
         ids = run(['docker', 'ps', '-q']).splitlines()
         return {row['Name']: (row['Id'], row['State']['StartedAt']) for row in json.loads(run(['docker', 'inspect', *ids])) if row['Name'] != '/agents-anywhere-fork-server-1'}
     health = get('http://127.0.0.1:18500/api/v2/health')
-    if health.get('version') not in ('2.6.0', '2.6.1') or query('SELECT version_num FROM alembic_version') != 'v2_57':
+    if health.get('version') not in ('2.6.0', '2.6.1', VERSION) or query('SELECT version_num FROM alembic_version') != 'v2_57':
         raise RuntimeError('当前版本或数据库版本不匹配；未修改服务，不执行数据库迁移。')
     idle()
     old_containers = inventory()
-    backup = base / 'backups' / time.strftime('before-2.6.1-%Y%m%dT%H%M%SZ', time.gmtime())
+    backup = base / 'backups' / time.strftime('before-' + VERSION + '-%Y%m%dT%H%M%SZ', time.gmtime())
     backup.mkdir(mode=0o700, parents=True)
     for name in ['fork.env', 'compose.yml']:
         shutil.copy2(base / name, backup / name)
@@ -92,7 +98,7 @@ def update_server(root, manifest):
     old_image = run(['docker', 'inspect', '--format={{.Config.Image}}', 'agents-anywhere-fork-server-1'])
     if run(['docker', 'image', 'inspect', '--format={{.Id}}', old_image]) != run(['docker', 'inspect', '--format={{.Image}}', 'agents-anywhere-fork-server-1']):
         raise RuntimeError('当前镜像标签与运行中的镜像不一致，未修改服务。')
-    image = 'agents-anywhere-fork:2.6.1-' + manifest['source'][:8]
+    image = 'agents-anywhere-fork:' + VERSION + '-' + manifest['source'][:8]
     print('备份完成，正在构建新镜像；现有服务继续运行。', flush=True)
     run(['docker', 'build', '--network=none', '--build-arg', 'BASE_IMAGE=' + old_image, '-t', image, str(root)], log=backup / 'build.log')
     idle()
@@ -112,7 +118,7 @@ def update_server(root, manifest):
         protected('http://127.0.0.1:18500/api/v2/task-groups/from-session/check-only/handoffs')
         public = 'https://81.71.71.114:9443'
         protected(public + '/api/v2/task-groups/from-session/check-only/handoffs')
-        if get(public + '/api/v2/health').get('version') != '2.6.1':
+        if get(public + '/api/v2/health').get('version') != VERSION:
             raise RuntimeError('公网健康检查失败。')
         with urllib.request.urlopen(public + '/', timeout=15) as response:
             if hashlib.sha256(response.read()).hexdigest() != manifest['files']['web-static/index.html']:
@@ -134,36 +140,10 @@ def update_server(root, manifest):
 
 
 def update_connector(root, manifest):
-    # Apply only the two additive workspace files; do not resolve dependencies or touch account data.
-    python = Path('/home/aa-fork/.venv/bin/python')
-    package = Path(run([str(python), '-c', 'import connector; print(next(iter(connector.__path__)))']))
-    if not package.resolve().is_relative_to(Path('/home/aa-fork/.venv').resolve()):
-        raise RuntimeError('Connector 安装目录不匹配，未修改。')
-    files = ['local/worktrees.py', 'server/local_rpc.py']
-    for name in files:
-        target = package / name
-        if digest(target) not in manifest['connectorBases'][name]:
-            raise RuntimeError('设备 Connector 与已验证的版本不同，未修改: ' + name)
-    backup = Path('/opt/agents-anywhere-fork-connector/backups') / time.strftime('before-2.6.1-%Y%m%dT%H%M%SZ', time.gmtime())
-    backup.mkdir(mode=0o700, parents=True)
-    for name in files:
-        saved = backup / name
-        saved.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(package / name, saved)
-    run(['systemctl', 'stop', 'agents-anywhere-fork.service'])
-    try:
-        for name in files:
-            shutil.copyfile(root / 'connector/connector' / name, package / name)
-        run([str(python), '-c', 'import sys,pathlib; [compile(pathlib.Path(p).read_text(), p, "exec") for p in sys.argv[1:]]', *[str(package / name) for name in files]])
-        run(['systemctl', 'start', 'agents-anywhere-fork.service'])
-        time.sleep(3)
-        run(['systemctl', 'is-active', '--quiet', 'agents-anywhere-fork.service'])
-    except BaseException:
-        for name in files:
-            shutil.copyfile(backup / name, package / name)
-        run(['systemctl', 'start', 'agents-anywhere-fork.service'])
-        raise
-    print(json.dumps({'status': 'ok', 'connectorWorkspaceUpdate': True, 'backup': str(backup)}, ensure_ascii=False))
+    helper = 'upgrade-legacy-connector.py'
+    if helper not in manifest['files']:
+        raise RuntimeError('更新包缺少已校验的 Connector 升级脚本；未修改服务。')
+    runpy.run_path(str(root / helper))['upgrade'](root)
 
 
 def main():

@@ -92,6 +92,7 @@ enum class HomeTab { Active, Archived, Devices }
 @Composable
 fun HomeScreen(
     forkController: com.agentsanywhere.app.feature.fork.ForkController? = null,
+    onOpenJoint: () -> Unit = {},
     navigate: (AppDestination) -> Unit,
     state: SessionsState,
     selectedTab: HomeTab,
@@ -208,7 +209,7 @@ fun HomeScreen(
                 .background(LocalAAColors.current.canvas),
         ) {
             HomeContent(
-                navigate = navigate,
+                onOpenJoint = onOpenJoint,                navigate = navigate,
                 state = visibleState,
                 selectedTab = selectedTab,
                 sidebarViewMode = sidebarViewMode,
@@ -475,7 +476,7 @@ fun HomeScreen(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun HomeContent(
-    navigate: (AppDestination) -> Unit,
+    onOpenJoint: () -> Unit,    navigate: (AppDestination) -> Unit,
     state: SessionsState,
     selectedTab: HomeTab,
     sidebarViewMode: String,
@@ -517,6 +518,7 @@ private fun HomeContent(
         verticalArrangement = Arrangement.spacedBy(15.dp),
     ) {
         HomeHeader(onProfile = onProfile, onSearch = onSearch)
+        androidx.compose.material3.TextButton(onClick = onOpenJoint) { Text(stringResource(R.string.fork_joint_entry)) }
         QuickEntries(
             onDevicesClick = { navigate(AppDestination.Devices) },
             onTerminalClick = { navigate(AppDestination.Terminal) },

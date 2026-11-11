@@ -74,7 +74,7 @@ async def test_real_host_callback_captures_account_and_rejects_later_switch(tmp_
     monkeypatch.setenv("AGENT_CONNECTOR_KV_FILE", str(tmp_path / "kv.json"))
     async def ignore(*args, **kwargs): pass
     host = ConnectorRuntimeHost("conn_test", ignore, ignore)
-    observe = host.claude_usage_observer()
+    observe = await host.claude_usage_observer()
     assert observe is not None
     await observe("five_hour", .25, 2500000000)
     before = host.account_usage_kv.path.read_text()

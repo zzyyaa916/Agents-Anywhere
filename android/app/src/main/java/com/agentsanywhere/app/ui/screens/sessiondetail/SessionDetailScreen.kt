@@ -153,6 +153,7 @@ import com.agentsanywhere.app.ui.designsystem.ScreenScaffold
 import com.agentsanywhere.app.ui.designsystem.noRippleClickable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.UUID
@@ -186,13 +187,11 @@ fun SessionDetailScreen(
     composerDraftStore: SessionComposerDraftStore,
     onSessionChanged: (AgentSession) -> Unit = {},
     onQueueReady: (((String) -> Boolean)?) -> Unit = {},
-    onForwardCommand: suspend (String, List<TimelineAttachment>, String) -> Result<Boolean> = { _, _, _ -> Result.success(false) },
+    onListForwardRuntimes: suspend (String) -> Result<com.agentsanywhere.app.feature.devices.DeviceRuntimeList> = { Result.failure(IllegalStateException("AI 列表不可用")) },
+    onLoadForwardCapabilities: suspend (String, String) -> Result<com.agentsanywhere.app.feature.sessions.NewSessionRuntimeCapabilities> = { _, _ -> Result.failure(IllegalStateException("能力不可用")) },
 ) {
+    val isPreparedSession = preparedSession != null
     var forwarding by remember(sessionId) { mutableStateOf(false) }
-    suspend fun forwardMessage(text: String, refs: List<TimelineAttachment>, id: String): Result<Boolean> {
-        forwarding = true
-        return try { onForwardCommand(text, refs, id) } finally { forwarding = false }
-    }
     var planningCreation by remember(sessionId, preparedSession?.localSessionId) { mutableStateOf(false) }
     var goalState by remember(sessionId){mutableStateOf<com.agentsanywhere.app.api.RemoteGoalState?>(null)}
     var goalMode by remember(sessionId,preparedSession?.localSessionId){mutableStateOf(false)}
@@ -287,6 +286,40 @@ fun SessionDetailScreen(
             ),
         )
     }
+
+    var forwardDialog by remember(sessionId) { mutableStateOf(false) }
+    var forwardError by remember(sessionId) { mutableStateOf<String?>(null) }
+    val forwardConfigs = com.agentsanywhere.app.ui.screens.fork.rememberRuntimeTargets(
+        state.session?.connectorId?.takeIf { !isPreparedSession }, onListForwardRuntimes,
+        onLoadForwardCapabilities, onLoadPreparedModelCatalog, onLoadPreparedPermissionCatalog, forwardDialog,
+    )
+    val canForwardSession = sessionId != null && !isPreparedSession && !state.sending &&
+        state.session?.status in listOf(SessionStatus.Idle, SessionStatus.Error, SessionStatus.Limited)
+    suspend fun forwardMessage(text: String, refs: List<TimelineAttachment>, id: String): Result<Boolean> {
+        if (!text.trimStart().startsWith("转发给")) return Result.success(false)
+        forwarding = true
+        return try {
+            check(canForwardSession) { "请等待来源 AI 完成任务后再转发" }
+            val command = com.agentsanywhere.app.feature.taskgroups.parseForwardCommand(text, forwardConfigs.values.mapNotNull { it.selectedRuntime })
+                ?: return Result.success(false)
+            val targets = command.runtimeIds.map { requireNotNull(forwardConfigs[it]) { "目标 AI 配置尚未加载" } }
+            requireNotNull(forkController) { "转发不可用" }.taskGroups.forwardSession(
+                id, requireNotNull(sessionId), requireNotNull(state.session).runtimeId, targets,
+                command.instructions, refs.map { it.fileId },
+            ).getOrThrow()
+            Result.success(true)
+        } catch (cancel: CancellationException) { throw cancel }
+        catch (failure: Exception) { Result.failure(failure) }
+        finally { forwarding = false }
+    }
+    if (forwardDialog) com.agentsanywhere.app.ui.screens.fork.ForwardTargetsDialog(
+        configs = forwardConfigs, sourceRuntimeId = state.session?.runtimeId.orEmpty(), busy = forwarding,
+        error = forwardError, onDismiss = { forwardDialog = false; forwardError = null },
+        onForward = { text, operation -> scope.launch {
+            forwardMessage(text, emptyList(), operation).onSuccess { if (it) forwardDialog = false }
+                .onFailure { forwardError = it.message }
+        } },
+    )
 
     val queueScope = controller.queueScope()
     val queueStore = remember(sessionId, queueScope) { sessionId?.let { com.agentsanywhere.app.feature.sessiondetail.SessionMessageQueue(context.applicationContext, queueScope, it) } }
@@ -1305,7 +1338,6 @@ fun SessionDetailScreen(
         ).join()
     }
 
-    val isPreparedSession = preparedSession != null
     val connectorOnline = if (isPreparedSession) true else state.session?.connectorOnline == true
     val takeoverEnabled = if (isPreparedSession) true else state.session?.takeover == true
     val runtimeId = state.session?.runtimeId ?: state.runtime.runtimeId
@@ -2085,6 +2117,8 @@ fun SessionDetailScreen(
                         SessionDetailHeader(
                             title = state.session?.title ?: stringResource(R.string.session_title_fallback),
                             darkMode = darkMode,
+                            onForward = if (sessionId != null && !isPreparedSession) ({ forwardDialog = true; forwardError = null }) else null,
+                            forwardEnabled = canForwardSession && !forwarding,
                             onLeftClick = ::openRuntimeSettings,
                             onRightClick = { scope.launch { pagerState.animateScrollToPage(1) } },
                             modifier = Modifier.align(Alignment.TopCenter),

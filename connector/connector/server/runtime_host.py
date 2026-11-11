@@ -90,15 +90,19 @@ class ConnectorRuntimeHost(RuntimeHostClient):
             self._account_usage_kv = super().runtime_kv
         return self._account_usage_kv
 
-    def claude_usage_observer(self):
+    async def claude_usage_observer(self):
         from connector.account_usage import LocalAccountUsage
         try:
             collector = LocalAccountUsage(self.account_usage_kv)
-            account_key = collector.claude_identity()["account_key"]
-        except Exception:
+            account_key = (await asyncio.to_thread(collector.claude_identity))["account_key"]
+        except Exception:  # noqa: BLE001 -- optional usage must not prevent the task
             return None
         async def observe(kind, utilization, resets_at):
-            collector.observe_claude_window(account_key, kind, utilization, resets_at)
+            try:
+                info = await asyncio.to_thread(collector.claude_identity)
+            except Exception:  # noqa: BLE001 -- a failed identity check discards metadata
+                return
+            collector.observe_claude_window(account_key, kind, utilization, resets_at, current_identity=info)
         return observe
 
     def flush_runtime_storage(self) -> bool:

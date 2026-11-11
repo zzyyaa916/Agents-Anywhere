@@ -95,4 +95,60 @@ class TaskGroupsApiTest {
         }
         assertEquals("one", parseForwardCommand("转发给 one：审核", agents)?.runtimeId)
     }
+    @Test fun multipleTargetsUseStablePerTargetOperationsAndRejectDuplicates() {
+        val agents = listOf(runtime("claude-1", "Claude Code", "claude"), runtime("codex-1", "Codex", "codex"), runtime("dsh-1", "DSH", "dsh"))
+        for (separator in listOf("、", ",", "，")) {
+            val parsed = requireNotNull(parseForwardCommand("转发给 Claude Code${separator}DSH：检查附件\n不要改项目", agents))
+            assertEquals(listOf("claude-1", "dsh-1"), parsed.runtimeIds)
+            assertEquals("检查附件\n不要改项目", parsed.instructions)
+        }
+        for (text in listOf("转发给 Codex、Codex：检查", "转发给 Codex、不存在：检查")) {
+            try { parseForwardCommand(text, agents); fail("Must reject invalid target") } catch (_: IllegalArgumentException) { }
+        }
+        assertEquals(forwardOperationId("source", "dsh-1"), forwardOperationId("source", "dsh-1"))
+        assertNotEquals(forwardOperationId("source", "dsh-1"), forwardOperationId("source", "codex-1"))
+        assertEquals(listOf("a", "b", "c"), toggleRuntimeTarget(listOf("a", "b", "c"), "d"))
+        assertEquals(listOf("b"), toggleRuntimeTarget(listOf("a", "b"), "a"))
+    }
+    @Test fun sessionHandoffUsesDedicatedEndpointAndNeverCreatesAProject() {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setBody(group))
+            TaskGroupsApi(ApiClient()).handoffSession(server.url("/").toString(), "synthetic", "session-1", JSONObject().put("operationId", "stable"))
+            val request = server.takeRequest()
+            assertEquals("/api/v2/task-groups/from-session/session-1/handoffs", request.path)
+            assertEquals("Bearer synthetic", request.getHeader("Authorization"))
+            assertEquals(1, server.requestCount)
+        }
+    }
+    @Test fun jointStateRestoresDraftWindowsAndPartialDeliverySelection() {
+        val state = JointConversationState("project", listOf("one", "two"), "继续检查", setOf("one"), setOf("two"))
+        assertEquals(state, decodeJointState(encodeJointState(state)))
+        assertEquals(JointConversationState(), decodeJointState("broken"))
+    }
+
+    @Test fun partialForwardRetryDoesNotStartSuccessfulTargetsAgain() = kotlinx.coroutines.runBlocking {
+        MockWebServer().use { server ->
+            val agents = listOf(runtime("codex-1", "Codex"), runtime("dsh-1", "DSH"))
+            val inventory = DeviceRuntimeList("device", agents, null)
+            val configs = agents.map { agent ->
+                val config = com.agentsanywhere.app.feature.sessions.NewSessionRuntimeSelectionState().beginRuntimeInventory("device").replaceRuntimeInventory(inventory, agent.id).beginRuntimeDetails()
+                config.applyCapabilities(requireNotNull(config.requestKey), com.agentsanywhere.app.feature.sessions.NewSessionRuntimeCapabilities("device", 1L, emptyList(), null))
+            }
+            val auth = object : com.agentsanywhere.app.feature.auth.AuthSessionReader {
+                override fun readServerUrl() = server.url("/").toString()
+                override fun readAccessToken() = "synthetic"
+            }
+            val controller = TaskGroupsController(TaskGroupsApi(ApiClient()), auth)
+            val sent = group.replace("\"phase\":\"unknown\"", "\"phase\":\"sent\"")
+            val pending = group.replace("\"phase\":\"unknown\"", "\"phase\":\"pending\"")
+            server.enqueue(MockResponse().setBody(sent)); server.enqueue(MockResponse().setResponseCode(503))
+            assertTrue(controller.forwardSession("stable-source", "session-1", "source", configs, "检查", listOf("file-1")).isFailure)
+            server.enqueue(MockResponse().setBody(sent)); server.enqueue(MockResponse().setBody(pending)); server.enqueue(MockResponse().setBody(sent))
+            assertTrue(controller.forwardSession("stable-source", "session-1", "source", configs, "检查", listOf("file-1")).isSuccess)
+            val requests = (0 until 5).map { server.takeRequest() }
+            assertEquals(1, requests.count { it.path!!.endsWith("/candidates/0/start") })
+            assertEquals(JSONObject(requests[0].body.readUtf8()).getString("operationId"), JSONObject(requests[2].body.readUtf8()).getString("operationId"))
+        }
+    }
+
 }

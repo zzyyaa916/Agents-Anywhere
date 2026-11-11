@@ -56,9 +56,8 @@ class RuntimeHostClient(ABC):
         """Bind storage before a provider constructs its runtime; legacy hosts are unchanged."""
         return self
 
-    def claude_usage_observer(self):
+    async def claude_usage_observer(self):
         """Optional local-only metadata sink; implementations never receive SDK objects."""
-        return None
 
     @property
     def runtime_kv(self) -> JsonKeyValueStore:

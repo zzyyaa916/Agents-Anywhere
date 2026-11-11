@@ -38,3 +38,35 @@ class SwitchTests(unittest.TestCase):
             self.assertEqual((old / 'original').read_text(), 'saved')
             self.assertEqual(calls[-1][1], 'start')
             self.assertFalse(backup.exists())
+
+    def test_symlink_upgrade_and_failed_start_restore_same_target(self):
+        for failed in [False, True]:
+            with tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                original, new, link, backup = (root / n for n in ['original', 'new', 'venv', 'backup'])
+                original.mkdir(); new.mkdir(); link.symlink_to(original)
+                calls = []
+                def command(args):
+                    calls.append(args)
+                    if failed and args[1] == 'is-active':
+                        raise RuntimeError('failed health')
+                with patch('time.sleep'):
+                    if failed:
+                        with self.assertRaises(RuntimeError):
+                            module['switch'](link, new, backup, command)
+                    else:
+                        module['switch'](link, new, backup, command)
+                self.assertEqual(link.resolve(), original if failed else new)
+                self.assertTrue(original.is_dir())
+
+    def test_post_start_validation_failure_rolls_back(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            old, new, backup = (root / n for n in ['old', 'new', 'backup'])
+            old.mkdir(); new.mkdir()
+            def failed():
+                raise RuntimeError('pairing/profile validation failed')
+            with patch('time.sleep'), self.assertRaises(RuntimeError):
+                module['switch'](old, new, backup, lambda args: None, validate=failed)
+            self.assertTrue(old.is_dir())
+            self.assertFalse(old.is_symlink())

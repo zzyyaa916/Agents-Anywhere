@@ -7,14 +7,14 @@ import hashlib
 import json
 import math
 import os
+import subprocess
 import time
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-
-from connector.core.fork_profile import fork_enabled
-from connector.native_cli import codex_command
+from connector.core.fork_profile import broker_executable, fork_enabled
+from connector.native_cli import claude_command, codex_command
 
 MINIMUM = {"codex": 60, "claude_code": 300}
 PLANS = {"free", "plus", "pro", "max", "team", "business", "enterprise", "edu", "go"}
@@ -199,6 +199,18 @@ class LocalAccountUsage:
         self._lock = asyncio.Lock()
 
     def claude_identity(self):
+        if broker_executable("claude"):
+            # Always use the broker identity: readable-file changes must not change the key.
+            result = subprocess.run(
+                claude_command(["auth", "status"]), capture_output=True,
+                text=True, timeout=15, check=False,
+            )
+            if result.returncode:
+                raise UsageUnavailable("account_unavailable")
+            account = json.loads(result.stdout)
+            if account.get("loggedIn") is not True or account.get("authMethod") not in {None, "claude.ai"}:
+                raise UsageUnavailable("unsupported_auth")
+            return identity("claude_code", account.get("email"), account.get("subscriptionType"))
         config_dir = Path(os.environ.get("CLAUDE_CONFIG_DIR", self.home / ".claude"))
         profile_path = (
             self.home / ".claude.json"
@@ -227,7 +239,7 @@ class LocalAccountUsage:
                         runtime, account.get("email"), account.get("planType")
                     )
             if runtime == "claude_code":
-                return self.claude_identity()
+                return await asyncio.to_thread(self.claude_identity)
             raise UsageUnavailable("unsupported_auth")
         except Exception as exc:  # noqa: BLE001 -- sanitized failure, never propagate upstream bodies
             return {
@@ -241,10 +253,10 @@ class LocalAccountUsage:
                 else "unavailable",
             }
 
-    def observe_claude_window(self, expected_key, kind, utilization, resets_at):
+    def observe_claude_window(self, expected_key, kind, utilization, resets_at, *, current_identity=None):
         """Accept only normalized native metadata; never read a credential or make a request."""
         try:
-            info = self.claude_identity()
+            info = current_identity if current_identity is not None else self.claude_identity()
             if info["account_key"] != expected_key:
                 return False
             if isinstance(utilization, bool) or not isinstance(utilization, (int, float)) or not math.isfinite(utilization) or not 0 <= utilization <= 1:
@@ -264,7 +276,7 @@ class LocalAccountUsage:
             windows[kind] = {"window": value, "observed_at": self.clock()}
             self.kv.set(key, {"windows": windows})
             return True
-        except Exception:  # Metadata collection must never fail the user's task.
+        except Exception:  # noqa: BLE001 -- Metadata collection must never fail the user's task.
             return False
 
     def _claude_cached_usage(self, account_key):

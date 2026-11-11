@@ -7,7 +7,6 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import com.agentsanywhere.app.api.*
 import com.agentsanywhere.app.feature.auth.AuthSessionReader
-import com.agentsanywhere.app.feature.devices.DeviceRuntimeList
 import com.agentsanywhere.app.feature.taskgroups.TaskGroupsController
 import com.agentsanywhere.app.model.AgentProject
 import okhttp3.mockwebserver.MockResponse
@@ -38,12 +37,7 @@ class CollaborationWorkbenchTest {
             var secondReady = false
             compose.setContent {
                 MaterialTheme {
-                    CollaborationWorkbench(project, TaskGroupsController(TaskGroupsApi(ApiClient()), auth),
-                        onListRuntimes = { Result.success(DeviceRuntimeList("device", emptyList(), null)) },
-                        onLoadCapabilities = { _, _ -> error("No catalog requested") },
-                        onLoadModels = { _, _ -> error("No catalog requested") },
-                        onLoadPermissions = { _, _ -> error("No catalog requested") }, onClose = {},
-                    ) { session, ready, _ ->
+                    CollaborationWorkbench(project = project, controller = TaskGroupsController(TaskGroupsApi(ApiClient()), auth), onClose = {}) { session, ready ->
                         DisposableEffect(session) {
                             ready { text ->
                                 if (session == "session-2" && !secondReady) false else { delivered.add(session to text); true }

@@ -237,18 +237,17 @@ internal fun AgentsAnywhereNavHost(
         SessionComposerDraftStore(context.applicationContext, userId)
     }
 
+    var jointOpen by rememberSaveable(serverUrl, userId) { mutableStateOf(false) }
     var collaborationProjectId by rememberSaveable(serverUrl, userId) { mutableStateOf<String?>(null) }
+    var collaborationGroupId by rememberSaveable(serverUrl, userId) { mutableStateOf<String?>(null) }
     var openedCollaborationProject by remember(serverUrl, userId) { mutableStateOf<AgentProject?>(null) }
     val collaborationProject = openedCollaborationProject?.takeIf { it.id == collaborationProjectId } ?: sessionsState.projects.firstOrNull { it.id == collaborationProjectId }
     if (collaborationProject != null) com.agentsanywhere.app.ui.screens.fork.CollaborationWorkbench(
         project = collaborationProject,
+        initialGroupId = collaborationGroupId,
         controller = forkController.taskGroups,
-        onListRuntimes = onListNewSessionRuntimes,
-        onLoadCapabilities = onLoadNewSessionRuntimeCapabilities,
-        onLoadModels = onLoadNewSessionModelCatalog,
-        onLoadPermissions = onLoadNewSessionPermissionCatalog,
         onClose = { collaborationProjectId = null },
-    ) { session, queueReady, forward ->
+    ) { session, queueReady ->
         val realtime = remember(session, sessionRealtimeController) { sessionRealtimeController.independent(session) }
         SessionDetailScreen(
             forkController = forkController, navigate = { target -> collaborationProjectId = null; navigate(target) },
@@ -256,7 +255,29 @@ internal fun AgentsAnywhereNavHost(
             controller = sessionDetailController, realtimeController = realtime,
             filesController = filesController, terminalPool = remoteTerminalPool,
             composerDraftStore = sessionComposerDraftStore, onSessionChanged = onSessionChanged,
-            onQueueReady = queueReady, onForwardCommand = forward,
+            onQueueReady = queueReady,
+            onListForwardRuntimes = onListNewSessionRuntimes, onLoadForwardCapabilities = onLoadNewSessionRuntimeCapabilities,
+            onLoadPreparedModelCatalog = onLoadNewSessionModelCatalog, onLoadPreparedPermissionCatalog = onLoadNewSessionPermissionCatalog,
+        )
+    }
+
+    if (jointOpen) com.agentsanywhere.app.ui.screens.fork.JointConversations(
+        scopeKey = forkController.scopeKey, projects = sessionsState.projects,
+        sessions = projectSessionsById.values.flatten() + sessionsState.sessions + sessionsState.archivedSessions,
+        controller = forkController.taskGroups,
+        onLoadSessions = { onLoadProjectSessions(it, ProjectSessionStatusFilter.All) },
+        onClose = { jointOpen = false },
+        onRestoreGroup = { project, group -> jointOpen = false; openedCollaborationProject = project; collaborationGroupId = group; collaborationProjectId = project.id },
+    ) { session, queueReady ->
+        val realtime = remember(session, sessionRealtimeController) { sessionRealtimeController.independent(session) }
+        SessionDetailScreen(
+            forkController = forkController, navigate = { target -> jointOpen = false; navigate(target) },
+            sessionId = session, initialSession = null, devices = sessionsState.devices,
+            controller = sessionDetailController, realtimeController = realtime, filesController = filesController,
+            terminalPool = remoteTerminalPool, composerDraftStore = sessionComposerDraftStore,
+            onSessionChanged = onSessionChanged, onQueueReady = queueReady,
+            onListForwardRuntimes = onListNewSessionRuntimes, onLoadForwardCapabilities = onLoadNewSessionRuntimeCapabilities,
+            onLoadPreparedModelCatalog = onLoadNewSessionModelCatalog, onLoadPreparedPermissionCatalog = onLoadNewSessionPermissionCatalog,
         )
     }
 
@@ -297,6 +318,7 @@ internal fun AgentsAnywhereNavHost(
                     mobileLoginQr = pendingMobileLoginQr,
                 )
                 AppDestination.Sessions -> HomeScreen(
+                    onOpenJoint = { jointOpen = true },
                     forkController = forkController,
                     navigate = navigate,
                     state = sessionsState,
@@ -345,7 +367,8 @@ internal fun AgentsAnywhereNavHost(
                     onPairDevice = { navigate(AppDestination.DeviceSetup) },
                 )
                 AppDestination.NewSession, AppDestination.NewProject -> androidx.compose.runtime.key(serverUrl, userId, destination) { NewSessionScreen(
-                    onOpenCollaboration = { project -> openedCollaborationProject = project; collaborationProjectId = project.id },
+                    taskGroups = forkController.taskGroups,
+                    onTaskGroupCreated = { project, group -> openedCollaborationProject = project; collaborationGroupId = group; collaborationProjectId = project.id },
                     navigate = navigate,
                     sessionsState = sessionsState,
                     projectSessionsById = projectSessionsById,
@@ -375,6 +398,8 @@ internal fun AgentsAnywhereNavHost(
                         .plus(sessionsState.archivedSessions.asSequence())
                         .firstOrNull { it.id == selectedSessionId },
                     preparedSession = preparedSessionDraft,
+                    onListForwardRuntimes = onListNewSessionRuntimes,
+                    onLoadForwardCapabilities = onLoadNewSessionRuntimeCapabilities,
                     onCreatePreparedSession = onCreateSession,
                     onPreparedSessionCreated = onPreparedSessionCreated,
                     onLoadPreparedModelCatalog = onLoadNewSessionModelCatalog,

@@ -3,7 +3,7 @@ package com.agentsanywhere.app.api
 import org.json.JSONArray
 import org.json.JSONObject
 
-data class TaskGroupCandidate(val slot: Int, val phase: String, val sessionId: String?, val runtimeId: String, val error: String?)
+data class TaskGroupCandidate(val slot: Int, val phase: String, val sessionId: String?, val runtimeId: String, val error: String?, val runtimeType: String = runtimeId)
 data class TaskGroup(val id: String, val projectId: String, val content: String, val phase: String, val sourceId: String?, val candidates: List<TaskGroupCandidate>) {
     companion object {
         fun parse(value: JSONObject): TaskGroup {
@@ -15,7 +15,7 @@ data class TaskGroup(val id: String, val projectId: String, val content: String,
                 (0 until candidates.length()).map { slot ->
                     val item = candidates.getJSONObject(slot)
                     TaskGroupCandidate(slot, item.getString("phase"), item.optString("sessionId").takeUnless { it.isBlank() || it == "null" },
-                        configs.getJSONObject(slot).getString("runtimeId"), item.optString("error").takeUnless { it.isBlank() || it == "null" })
+                        configs.getJSONObject(slot).getString("runtimeId"), item.optString("error").takeUnless { it.isBlank() || it == "null" }, configs.getJSONObject(slot).getString("runtime"))
                 })
         }
     }
@@ -29,5 +29,6 @@ class TaskGroupsApi(private val client: ApiClient) {
     fun get(server: String, token: String, id: String): TaskGroup = TaskGroup.parse(client.getJson(server, "/task-groups/${id.urlEncode()}", token))
     fun create(server: String, token: String, body: JSONObject): TaskGroup = TaskGroup.parse(client.postJson(server, "/task-groups", body, token, readTimeoutSeconds = 120))
     fun start(server: String, token: String, id: String, slot: Int): TaskGroup = TaskGroup.parse(client.postJson(server, "/task-groups/${id.urlEncode()}/candidates/$slot/start", JSONObject(), token, readTimeoutSeconds = 120))
+    fun handoffSession(server: String, token: String, id: String, body: JSONObject): TaskGroup = TaskGroup.parse(client.postJson(server, "/task-groups/from-session/${id.urlEncode()}/handoffs", body, token, readTimeoutSeconds = 120))
     fun handoff(server: String, token: String, id: String, body: JSONObject): TaskGroup = TaskGroup.parse(client.postJson(server, "/task-groups/${id.urlEncode()}/handoffs", body, token, readTimeoutSeconds = 120))
 }

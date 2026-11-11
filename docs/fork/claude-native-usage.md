@@ -11,3 +11,9 @@
 兼容：Android 和其他客户端继续读取 Server 缓存，不接触厂商凭据。此前已部署的旧 Connector 仍使用旧采集方式，安装 Android APK 不会自动替换服务器 Connector；必须升级 Connector 才能切换本来源。Codex 来源保持既有只读 app-server 协议。
 
 来源：[Anthropic Python Agent SDK RateLimitInfo](https://code.claude.com/docs/en/agent-sdk/python#ratelimitinfo)。事件通常在状态变化时产生，故不承诺每条消息后更新或闲置时实时刷新。
+
+## 2.6.2 固定身份修复
+
+启用固定运行身份 broker 时，不再读取 Connector 无权访问的 Claude 账号配置，统一通过同一 Claude launcher 的 `auth status` 获取非敏感身份，以邮箱哈希作为该模式的稳定账号键；即使配置文件可读性变化也不切换来源。此模式的旧 accountUuid 哈希缓存不沿用，等待后续正常任务的合法原生事件重新积累。普通设备沿用文件身份来源。仅哈希及标准化套餐信息离开本机，不记录原始 CLI 输出。
+
+身份查询有 15 秒超时并在线程中执行，未登录、无邮箱或不支持的认证类型不产生身份。创建观察器和接收事件时都核对账号，切号后拒绝旧连接数据；观察器的 KV 更新仍在事件循环串行执行。该只读 CLI 查询不创建模型任务，不请求私有用量接口；不保证 CLI 自身完全离线，也不保证每次正常任务都会产生有效比例和重置时间。

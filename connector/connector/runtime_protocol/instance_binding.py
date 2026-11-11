@@ -207,6 +207,9 @@ class RuntimeInstanceHost(RuntimeHostClient):
         | None
     ) = None
 
+    async def claude_usage_observer(self):
+        return await self.base.claude_usage_observer()
+
     async def observe_planning(self, observation) -> None:
         await RuntimeHostClient.observe_planning(self, observation)
 

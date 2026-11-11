@@ -32,9 +32,9 @@ from connector.runtimes.claude.sdk.client import (
 from connector.runtimes.claude.sdk.connection import ClaudeConnection, ClaudeResponse
 from connector.runtimes.claude.sdk.events import (
     ClaudeTerminalEvent,
-    native_usage_from_message,
     failed_terminal_event,
     interrupted_terminal_event,
+    native_usage_from_message,
     terminal_event_from_message,
 )
 from connector.runtimes.claude.sdk.settings import (
@@ -289,7 +289,7 @@ class ClaudeTurnRunner:
                 session, current
             ),
             cleanup=cleanup,
-            on_native_usage=self.native_usage_observer(),
+            on_native_usage=await self.native_usage_observer(),
             idle_timeout_seconds=self.config.values.get("idleTimeoutSeconds", 600),
             selections=dict(session.selections),
             task_ids=set(existing.task_ids) if existing is not None else set(),
@@ -297,11 +297,11 @@ class ClaudeTurnRunner:
         self.connections[session.session_id] = connection
         return connection
 
-    def native_usage_observer(self):
+    async def native_usage_observer(self):
         if self.config.values.get("environment") or self.config.values.get("modelGateway"):
             return None
         factory = getattr(self.host, "claude_usage_observer", None)
-        return factory() if callable(factory) else None
+        return await factory() if callable(factory) else None
 
     async def refresh_idle_connection(self, session: ClaudeSession) -> None:
         async with session.execution_lock:
@@ -407,7 +407,7 @@ class ClaudeTurnRunner:
 
             emitted_final_assistant_content = False
             stream_accumulator = ClaudeStreamAccumulator()
-            usage_observer = self.native_usage_observer()
+            usage_observer = await self.native_usage_observer()
             async for message in receive_response_messages(client):
                 usage = native_usage_from_message(message)
                 if usage is not None:

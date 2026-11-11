@@ -53,26 +53,64 @@ class TaskGroupsController(private val api: TaskGroupsApi, private val auth: Aut
             .put("target", targetJson(config)).put("instructions", instructions)
             .put("attachments", JSONArray(fileIds.distinct().map { JSONObject().put("fileId", it) })))
     }
+    suspend fun forwardSession(operation: String, session: String, sourceRuntimeId: String, configs: List<NewSessionRuntimeSelectionState>, instructions: String, fileIds: List<String>) = request { s, t ->
+        require(configs.size in 1..3 && configs.map { it.selectedRuntimeId }.distinct().size == configs.size) { "请选择 1–3 个不同目标" }
+        require(configs.all { it.readyForCreate && it.selectedRuntimeId != sourceRuntimeId }) { "目标 AI 未就绪或与来源相同" }
+        require(instructions.isNotBlank() && instructions.length <= 8000) { "转发指令须为 1–8000 字符" }
+        configs.map { config ->
+            check(auth.readServerUrl() == s && auth.readAccessToken() == t) { "账号或服务已切换，请返回会话重新操作" }
+            val id = forwardOperationId(operation, requireNotNull(config.selectedRuntimeId))
+            var group = api.handoffSession(s, t, session,
+                JSONObject().put("operationId", id).put("slot", 0).put("mode", "continue")
+                    .put("target", targetJson(config)).put("instructions", instructions)
+                    .put("attachments", JSONArray(fileIds.distinct().map { JSONObject().put("fileId", it) })))
+            if (group.phase == "ready" && group.candidates.single().phase == "pending") {
+                check(auth.readServerUrl() == s && auth.readAccessToken() == t) { "账号或服务已切换，任务已创建，请恢复查看" }
+                group = api.start(s, t, group.id, 0)
+            }
+            group
+        }
+    }
+
+
 }
 
 private fun targetJson(config: NewSessionRuntimeSelectionState): JSONObject = JSONObject()
     .put("runtime", requireNotNull(config.selectedRuntime).type).put("runtimeId", config.selectedRuntimeId)
     .put("selections", JSONObject(config.selections.toMap()))
 
-data class ForwardCommand(val runtimeId: String, val instructions: String)
+data class ForwardCommand(val runtimeIds: List<String>, val instructions: String) {
+    constructor(runtimeId: String, instructions: String) : this(listOf(runtimeId), instructions)
+    val runtimeId: String get() = runtimeIds.single()
+}
+
+fun forwardOperationId(operation: String, runtimeId: String): String =
+    java.util.UUID.nameUUIDFromBytes("$operation:$runtimeId".toByteArray(Charsets.UTF_8)).toString()
+
+fun toggleRuntimeTarget(selected: List<String>, id: String): List<String> =
+    if (id in selected) selected - id else if (selected.size < 3) selected + id else selected
+
 fun parseForwardCommand(text: String, runtimes: List<DeviceRuntime>): ForwardCommand? {
     val prefix = Regex("^\\s*转发给\\s*").find(text) ?: return null
-    val rest = text.substring(prefix.range.last + 1).trim()
+    var rest = text.substring(prefix.range.last + 1).trim()
     fun names(runtime: DeviceRuntime) = listOfNotNull(runtime.id, runtime.displayName, runtime.type, runtime.typeDisplayName)
-    fun delimiter(char: Char) = char.isWhitespace() || char in "，,：:；;。"
-    val name = runtimes.flatMap(::names).distinct().sortedByDescending { it.length }.firstOrNull { candidate ->
-        rest.startsWith(candidate, ignoreCase = true) && (rest.length == candidate.length || delimiter(rest[candidate.length]))
+    val ordered = runtimes.flatMap(::names).distinct().sortedByDescending { it.length }
+    val targets = mutableListOf<String>()
+    while (true) {
+        val name = ordered.firstOrNull { candidate -> rest.startsWith(candidate, ignoreCase = true) &&
+            (rest.length == candidate.length || rest[candidate.length].let { it.isWhitespace() || it in "、，,：:；;。" }) }
+        require(name != null) { "未找到目标 AI，请使用设备上的完整 AI 名称或标识" }
+        val matches = runtimes.filter { runtime -> names(runtime).any { it.equals(name, ignoreCase = true) } }
+        require(matches.size == 1) { "AI 名称重复，请使用完整 AI 标识" }
+        targets += matches.single().id
+        require(targets.size <= 3 && targets.distinct().size == targets.size) { "请选择 1–3 个不同目标" }
+        rest = rest.drop(name.length).trimStart()
+        if (rest.firstOrNull() !in listOf('、', '，', ',')) break
+        rest = rest.drop(1).trimStart()
     }
-    require(name != null) { "未找到目标 AI，请使用设备上的完整 AI 名称或标识" }
-    val matches = runtimes.filter { runtime -> names(runtime).any { it.equals(name, ignoreCase = true) } }
-    require(matches.size == 1) { "AI 名称重复，请使用完整 AI 标识" }
-    val instructions = rest.drop(name.length).trimStart(::delimiter).trim().ifEmpty { "请审核当前代码和任务结果，指出问题及后续建议。" }
-    return ForwardCommand(matches.single().id, instructions)
+    val instructions = rest.trimStart { it.isWhitespace() || it in "：:；;。" }.trim()
+        .ifEmpty { "请审核当前任务结果，指出问题及后续建议。" }
+    return ForwardCommand(targets, instructions)
 }
 
 fun taskGroupChain(groups: List<TaskGroup>, root: String?): Set<String> {

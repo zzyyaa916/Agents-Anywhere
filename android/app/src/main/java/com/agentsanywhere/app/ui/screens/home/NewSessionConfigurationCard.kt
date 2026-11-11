@@ -57,6 +57,7 @@ internal data class NewSessionConfigurationField(
     val options: List<NewSessionConfigurationOption>,
     val enabled: Boolean,
     val loading: Boolean = false,
+    val selectedIds: Set<String>? = null,
 )
 
 @Composable
@@ -165,6 +166,7 @@ private fun NewSessionConfigurationRow(
                 expanded = expanded && active,
                 options = field.options,
                 selectedId = field.selectedId,
+                selectedIds = field.selectedIds,
                 onDismiss = onDismiss,
                 onSelect = onSelect,
             )
@@ -177,6 +179,7 @@ private fun NewSessionConfigurationMenu(
     expanded: Boolean,
     options: List<NewSessionConfigurationOption>,
     selectedId: String?,
+    selectedIds: Set<String>?,
     onDismiss: () -> Unit,
     onSelect: (String) -> Unit,
 ) {
@@ -189,10 +192,10 @@ private fun NewSessionConfigurationMenu(
             section.items.forEach { option ->
                 AADropdownMenuItem(
                     text = section.rowLabel(option.label, option.group),
-                    selected = option.id == selectedId,
+                    selected = selectedIds?.contains(option.id) ?: (option.id == selectedId),
                     enabled = option.enabled,
                     supportingText = option.description,
-                    onClick = { onSelect(option.id); onDismiss() },
+                    onClick = { onSelect(option.id); if (selectedIds == null) onDismiss() },
                 )
             }
         }

@@ -38,3 +38,27 @@ def _safe_filename(name: str) -> str:
     name = name.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
     sanitized = _SAFE_FILENAME_RE.sub("_", name).strip("._") or ""
     return sanitized[:120]
+
+
+def write_runtime_attachment(target: Path, content: bytes, runtime: str) -> None:
+    """Grant only this runtime access to the materialized attachment, not account data."""
+    import os
+
+    from connector.core.fork_profile import fork_enabled, share_runtime_path
+
+    shared = fork_enabled() and os.environ.get("AA_FORK_RUNTIME_BROKER") == "1"
+    if shared and target.absolute() != target.resolve():
+        raise ValueError("Runtime attachments cannot use links")
+    target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if shared:
+        # Existing session directories can predate runtime sharing.
+        for parent in target.parents:
+            if parent.stat().st_uid != os.getuid():
+                break
+            share_runtime_path(parent, "--x", runtime=runtime)
+    descriptor = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    with os.fdopen(descriptor, "wb") as stream:
+        if shared:
+            os.chmod(target, 0o600)
+        stream.write(content)
+    share_runtime_path(target, "r--", runtime=runtime)

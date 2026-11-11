@@ -210,13 +210,15 @@ class BridgeHost:
         self.hub = hub
         self.registry = SubscriptionRegistry()
         self._mounted = False
+        self._start_lock = asyncio.Lock()
         self._published: Path | None = None
 
     async def start(self) -> None:
-        if not self._mounted:
-            await self.hub.mount(SyncService(self.registry, asyncio.get_running_loop()))
-            self._mounted = True
-        self.publish()
+        async with self._start_lock:
+            if not self._mounted:
+                await self.hub.mount(SyncService(self.registry, asyncio.get_running_loop()))
+                self._mounted = True
+            await asyncio.to_thread(self.publish)
 
     def publish(self) -> None:
         path = rendezvous_path()
@@ -225,20 +227,25 @@ class BridgeHost:
             "protocol": "meshcall",
             **self.hub.descriptor(DSH_BRIDGE_ROLE),
         }
+        unchanged = False
         if self._published == path:
             with contextlib.suppress(OSError, ValueError):
-                if read_rendezvous(path) == payload:
-                    return
-        write_private_json(path, payload)
+                unchanged = read_rendezvous(path) == payload
+        if not unchanged:
+            write_private_json(path, payload)
         # Atomic replacement resets the fixed ai-dsh user's ACL.
         import os
 
         from connector.core.fork_profile import fork_enabled
         if fork_enabled() and os.environ.get("AA_FORK_RUNTIME_BROKER") == "1":
             import subprocess
-            subprocess.run(["/usr/local/libexec/aa-fork-bridge-acl"], check=True)
+            subprocess.run(
+                ["/usr/local/libexec/aa-fork-bridge-acl"], check=True, timeout=10,
+                capture_output=True,
+            )
         self._published = path
-        logger.info("published DSH bridge rendezvous path={}", path)
+        if not unchanged:
+            logger.info("published DSH bridge rendezvous path={}", path)
 
     async def stop(self) -> None:
         if self._published is not None:

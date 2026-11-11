@@ -1,7 +1,7 @@
 {
   "cloud": {
-    "serverUrl": "https://web.agents-anywhere.com",
-    "oauthWebOrigin": "https://web.agents-anywhere.com"
+    "serverUrl": "https://81.71.71.114:9443",
+    "oauthWebOrigin": "https://81.71.71.114:9443"
   },
   "apiNamespace": "/api/v2",
   "healthTimeoutMs": 10000,

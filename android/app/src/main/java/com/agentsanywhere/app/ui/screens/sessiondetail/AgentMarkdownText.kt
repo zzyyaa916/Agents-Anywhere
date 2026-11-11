@@ -1148,11 +1148,9 @@ private val CeImplicitChargePattern = Pattern.compile("^([A-Za-z0-9()\\[\\]]+?)(
 private val PuFractionPattern = Pattern.compile("([A-Za-z0-9^_+-]+)\\s*//\\s*([A-Za-z0-9^_+-]+)")
 private val PuUnitWordPattern = Pattern.compile("(?<!\\\\)\\b([A-Za-z]+)\\b")
 
-private fun ensureLatexExtensionsRegistered(context: Context) {
-    runCatching {
-        JLatexMathAndroid.init(context.applicationContext)
-        registerLatexExtensionsOnce()
-    }
+private fun ensureLatexExtensionsRegistered(context: Context) = runCatching {
+    JLatexMathAndroid.init(context.applicationContext)
+    registerLatexExtensionsOnce()
 }
 
 private fun registerLatexExtensionsOnce() {

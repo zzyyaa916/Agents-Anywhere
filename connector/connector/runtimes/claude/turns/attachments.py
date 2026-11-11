@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, replace
 
 from connector.logging import logger
 from connector.runtime_protocol import RuntimeAttachment, SessionNotice
-from connector.runtime_protocol.attachments import attachment_target
+from connector.runtime_protocol.attachments import (
+    attachment_target,
+    write_runtime_attachment,
+)
 from connector.runtime_protocol.errors import RuntimeNoticePublishError
 from connector.runtime_protocol.host import RuntimeHostClient
 from connector.runtimes.claude.notifications.notices import ClaudeNoticeRegistry
@@ -48,8 +52,7 @@ async def materialize_claude_attachments(
             continue
         name = downloaded.name or attachment.name or attachment.file_id
         target = attachment_target(session_id, attachment.file_id, name)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(downloaded.content)
+        await asyncio.to_thread(write_runtime_attachment, target, downloaded.content, "claude")
         materialized.append(
             ClaudeTurnAttachment(
                 name=name,
