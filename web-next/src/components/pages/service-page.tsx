@@ -487,7 +487,6 @@ function ServerCard({
             />
           }
         />
-        <InfoRow label={t("version")} value={<code className="code-mono text-sm">{info.version}</code>} />
         <InfoRow
           label={t("database")}
           value={

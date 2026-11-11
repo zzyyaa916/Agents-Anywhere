@@ -73,11 +73,11 @@ def update_server(root, manifest):
         ids = run(['docker', 'ps', '-q']).splitlines()
         return {row['Name']: (row['Id'], row['State']['StartedAt']) for row in json.loads(run(['docker', 'inspect', *ids])) if row['Name'] != '/agents-anywhere-fork-server-1'}
     health = get('http://127.0.0.1:18500/api/v2/health')
-    if health.get('version') != '2.6.0' or query('SELECT version_num FROM alembic_version') != 'v2_57':
+    if health.get('version') not in ('2.6.0', '2.6.1') or query('SELECT version_num FROM alembic_version') != 'v2_57':
         raise RuntimeError('当前版本或数据库版本不匹配；未修改服务，不执行数据库迁移。')
     idle()
     old_containers = inventory()
-    backup = base / 'backups' / time.strftime('before-2.5.10-%Y%m%dT%H%M%SZ', time.gmtime())
+    backup = base / 'backups' / time.strftime('before-2.6.1-%Y%m%dT%H%M%SZ', time.gmtime())
     backup.mkdir(mode=0o700, parents=True)
     for name in ['fork.env', 'compose.yml']:
         shutil.copy2(base / name, backup / name)
@@ -92,7 +92,7 @@ def update_server(root, manifest):
     old_image = run(['docker', 'inspect', '--format={{.Config.Image}}', 'agents-anywhere-fork-server-1'])
     if run(['docker', 'image', 'inspect', '--format={{.Id}}', old_image]) != run(['docker', 'inspect', '--format={{.Image}}', 'agents-anywhere-fork-server-1']):
         raise RuntimeError('当前镜像标签与运行中的镜像不一致，未修改服务。')
-    image = 'agents-anywhere-fork:2.6.0-desktop-2.5.10-' + manifest['source'][:8]
+    image = 'agents-anywhere-fork:2.6.1-' + manifest['source'][:8]
     print('备份完成，正在构建新镜像；现有服务继续运行。', flush=True)
     run(['docker', 'build', '--network=none', '--build-arg', 'BASE_IMAGE=' + old_image, '-t', image, str(root)], log=backup / 'build.log')
     idle()
@@ -112,7 +112,7 @@ def update_server(root, manifest):
         protected('http://127.0.0.1:18500/api/v2/task-groups/from-session/check-only/handoffs')
         public = 'https://81.71.71.114:9443'
         protected(public + '/api/v2/task-groups/from-session/check-only/handoffs')
-        if get(public + '/api/v2/health').get('status') != 'ok':
+        if get(public + '/api/v2/health').get('version') != '2.6.1':
             raise RuntimeError('公网健康检查失败。')
         with urllib.request.urlopen(public + '/', timeout=15) as response:
             if hashlib.sha256(response.read()).hexdigest() != manifest['files']['web-static/index.html']:
@@ -144,7 +144,7 @@ def update_connector(root, manifest):
         target = package / name
         if digest(target) not in manifest['connectorBases'][name]:
             raise RuntimeError('设备 Connector 与已验证的版本不同，未修改: ' + name)
-    backup = Path('/opt/agents-anywhere-fork-connector/backups') / time.strftime('before-2.5.10-%Y%m%dT%H%M%SZ', time.gmtime())
+    backup = Path('/opt/agents-anywhere-fork-connector/backups') / time.strftime('before-2.6.1-%Y%m%dT%H%M%SZ', time.gmtime())
     backup.mkdir(mode=0o700, parents=True)
     for name in files:
         saved = backup / name

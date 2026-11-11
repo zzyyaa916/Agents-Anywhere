@@ -492,7 +492,6 @@ function ServerCard({
             />
           }
         />
-        <InfoRow label={`${t("server")} ${t("version")}`} value={<code className="code-mono text-sm">{info.version}</code>} />
         {clientVersion && <InfoRow label="客户端版本" value={<code className="code-mono text-sm">V{clientVersion}</code>} />}
         <InfoRow
           label={t("database")}
