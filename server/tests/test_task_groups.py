@@ -375,14 +375,15 @@ def test_single_session_forward_stays_in_project_and_never_replays_source(setup)
     assert s.client.post(url, json=body).status_code == 401
 
 
-def test_single_session_fanout_keeps_project_and_delivers_history_and_extra_attachments(setup):
+@pytest.mark.parametrize("source_runtime", ["codex", "claude", "dsh"])
+def test_single_session_fanout_keeps_project_and_delivers_history_and_extra_attachments(setup, source_runtime):
     from agent_server.core.models import TimelineItemIn
 
     s = setup
     project = asyncio.run(s.store.get_project(s.request['projectId'], user_id=s.user_id))
     source = asyncio.run(s.store.create_session(
         connector_id=project.connectorId, project_id=project.id, user_id=s.user_id,
-        runtime='codex', runtime_id='codex', external_session_id='fanout-source',
+        runtime=source_runtime, runtime_id=source_runtime, external_session_id='fanout-source',
         title='Original task', cwd=project.workspacePath, session_id='sess_fanout_source', takeover=True,
     ))
     original = asyncio.run(s.store.save_user_uploaded_file(session_id=source.id, user_id=s.user_id, name='original.txt', data=b'original', media_type='text/plain'))
@@ -394,7 +395,7 @@ def test_single_session_fanout_keeps_project_and_delivers_history_and_extra_atta
     )))
     count = len(s.client.get('/projects', headers=s.headers).json()['projects'])
     created_ids = []
-    for runtime in ['codex', 'claude', 'dsh']:
+    for runtime in [name for name in ['codex', 'claude', 'dsh'] if name != source_runtime]:
         body = {'operationId': f'fanout-forward-{runtime}', 'slot': 0, 'mode': 'continue',
                 'target': {'runtime': runtime, 'runtimeId': runtime}, 'instructions': 'Use both attachments',
                 'attachments': [{'fileId': extra['fileId']}]}
@@ -413,5 +414,5 @@ def test_single_session_fanout_keeps_project_and_delivers_history_and_extra_atta
         assert target.projectId == project.id
         assert {a.name for a in s.runs.calls[-1].attachments} == {'original.txt', 'extra.txt'}
         assert 'Original task' in s.runs.calls[-1].content
-    assert len(set(created_ids)) == 3 and len(s.runs.calls) == 3
+    assert len(set(created_ids)) == 2 and len(s.runs.calls) == 2
     assert len(s.client.get('/projects', headers=s.headers).json()['projects']) == count

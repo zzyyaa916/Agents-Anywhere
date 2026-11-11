@@ -42,7 +42,7 @@ export function TaskGroupChatPane({ group, slot, title, token, mode, pending, di
         <p className="text-xs text-muted-foreground">{candidate.status ? t(`status.${candidate.status}`) : t(`phase.${candidate.phase}`)}</p>
       </div>
       <div className="flex shrink-0 gap-1">
-        <Button variant="ghost" size="icon-sm" aria-label={t("forward")} title={t("forward")} disabled={pending || !stopped || !conclusion.trim()} onClick={() => onForward(conclusion)}><Forward /></Button>
+        <Button variant="ghost" size="icon-sm" aria-label={t("forward")} title={t("forward")} disabled={pending || !stopped} onClick={() => onForward(conclusion)}><Forward /></Button>
         <Button variant="ghost" size="icon-sm" aria-label={t(minimized ? "restore" : "minimize")} title={t(minimized ? "restore" : "minimize")} onClick={() => onModeChange(minimized ? "open" : "minimized")}>{minimized ? <Maximize2 /> : <Minimize2 />}</Button>
         <Button variant="ghost" size="icon-sm" aria-label={t("close")} title={t("close")} onClick={() => onModeChange("closed")}><X /></Button>
       </div>

@@ -10,6 +10,7 @@ import { DashboardSidebarControlsContext } from "@/components/dashboard-sidebar-
 import { AppSidebar } from "@/components/app-sidebar"
 import { DesktopShellHeader } from "@/components/desktop/desktop-shell-header"
 import { DesktopSessionNotifications } from "@/components/desktop/desktop-session-notifications"
+import { JointConversations } from "@/components/joint-conversations"
 import { TaskComposer } from "@/components/task-composer"
 import { SessionView } from "@/components/session-view"
 import { WorkspaceHeaderBackdrop } from "@/components/workspace-header"
@@ -349,6 +350,7 @@ function WorkspaceMain() {
     return <LoadingState className="h-full bg-background" />
   }
   const content =
+    page === "joint" ? <JointConversations /> :
     page === "settings" ? <SettingsPage /> :
     page === "admin" ? <AdminPage /> :
     page === "tokens-anywhere" ? <TokensAnywherePage /> :

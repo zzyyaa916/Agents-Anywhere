@@ -40,13 +40,16 @@ const hooks=registerHooks({load(url,context,next){
   if(url.includes('/sonner/'))return {format:'module',shortCircuit:true,source:'export const toast=globalThis.updateToast'}
   return next(url,context)
 }})
-const {DesktopUpdateProvider,DesktopUpdateButton}=await import('../src/features/desktop/desktop-update-provider.tsx')
+const {DesktopUpdateProvider,DesktopUpdateButton,useDesktopClientVersion}=await import('../src/features/desktop/desktop-update-provider.tsx')
 hooks.deregister();source.deregister()
+
+function InstalledVersion(){return h('span',{'data-client-version':true},useDesktopClientVersion())}
 
 test('update entry always exists; only manual checks discover releases and wire download/install',async()=>{
   const container=document.createElement('div');document.body.append(container);const root=createRoot(container)
   try {
-    await act(async()=>root.render(h(DesktopUpdateProvider,null,h(DesktopUpdateButton))))
+    await act(async()=>root.render(h(DesktopUpdateProvider,null,h(DesktopUpdateButton),h(InstalledVersion))))
+    assert.equal(container.querySelector('[data-client-version]').textContent,'2.5.6')
     assert.ok(container.querySelector('[aria-label="check"]'))
     assert.equal(calls.includes('check'),false)
     assert.equal(poll,undefined)

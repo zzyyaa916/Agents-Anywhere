@@ -4,6 +4,7 @@ import { runtimeFailureOf, useRuntimeErrorText, type RuntimeFailure } from "@/li
 import { RuntimeWorkflowPanel } from "@/components/session/runtime-workflow-panel"
 import { useWorkspacePreparation } from "@/components/session/use-workspace-preparation"
 import { RuntimeCreationStatus } from "@/components/session/runtime-creation-status"
+import { conversationServer, conversationScope, readConversationState, writeConversationState } from "@/features/task-groups/conversation-storage"
 import { TaskGroupConversation } from "@/components/task-groups"
 import { MultiAgentSettings } from "@/components/session/multi-agent-settings"
 import { inlineAttachmentsFromFiles } from "@/components/session/session-creation"
@@ -151,6 +152,7 @@ export function TaskComposer() {
     projects,
     resolveProject,
     refreshData,
+    navigate,
     sidebarShowsSessions,
     updateProject,
   } = useWorkspace()
@@ -309,6 +311,8 @@ export function TaskComposer() {
   const [creating, setCreating] = React.useState(false)
   const [recoveryTargetChanged, setRecoveryTargetChanged] = React.useState(false)
   const preserveRecoveredSelections = Boolean(creationEditorDraft && !recoveryTargetChanged)
+  const mounted = React.useRef(true)
+  React.useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   const creatingRef = React.useRef(false)
   const [planningCreation, setPlanningCreation] = React.useState(false)
   const [createTick, setCreateTick] = React.useState(0)
@@ -836,12 +840,15 @@ export function TaskComposer() {
         const signature = JSON.stringify(body)
         if (groupCreation.current.signature !== signature) groupCreation.current = { signature, id: createClientId("group").replaceAll("_", "-") }
         const group = await taskGroupsApi.create(authSession.accessToken, { ...body, operationId: groupCreation.current.id })
+        const jointKey = `${conversationScope(authSession.userId, conversationServer(authSession))}:workspace`
+        if (!writeConversationState(jointKey, { ...readConversationState(jointKey), projectId: group.projectId, groupId: group.id, joined: false })) throw new Error("任务已准备，但无法保存恢复入口，请从联立会话的历史任务中恢复。")
         setConversation(group)
         const results = await Promise.allSettled(group.candidates.map((candidate, slot) => candidate.phase === "pending" ? taskGroupsApi.start(authSession.accessToken, group.id, slot) : Promise.resolve(group)))
         setConversation(await taskGroupsApi.get(authSession.accessToken, group.id))
         await refreshData()
         if (results.some(row => row.status === "rejected")) toast.error(tGroups("checkBeforeRetry"))
         setPrompt(""); clear()
+        if (mounted.current) navigate?.("joint", group.id)
       } catch (e) { toast.error(e instanceof Error ? e.message : t("createFailed")) }
       finally { creatingRef.current = false; setCreating(false) }
       return

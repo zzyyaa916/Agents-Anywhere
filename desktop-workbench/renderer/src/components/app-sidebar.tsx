@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { DesktopConnectionStatus } from "@/components/desktop/desktop-shell-header"
-import { FolderPlus, Link, Plus, Smartphone } from "lucide-react"
+import { Columns2, FolderPlus, Link, Plus, Smartphone } from "lucide-react"
 import { toast } from "sonner"
 
 import { useAuth } from "@/components/auth/auth-context"
@@ -352,6 +352,11 @@ export function AppSidebar({ contained = false }: { contained?: boolean }) {
         </div>
 
         <SidebarMenu className="mt-3">
+          <SidebarMenuItem>
+            <SidebarMenuButton className="h-10 font-medium" isActive={page === "joint"} onClick={() => navigate("joint")}>
+              <Columns2 /><span>联立会话</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
           <SidebarMenuItem>
             <SidebarMenuButton
               className="h-10 font-medium"

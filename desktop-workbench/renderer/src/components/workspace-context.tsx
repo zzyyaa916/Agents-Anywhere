@@ -64,7 +64,7 @@ export type PanelMode = "docked" | "floating" | "closed"
  *   home + project prefill       →  #/new-session/proj-1
  *   device/:id                   →  #/device/conn-3
  */
-export type AppPage = "home" | "session" | "settings" | "admin" | "mobile-connections" | "tokens-anywhere" | "device"
+export type AppPage = "joint" | "home" | "session" | "settings" | "admin" | "mobile-connections" | "tokens-anywhere" | "device"
 
 export type WorkspaceSessionView = DemoSessionView & {
   projectId?: string | null
@@ -92,6 +92,7 @@ export type OptimisticSessionMessage = {
 type ParsedRoute =
   | { page: "home"; projectId?: string }
   | { page: "session"; sessionId: string }
+  | { page: "joint"; groupId?: string }
   | { page: "settings"; tab: string }
   | { page: "admin"; section: AdminSection }
   | { page: "mobile-connections" }
@@ -111,6 +112,8 @@ function parseHash(hash: string): ParsedRoute {
 
   const parts = path.split("/")
   switch (parts[0]) {
+    case "joint":
+      return { page: "joint", groupId: parts[1] ? decodeURIComponent(parts[1]) : undefined }
     case "new-session":
       return parts[1]
         ? { page: "home", projectId: decodeURIComponent(parts[1]) }
@@ -142,6 +145,7 @@ function parseHash(hash: string): ParsedRoute {
 
 function buildHash(route: ParsedRoute): string {
   switch (route.page) {
+    case "joint": return route.groupId ? `#/joint/${encodeURIComponent(route.groupId)}` : "#/joint"
     case "home":      return route.projectId ? `#/new-session/${encodeURIComponent(route.projectId)}` : "#/"
     case "session":   return `#/session/${route.sessionId}`
     case "settings":  return `#/settings/${route.tab}`
@@ -349,6 +353,7 @@ export type WorkspaceState = ReturnType<typeof useSessionCreation> & {
   canGoBack: boolean
   canGoForward: boolean
   page: AppPage
+  jointGroupId: string | null
   activeSessionId: string | null
   activeSession: SessionView | null
   activeSessionFallback: RealSessionView | null
@@ -1094,7 +1099,8 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
 
   const navigate = React.useCallback(
     (page: AppPage, sub?: string) => {
-      if (page === "home") pushRoute({ page: "home" })
+      if (page === "joint") pushRoute({ page: "joint", groupId: sub })
+      else if (page === "home") pushRoute({ page: "home" })
       else if (page === "session") pushRoute({ page: "session", sessionId: sub ?? "" })
       else if (page === "settings") pushRoute({ page: "settings", tab: sub ?? "account" })
       else if (page === "admin") pushRoute({ page: "admin", section: parseAdminSection(sub) })
@@ -1606,7 +1612,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
 
   // ── Derived route fields ──────────────────────────────────
 
-  const validPages: AppPage[] = ["home", "session", "settings", "admin", "mobile-connections", "tokens-anywhere", "device"]
+  const validPages: AppPage[] = ["joint", "home", "session", "settings", "admin", "mobile-connections", "tokens-anywhere", "device"]
   const page: AppPage = validPages.includes(route.page as AppPage) ? (route.page as AppPage) : "home"
 
   const routeSessionId = route.page === "session" ? route.sessionId : null
@@ -1639,6 +1645,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     isLoading,
     routeReady,
     page,
+    jointGroupId: route.page === "joint" ? route.groupId ?? null : null,
     activeSessionId,
     activeSession,
     activeSessionFallback: activeSessionOptimisticState?.session ?? null,

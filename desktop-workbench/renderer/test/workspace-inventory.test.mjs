@@ -193,3 +193,22 @@ test('the model configuration can be read without waiting for a push', async (t)
 
   assert.deepEqual(view.state.modelConfig, { secretConfigured: true, profiles: [], assignments: [], tokens: { available: false, tokensUrl: null, secretConfigured: true, link: null } })
 })
+
+
+test('the sidebar reopens the joint workspace and task-group routes survive other page navigation', async (t) => {
+  const view = await render(t, { sidebar: true })
+  const button = [...view.container.querySelectorAll('button')].find(row => row.textContent.trim() === '联立会话')
+  assert.ok(button)
+  await act(async () => button.click())
+  assert.equal(view.state.page, 'joint')
+  assert.equal(window.location.hash, '#/joint')
+  const id = 'a'.repeat(40)
+  await act(async () => view.state.navigate('joint', id))
+  assert.equal(view.state.jointGroupId, id)
+  assert.equal(window.location.hash, '#/joint/' + id)
+  await act(async () => view.state.navigate('settings', 'account'))
+  assert.equal(view.state.page, 'settings')
+  await act(async () => view.state.navigate('joint', id))
+  assert.equal(view.state.page, 'joint')
+  assert.equal(view.state.jointGroupId, id)
+})

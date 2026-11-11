@@ -112,6 +112,10 @@ export function DesktopUpdateProvider({ children }: { children: React.ReactNode 
   )
 }
 
+export function useDesktopClientVersion() {
+  return React.useContext(Context).state?.currentVersion ?? null
+}
+
 export function DesktopUpdateButton() {
   const { state, open } = React.useContext(Context)
   const t = useTranslations("desktopUpdates")

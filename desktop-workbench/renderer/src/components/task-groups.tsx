@@ -3,6 +3,8 @@
 import * as React from "react"
 import { useTranslations } from "next-intl"
 import { TaskGroupForwardDialog } from "@/components/task-group-forward-dialog"
+import { conversationServer, conversationScope, readConversationState, writeConversationState } from "@/features/task-groups/conversation-storage"
+import { useConversationBroadcast } from "@/features/task-groups/use-conversation-broadcast"
 import { forwardToTargets } from "@/features/task-groups/forward-to-targets"
 import { dashboardApi } from "@/features/dashboard/api"
 import type { DeviceRuntimeView } from "@/features/dashboard/types"
@@ -12,13 +14,10 @@ import { Textarea } from "@/components/ui/textarea"
 import { useAuth } from "@/components/auth/auth-context"
 import { useWorkspace } from "@/components/workspace-context"
 import { TaskGroupChatPane, type ChatPaneMode } from "@/components/task-group-chat-pane"
-import { CAPABILITY, capabilityIsUsable, findCapability } from "@/components/session/capabilities"
-import { catalogItemEnabled, selectionIdForModelCatalog } from "@/components/session/catalog-selection"
+import { forwardRuntimeNames, resolveForwardTargets } from "@/features/task-groups/forward-targets"
 import { parseForwardCommand } from "@/features/task-groups/forward-command"
-import { createClientId } from "@/lib/id"
 import { taskGroupsApi, type TaskGroup, type CandidateDiff, type CandidateTarget } from "@/features/task-groups/api"
 
-const operationId = () => createClientId("group").replaceAll("_", "-")
 
 export function TaskGroupConversation({ initialGroup, starting = false, onBack }: { initialGroup: TaskGroup; starting?: boolean; onBack: () => void }) {
   const t = useTranslations("taskGroups")
@@ -32,7 +31,12 @@ export function TaskGroupConversation({ initialGroup, starting = false, onBack }
   const [pending, setPending] = React.useState(false)
   const [error, setError] = React.useState("")
   const [diffs, setDiffs] = React.useState<Record<string, CandidateDiff>>({})
-  const [paneModes, setPaneModes] = React.useState<Record<string, ChatPaneMode>>({})
+  const viewScope = `${conversationScope(session?.userId ?? "", conversationServer(session))}:group:${initialGroup.id}`
+  const [paneModes, setPaneModes] = React.useState<Record<string, ChatPaneMode>>(() => {
+    const modes = readConversationState(viewScope).panes
+    return modes && typeof modes === "object" ? Object.fromEntries(Object.entries(modes).filter(([, mode]) => ["open", "minimized", "closed"].includes(String(mode)))) : {}
+  })
+  React.useEffect(() => { writeConversationState(viewScope, { panes: paneModes }) }, [viewScope, paneModes])
   const [forward, setForward] = React.useState<{ group: TaskGroup; slot: number; conclusion: string } | null>(null)
   const [instructions, setInstructions] = React.useState("")
   const forwardOperations = React.useRef(new Map<string, string>())
@@ -99,7 +103,7 @@ export function TaskGroupConversation({ initialGroup, starting = false, onBack }
     if (!forward) return
     const turn = generation.current
     const source = forward
-    await forwardToTargets({ token, source: `${source.group.id}:${source.slot}`, targets, instructions, attachments, operations: forwardOperations.current,
+    await forwardToTargets({ token, source: `${source.group.id}:${source.slot}`, targets, instructions, attachments, operations: forwardOperations.current, operationScope: `${viewScope}:forward:${source.group.id}:${source.slot}`,
       create: (target, operationId) => taskGroupsApi.handoff(token, source.group.id, { slot: source.slot, mode: "continue", target, instructions, attachments, operationId }),
       onUpdate: group => {
         if (turn !== generation.current) return
@@ -111,35 +115,11 @@ export function TaskGroupConversation({ initialGroup, starting = false, onBack }
     setForward(null); await refreshData()
   }
 
-  const [broadcast, setBroadcast] = React.useState("")
-  const [sending, setSending] = React.useState(false)
-  const delivery = React.useRef<{ content: string; sent: Set<string> } | null>(null)
-  const queues = React.useRef(new Map<string, (text: string) => boolean>())
-  const queueCallbacks = React.useRef(new Map<string, (enqueue: ((text: string) => boolean) | null) => void>())
-  const registerQueue = (id: string) => {
-    if (!queueCallbacks.current.has(id)) queueCallbacks.current.set(id, enqueue => {
-      if (enqueue) queues.current.set(id, enqueue)
-      else queues.current.delete(id)
-    })
-    return queueCallbacks.current.get(id)!
-  }
-  const broadcastReady = current.candidates.every(row => row.phase === "sent" && row.sessionId)
-  async function sendBroadcast() {
-    if (sending || !broadcastReady || !broadcast.trim()) return
-    if (delivery.current?.content !== broadcast) delivery.current = { content: broadcast, sent: new Set() }
-    const batch = delivery.current!
-    setSending(true); setError("")
-    try {
-      for (const candidate of current.candidates) {
-        const id = candidate.sessionId!
-        if (batch.sent.has(id)) continue
-        if (!queues.current.get(id)?.(batch.content)) throw new Error(t("broadcastFailed"))
-        batch.sent.add(id)
-      }
-      setBroadcast(""); delivery.current = null
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
-    finally { setSending(false) }
-  }
+  const broadcastSessionIds = current.candidates.flatMap(row => row.phase === "sent" && row.sessionId ? [row.sessionId] : [])
+  const broadcastState = useConversationBroadcast(`${viewScope}:broadcast`, broadcastSessionIds)
+  const { draft: broadcast, setDraft: setBroadcast, sending, registerQueue } = broadcastState
+  const broadcastReady = broadcastState.ready && broadcastSessionIds.length === current.candidates.length
+  const sendBroadcast = broadcastState.send
 
   const panes = current ? [current, ...forwarded].flatMap(group => group.candidates.map((candidate, slot) => ({ group, candidate, slot, key: `${group.id}:${slot}` }))) : []
   const hasChat = panes.some(pane => pane.candidate.sessionId)
@@ -152,7 +132,7 @@ export function TaskGroupConversation({ initialGroup, starting = false, onBack }
 
   return <div className="min-h-0 min-w-0 flex-1 space-y-3 overflow-auto p-3">
     <Button variant="ghost" size="sm" disabled={starting} onClick={onBack}>{t("backToComposer")}</Button>
-    {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+    {(error || broadcastState.error) && <p role="alert" className="text-sm text-destructive">{error || broadcastState.error}</p>}
     {current && <section className="min-w-0 space-y-3 border-t pt-3">
       <p className="whitespace-pre-wrap text-sm">{current.request.content}</p>
       <details><summary className="cursor-pointer text-xs text-muted-foreground">{t("base")}</summary><p className="break-all text-xs">{current.base ?? t("preparing")}</p></details>
@@ -173,45 +153,17 @@ export function TaskGroupConversation({ initialGroup, starting = false, onBack }
           {panes.map(pane => <TaskGroupChatPane key={pane.key} group={pane.group} slot={pane.slot} title={paneTitle(pane)} token={token}
             onQueueReady={pane.candidate.sessionId ? registerQueue(pane.candidate.sessionId) : undefined}
             onForwardCommand={async (text, attachments) => {
-              const command = parseForwardCommand(text, available.flatMap(runtime => [runtime.runtimeId, runtime.runtimeType, runtime.name, runtime.displayName].filter((name): name is string => Boolean(name))))
+              const command = parseForwardCommand(text, available.flatMap(forwardRuntimeNames))
               if (!command) return null
-              const matches = available.filter(runtime => [runtime.runtimeId, runtime.runtimeType, runtime.name, runtime.displayName].some(name => name?.toLowerCase() === command.target.toLowerCase()))
-              if (matches.length !== 1) { setError("目标 AI 不存在或名称不唯一，请使用转发按钮选择。"); return false }
-              const runtime = matches[0]!
-              let target = current.request.candidates.find(row => row.runtimeId === runtime.runtimeId)
-              const signature = JSON.stringify([pane.key, command, attachments.map(file => file.uploaded?.fileId)])
-              if (!forwardOperations.current.has(signature)) forwardOperations.current.set(signature, operationId())
-              const forwardOperationId = forwardOperations.current.get(signature)!
               try {
-                if (!target) {
-                  const { capabilitySet } = await dashboardApi.getConnectorRuntimeCapabilities(token, project!.connectorId, runtime.runtimeId)
-                  const scope = { runtimeId: runtime.runtimeId, runtimeType: runtime.runtimeType }
-                  for (const id of [CAPABILITY.modelCatalog, CAPABILITY.permissionCatalog]) {
-                    if (findCapability(capabilitySet, id, scope)?.supported && !capabilityIsUsable(capabilitySet, id, scope)) throw new Error("目标 AI 设置暂不可用，请稍后重试。")
-                  }
-                  const selections: Record<string, string | null> = {}
-                  if (capabilityIsUsable(capabilitySet, CAPABILITY.modelCatalog, scope)) {
-                    const { catalog } = await dashboardApi.getConnectorRuntimeModelCatalog(token, project!.connectorId, runtime.runtimeId)
-                    const model = catalog.models.find(row => row.default && catalogItemEnabled(row)) ?? catalog.models.find(catalogItemEnabled)
-                    const reasoning = model?.reasoningItems.find(row => row.default && catalogItemEnabled(row)) ?? model?.reasoningItems.find(catalogItemEnabled)
-                    const selected = selectionIdForModelCatalog(catalog, model?.id ?? "", reasoning?.id ?? "")
-                    if (!selected) throw new Error("目标 AI 没有可用模型，请使用转发按钮检查设置。")
-                    selections.model = selected
-                  }
-                  if (capabilityIsUsable(capabilitySet, CAPABILITY.permissionCatalog, scope)) {
-                    const { catalog } = await dashboardApi.getConnectorRuntimePermissionCatalog(token, project!.connectorId, runtime.runtimeId)
-                    const permission = catalog.permissions.find(row => row.default && catalogItemEnabled(row)) ?? catalog.permissions.find(catalogItemEnabled)
-                    if (!permission) throw new Error("目标 AI 没有可用权限，请使用转发按钮检查设置。")
-                    selections.permission = permission.selectionId
-                  }
-                  target = { runtime: runtime.runtimeType, runtimeId: runtime.runtimeId, selections }
-                }
                 if (attachments.some(file => !file.uploaded)) throw new Error("请等待附件上传完成。")
-                const group = await taskGroupsApi.handoff(token, pane.group.id, { operationId: forwardOperationId, slot: pane.slot, mode: "continue", target, instructions: command.instructions, attachments: attachments.map(file => ({ fileId: file.uploaded!.fileId })) })
-                setForwarded(rows => [...rows.filter(row => row.id !== group.id), group])
-                updateGroup(await taskGroupsApi.start(token, group.id, 0))
+                const targets = await resolveForwardTargets(token, project!.connectorId, available, command.targets, current.request.candidates)
+                const refs = attachments.map(file => ({ fileId: file.uploaded!.fileId }))
+                await forwardToTargets({ token, source: pane.key, targets, instructions: command.instructions, attachments: refs, operations: forwardOperations.current, operationScope: `${viewScope}:forward:${pane.group.id}:${pane.slot}`,
+                  create: (target, operationId) => taskGroupsApi.handoff(token, pane.group.id, { operationId, slot: pane.slot, mode: "continue", target, instructions: command.instructions, attachments: refs }),
+                  onUpdate: group => setForwarded(rows => [...rows.filter(row => row.id !== group.id), group]),
+                })
                 await refreshData()
-                forwardOperations.current.delete(signature)
                 return true
               } catch (e) { setError(e instanceof Error ? e.message : String(e)); return false }
             }}
@@ -231,7 +183,7 @@ export function TaskGroupConversation({ initialGroup, starting = false, onBack }
       </>}
     </section>}
     {forward && <TaskGroupForwardDialog key={`${forward.group.id}:${forward.slot}`} token={token} connectorId={project!.connectorId}
-      sessionId={forward.group.candidates[forward.slot]!.sessionId!} runtimes={available}
+      sessionId={forward.group.candidates[forward.slot]!.sessionId!} runtimes={available.filter(row => row.runtimeId !== forward.group.request.candidates[forward.slot]?.runtimeId)}
       initialRuntimeId={available.find(r => r.runtimeId !== forward.group.request.candidates[forward.slot]?.runtimeId)?.runtimeId}
       initialInstructions={instructions} conclusion={forward.conclusion} pending={pending} error={error}
       onClose={() => setForward(null)} onSend={(targets, instructions, attachments) => run(() => sendForward(targets, instructions, attachments))} />}

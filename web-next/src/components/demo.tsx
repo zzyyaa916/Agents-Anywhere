@@ -9,6 +9,7 @@ import { SessionToolSidebarStateProvider } from "@/components/session-tool-sideb
 import { SessionToolSidebarsHost } from "@/components/session-tool-sidebar"
 import { WorkspaceSidebarControl } from "@/components/workspace-sidebar-control"
 import { AppSidebar } from "@/components/app-sidebar"
+import { JointConversations } from "@/components/joint-conversations"
 import { TaskComposer } from "@/components/task-composer"
 import { SessionView } from "@/components/session-view"
 import { SettingsPage } from "@/components/pages/settings-page"
@@ -316,6 +317,7 @@ function WorkspaceMain() {
     return <LoadingState className="h-full bg-background" />
   }
   const content =
+    page === "joint" ? <JointConversations /> :
     page === "settings" ? <SettingsPage /> :
     page === "admin" ? <AdminPage /> :
     page === "tokens-anywhere" ? <TokensAnywherePage /> :

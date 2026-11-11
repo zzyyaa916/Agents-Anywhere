@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { useDesktopClientVersion } from "@/features/desktop/desktop-update-provider"
 import {
   Check,
   Copy,
@@ -468,6 +469,7 @@ function ServerCard({
 }) {
   const t = useTranslations("pages.service")
   const tCommon = useTranslations("common")
+  const clientVersion = useDesktopClientVersion()
 
   return (
     <Card>
@@ -490,7 +492,8 @@ function ServerCard({
             />
           }
         />
-        <InfoRow label={t("version")} value={<code className="code-mono text-sm">{info.version}</code>} />
+        <InfoRow label={`${t("server")} ${t("version")}`} value={<code className="code-mono text-sm">{info.version}</code>} />
+        {clientVersion && <InfoRow label="客户端版本" value={<code className="code-mono text-sm">V{clientVersion}</code>} />}
         <InfoRow
           label={t("database")}
           value={
