@@ -124,6 +124,13 @@ def get_session_run_service(conn: HTTPConnection) -> SessionRunService:
         except ModelConfigError as exc:
             raise SessionRunConflictError(exc.detail) from exc
 
+    async def quota_finished(session):
+        from agent_server.core.session_quota import closed_quota_notice
+        await conn.app.state.timeline_broker.publish(session.id, {
+            "sessionId": session.id, "nextSeq": session.updatedSeq,
+            "notices": [closed_quota_notice(session)],
+        })
+
     return SessionRunService(
         conn.app.state.store,
         conn.app.state.rpc,
@@ -131,6 +138,7 @@ def get_session_run_service(conn: HTTPConnection) -> SessionRunService:
         usage_recorder=get_usage_recorder(conn),
         prepare_model_channel=prepare_channel,
         admit_runtime=admit,
+        quota_finished=quota_finished,
     )
 
 

@@ -93,7 +93,10 @@ class SessionQuotaRepositoryMixin:
             quota = json.loads(row[0])
             if expected and quota.get("interruptedAt") != expected.get("interruptedAt"):
                 return effective_quota(quota)
-            quota["state"] = "stopped" if stopped else "resumed" if resumed else "ready"
+            target = "stopped" if stopped else "resumed" if resumed else "ready"
+            if quota.get("state") == target:
+                return effective_quota(quota)
+            quota["state"] = target
             await conn.execute(
                 update(db.sessions)
                 .where(db.sessions.c.id == session_id)

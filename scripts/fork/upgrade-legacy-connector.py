@@ -52,6 +52,19 @@ def install_package(root, manifest, uv, python, command=subprocess.run):
              str(wheel if local_wheel else root / 'connector')], check=True)
 
 
+def prepare_environment(root, manifest, uv, venv, new):
+    try:
+        subprocess.run(['cp', '-a', '--reflink=auto', str(venv) + '/.', str(new)], check=True)
+        install_package(root, manifest, uv, new / 'bin/python')
+        subprocess.run([uv, 'pip', 'check', '--python', str(new / 'bin/python')], check=True)
+        run([new / 'bin/python', '-c', 'import connector.cli; from connector.local import worktrees; from connector.server import local_rpc; from importlib.metadata import version; assert version("anywhere-cli") == "2.6.2"; print("import check OK")'])
+        owner = venv.stat()
+        subprocess.run(['chown', '-R', f'{owner.st_uid}:{owner.st_gid}', str(new)], check=True)
+    except BaseException:
+        shutil.rmtree(new)
+        raise
+
+
 def upgrade(root):
     if os.geteuid() != 0:
         raise RuntimeError('请使用 sudo python3 upgrade-legacy-connector.py 更新包目录')
@@ -90,12 +103,7 @@ def upgrade(root):
     backup = VENV.with_name('.venv-before-' + VERSION + '-' + stamp)
     new.mkdir(mode=0o700)
     print('正在复制原环境并安装新版，原环境保留用于回滚。', flush=True)
-    subprocess.run(['cp', '-a', '--reflink=auto', str(VENV) + '/.', str(new)], check=True)
-    install_package(root, manifest, uv, new / 'bin/python')
-    subprocess.run([uv, 'pip', 'check', '--python', str(new / 'bin/python')], check=True)
-    run([new / 'bin/python', '-c', 'import connector.cli; from connector.local import worktrees; from connector.server import local_rpc; from importlib.metadata import version; assert version("anywhere-cli") == "2.6.2"; print("import check OK")'])
-    owner = VENV.stat()
-    subprocess.run(['chown', '-R', f'{owner.st_uid}:{owner.st_gid}', str(new)], check=True)
+    prepare_environment(root, manifest, uv, VENV, new)
     def validate():
         if run(['systemctl', 'cat', SERVICE]) != unit or hashlib.sha256(config.read_bytes()).hexdigest() != binding_digest:
             raise RuntimeError('Fork 配对或服务配置发生变化')

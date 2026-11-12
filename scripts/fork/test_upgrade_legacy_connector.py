@@ -85,3 +85,29 @@ class InstallPackageTests(unittest.TestCase):
         module['install_package'](Path('/bundle'), {'files': {}}, '/uv', Path('/new/bin/python'), lambda args, **kw: calls.append(args))
         self.assertNotIn('--no-index', calls[0])
         self.assertEqual('/bundle/connector', calls[0][-1])
+
+
+class PrepareEnvironmentTests(unittest.TestCase):
+    def test_failed_copy_install_or_check_removes_only_new_environment(self):
+        for phase in ["copy", "install", "check", "import"]:
+            with self.subTest(phase=phase), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                old, new = root / "old", root / "new"
+                old.mkdir(); new.mkdir()
+                (old / "auth.json").write_text("synthetic-native-login")
+                def command(args, **kwargs):
+                    if args[0] == "cp":
+                        (new / "partial").write_text("partially copied environment")
+                        if phase == "copy": raise RuntimeError(phase)
+                    if "check" in args and phase == "check": raise RuntimeError(phase)
+                def install(*args):
+                    if phase == "install": raise RuntimeError(phase)
+                def run(args):
+                    if phase == "import": raise RuntimeError(phase)
+                    return "OK"
+                globals_ = module["prepare_environment"].__globals__
+                with patch.dict(globals_, {"install_package": install, "run": run}), patch.object(globals_["subprocess"], "run", command):
+                    with self.assertRaisesRegex(RuntimeError, phase):
+                        module["prepare_environment"](root, {"files": {}}, "uv", old, new)
+                self.assertFalse(new.exists())
+                self.assertEqual((old / "auth.json").read_text(), "synthetic-native-login")

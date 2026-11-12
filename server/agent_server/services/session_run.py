@@ -119,6 +119,7 @@ class SessionRunService:
         usage_recorder: UsageRecorder | NullUsageRecorder | None = None,
         prepare_model_channel: Callable[..., Awaitable[str]] | None = None,
         admit_runtime: Callable[..., AbstractAsyncContextManager[None]] | None = None,
+        quota_finished: Callable[[SessionView], Awaitable[None]] | None = None,
     ) -> None:
         self._store = store
         self._manager = manager
@@ -126,6 +127,16 @@ class SessionRunService:
         self._usage = usage_recorder or NullUsageRecorder()
         self._prepare_model_channel = prepare_model_channel
         self._admit_runtime = admit_runtime
+        self._quota_finished = quota_finished
+
+    async def finish_quota(self, session_id: str, *, stopped=False, resumed=False, expected=None):
+        quota = await self._store.finish_session_quota(session_id, stopped=stopped, resumed=resumed, expected=expected)
+        if quota and quota.get("state") != "limited" and self._quota_finished is not None:
+            session = await self._store.get_session(session_id)
+            # Never close a newer limit that raced with this completion.
+            if session.quotaLimit == quota:
+                await self._quota_finished(session)
+        return quota
 
     def _admitted(self, connector_id: str, runtime_id: str, *, user_id: str) -> AbstractAsyncContextManager[None]:
         """Keep a model channel switch from restarting the runtime under this request."""
@@ -653,7 +664,7 @@ class SessionRunService:
         quota = session.quotaLimit
         if quota and quota.get("state") == "limited":
             raise SessionRunConflictError({"code": "session_usage_limited", "message": "仍在用量限额中，请等待恢复或重新检查。", "resetsAt": quota.get("resetsAt")})
-        if quota and (not quota.get("externalSessionId") or session.externalSessionId != quota["externalSessionId"]):
+        if quota and quota.get("state") == "ready" and (not quota.get("externalSessionId") or session.externalSessionId != quota["externalSessionId"]):
             raise SessionRunConflictError({"code": "session_resume_identity_missing", "message": "原 Runtime 会话标识不可用，不能创建新会话替代。"})
         await self._ensure_session_runtime_running(session, user_id=user_id)
         from agent_server.core.planning.commands import parse_plan_command
@@ -747,7 +758,7 @@ class SessionRunService:
                 }
             )
         if quota:
-            await self._store.finish_session_quota(session_id, resumed=True, expected=quota)
+            await self.finish_quota(session_id, resumed=True, expected=quota)
         await self._usage.record(
             message_sent_event(
                 session,
@@ -1222,7 +1233,7 @@ class SessionRunService:
         if require_takeover and not session.takeover:
             raise SessionRunConflictError("session is read-only until takeover is enabled")
         if session.quotaLimit and session.quotaLimit.get("state") == "limited":
-            await self._store.finish_session_quota(session_id, stopped=True, expected=session.quotaLimit)
+            await self.finish_quota(session_id, stopped=True, expected=session.quotaLimit)
             await self._store.clear_active_run(session_id)
             return RpcResponsePayload(ok=True, result={"stopped": True})
         if require_takeover:

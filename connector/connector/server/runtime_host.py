@@ -9,6 +9,7 @@ from typing import Any
 import httpx
 from websockets.exceptions import ConnectionClosed
 
+from connector.core.fork_profile import broker_executable
 from connector.logging import logger
 from connector.quota_errors import is_usage_limit
 from connector.runtime_protocol import (
@@ -69,6 +70,8 @@ class ConnectorRuntimeHost(RuntimeHostClient):
         self._runtime_storage = RuntimeStorageManager(sync_state_store) if isinstance(sync_state_store, JsonSyncStateStore) else None
         self._runtime_kv = None
         self._account_usage_kv = None
+        self._claude_identity_cache = {}
+        self._claude_identity_lock = asyncio.Lock()
 
     async def prepare_runtime_host(self, runtime_id: str) -> ConnectorRuntimeHost:
         if self._runtime_storage is None:
@@ -90,16 +93,32 @@ class ConnectorRuntimeHost(RuntimeHostClient):
             self._account_usage_kv = super().runtime_kv
         return self._account_usage_kv
 
+    async def _claude_identity(self, collector):
+        if not broker_executable("claude"):
+            return await asyncio.to_thread(collector.claude_identity)
+        # Copies bound to runtime instances share this cache and lock.
+        async with self._claude_identity_lock:
+            if time.monotonic() >= self._claude_identity_cache.get("expires", 0):
+                try:
+                    value = await asyncio.to_thread(collector.claude_identity)
+                except Exception as exc:  # noqa: BLE001 -- optional identity failures are throttled too
+                    value = exc
+                self._claude_identity_cache.update(value=value, expires=time.monotonic() + 60)
+            value = self._claude_identity_cache["value"]
+            if isinstance(value, Exception):
+                raise value
+            return value
+
     async def claude_usage_observer(self):
         from connector.account_usage import LocalAccountUsage
         try:
             collector = LocalAccountUsage(self.account_usage_kv)
-            account_key = (await asyncio.to_thread(collector.claude_identity))["account_key"]
+            account_key = (await self._claude_identity(collector))["account_key"]
         except Exception:  # noqa: BLE001 -- optional usage must not prevent the task
             return None
         async def observe(kind, utilization, resets_at):
             try:
-                info = await asyncio.to_thread(collector.claude_identity)
+                info = await self._claude_identity(collector)
             except Exception:  # noqa: BLE001 -- a failed identity check discards metadata
                 return
             collector.observe_claude_window(account_key, kind, utilization, resets_at, current_identity=info)

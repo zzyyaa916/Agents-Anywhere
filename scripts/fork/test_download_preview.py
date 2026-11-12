@@ -21,6 +21,7 @@ class DownloadTests(unittest.TestCase):
             failed = subprocess.run(command, env=environment, capture_output=True)
             self.assertNotEqual(failed.returncode, 0)
             self.assertFalse(target.exists())
+            self.assertFalse(Path(str(target) + ".part").exists(), "corrupt complete file must not poison the next resume")
             command[3] = hashlib.sha256(b'payload').hexdigest()
             subprocess.run(command, env=environment, capture_output=True, check=True)
             self.assertEqual(target.read_bytes(), b'payload')

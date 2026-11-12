@@ -13,7 +13,7 @@ for attempt in {1..10}; do
     status=0
     curl --fail --location --connect-timeout 30 --max-time 3600 --continue-at - --output "$target.part" "$url" || status=$?
     if [[ $status == 0 ]]; then
-        check "$target.part" || { echo 'SHA256 mismatch; archive was not installed' >&2; exit 1; }
+        check "$target.part" || { rm -- "$target.part"; echo 'SHA256 mismatch; corrupt partial download removed; rerun to download again' >&2; exit 1; }
         mv --no-clobber -- "$target.part" "$target"
         exit
     fi

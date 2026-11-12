@@ -4,7 +4,8 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 from starlette.requests import HTTPConnection
 
-from agent_server.deps import current_user_id
+from agent_server.deps import current_user_id, get_session_run_service
+from agent_server.services.session_run import SessionRunService
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -21,9 +22,13 @@ async def quota_state(
     session_id: str,
     conn: HTTPConnection,
     user_id: Annotated[str, Depends(current_user_id)],
+    run_service: Annotated[SessionRunService, Depends(get_session_run_service)],
 ):
     session = await owned(conn, session_id, user_id)
-    return {"quotaLimit": session.quotaLimit}
+    quota = session.quotaLimit
+    if quota and quota.get("state") == "ready":
+        quota = await run_service.finish_quota(session_id, expected=quota)
+    return {"quotaLimit": quota}
 
 
 @router.post("/{session_id}/quota/recheck")
@@ -31,9 +36,12 @@ async def recheck_quota(
     session_id: str,
     conn: HTTPConnection,
     user_id: Annotated[str, Depends(current_user_id)],
+    run_service: Annotated[SessionRunService, Depends(get_session_run_service)],
 ):
     session = await owned(conn, session_id, user_id)
     quota = session.quotaLimit
+    if quota and quota.get("state") == "ready":
+        quota = await run_service.finish_quota(session_id, expected=quota)
     if quota and quota.get("state") == "limited":
         service = conn.app.state.account_usage_service
         await service.refresh(user_id)
@@ -59,7 +67,7 @@ async def recheck_quota(
             and snapshot.windows
             and all(w.remaining_percent > 0 for w in snapshot.windows)
         ):
-            quota = await conn.app.state.store.finish_session_quota(
+            quota = await run_service.finish_quota(
                 session_id, expected=quota
             )
             await conn.app.state.session_runtime_state_cache.discard(session_id)

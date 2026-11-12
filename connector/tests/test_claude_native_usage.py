@@ -81,3 +81,55 @@ async def test_real_host_callback_captures_account_and_rejects_later_switch(tmp_
     profile.write_text(json.dumps({"oauthAccount": {"accountUuid": "b"}}))
     await observe("five_hour", .5, 2500000000)
     assert host.account_usage_kv.path.read_text() == before
+
+
+@pytest.mark.anyio
+async def test_broker_identity_cache_coalesces_events_and_expires_for_account_switch(tmp_path, monkeypatch):
+    import asyncio
+    import copy
+    from types import SimpleNamespace
+    from connector.server import runtime_host
+    monkeypatch.setenv("AGENT_CONNECTOR_KV_FILE", str(tmp_path / "kv.json"))
+    monkeypatch.setattr(runtime_host, "broker_executable", lambda _: "/fake-broker")
+    now = [1000]
+    monkeypatch.setattr(runtime_host, "time", SimpleNamespace(monotonic=lambda: now[0]))
+    calls = []
+    account = ["a" * 64]
+    def identify(self):
+        calls.append(account[0])
+        return {"account_key": account[0]}
+    monkeypatch.setattr(LocalAccountUsage, "claude_identity", identify)
+    async def ignore(*args, **kwargs): pass
+    host = runtime_host.ConnectorRuntimeHost("test", ignore, ignore)
+    observers = await asyncio.gather(*(copy.copy(host).claude_usage_observer() for _ in range(8)))
+    await asyncio.gather(*(observer("five_hour", .25, 2500000000) for observer in observers))
+    assert len(calls) == 1
+    before = host.account_usage_kv.path.read_text()
+    account[0] = "b" * 64
+    now[0] += 61
+    await observers[0]("five_hour", .5, 2500000000)
+    assert len(calls) == 2
+    assert host.account_usage_kv.path.read_text() == before
+
+
+@pytest.mark.anyio
+async def test_broker_identity_failure_is_also_cached(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from connector.server import runtime_host
+    monkeypatch.setenv("AGENT_CONNECTOR_KV_FILE", str(tmp_path / "kv.json"))
+    monkeypatch.setattr(runtime_host, "broker_executable", lambda _: "/fake-broker")
+    now = [1000]
+    monkeypatch.setattr(runtime_host, "time", SimpleNamespace(monotonic=lambda: now[0]))
+    calls = []
+    def identify(self):
+        calls.append(True)
+        raise RuntimeError("unavailable")
+    monkeypatch.setattr(LocalAccountUsage, "claude_identity", identify)
+    async def ignore(*args, **kwargs): pass
+    host = runtime_host.ConnectorRuntimeHost("test", ignore, ignore)
+    assert await host.claude_usage_observer() is None
+    assert await host.claude_usage_observer() is None
+    assert len(calls) == 1
+    now[0] += 61
+    assert await host.claude_usage_observer() is None
+    assert len(calls) == 2

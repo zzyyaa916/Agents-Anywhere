@@ -38,3 +38,13 @@ def project_quota_state(session, state):
             "metadata": {**state.metadata, "quotaLimit": quota},
         }
     )
+
+
+def closed_quota_notice(session):
+    return {
+        "noticeId": f"quota_limit_{session.id}", "sessionId": session.id,
+        "type": "notification", "source": {"runtime": session.runtime, "component": "runtime"},
+        "title": "因限额中断", "message": "限额等待已结束。", "severity": "info",
+        "status": "closed", "context": {"reason": "usage_limit", "quotaLimit": session.quotaLimit},
+        "updatedSeq": session.updatedSeq, "resolvedAt": datetime.now(UTC).isoformat(),
+    }
