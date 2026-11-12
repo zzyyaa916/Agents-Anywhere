@@ -39,8 +39,8 @@ export function SessionQuotaNotice({ token, sessionId, onReady }: { token: strin
   if (!quota || quota.state === "stopped" || quota.state === "resumed") return null
   return <div role="status" className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-amber-400 bg-amber-50 px-4 py-2 text-sm text-amber-950 dark:bg-amber-950 dark:text-amber-100">
     <span className="min-w-0 break-words">{quota.state === "limited" ? `因限额中断 · 已达用量上限，${quota.resetsAt ? `预计 ${localTime(quota.resetsAt)} 恢复` : "恢复时间未知"}` : "限额等待已结束，可以在原会话继续；若仍受限，将更新恢复时间。"}{failed ? " · 检查失败，请稍后再试" : ""}</span>
-    {quota.state === "limited" && <div className="flex flex-wrap gap-2">
-      <Button size="sm" variant="outline" disabled={busy} onClick={async () => { setBusy(true); try { await read(true) } finally { setBusy(false) } }}>{busy ? "检查中…" : "重新检查"}</Button>
+    <div className="flex flex-wrap gap-2">
+      {quota.state === "limited" && <Button size="sm" variant="outline" disabled={busy} onClick={async () => { setBusy(true); try { await read(true) } finally { setBusy(false) } }}>{busy ? "检查中…" : "重新检查"}</Button>}
       <Button size="sm" variant="outline" disabled={busy} onClick={async () => {
         setBusy(true)
         try {
@@ -49,6 +49,6 @@ export function SessionQuotaNotice({ token, sessionId, onReady }: { token: strin
           else if (active.current === scope) setFailed(true)
         } catch { if (active.current === scope) setFailed(true) } finally { setBusy(false) }
       }}>结束等待</Button>
-    </div>}
+    </div>
   </div>
 }

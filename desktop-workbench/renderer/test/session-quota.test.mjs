@@ -33,7 +33,7 @@ test('unknown quota deadline can be checked on the same session and ready state 
   assert.deepEqual(calls.at(-1), ['POST','/sessions/original/quota/recheck'])
   assert.match(container.textContent, /可以在原会话继续/)
   assert.equal(recoveries, 1)
-  assert.equal(container.querySelector('button'), null)
+  assert.equal(container.querySelector('button').textContent, '结束等待')
   assert.ok(calls.every(([,path])=>!path.includes('messages') && !path.includes('create')))
   await act(async () => root.unmount()); container.remove()
 })
@@ -83,5 +83,22 @@ test('deadline polling refreshes send capabilities once when waiting becomes rea
   quota = { ...quota }
   await act(async () => t.mock.timers.tick(15_000))
   assert.equal(recoveries, 1)
+  await act(async () => root.unmount()); container.remove()
+})
+
+
+test('ready quota keeps the escape action when the original runtime identity is unavailable', async () => {
+  calls.length = 0
+  quota = { state: 'ready', resetsAt: null }
+  const container = document.createElement('div'); document.body.append(container)
+  const root = createRoot(container)
+  let recoveries = 0
+  await act(async () => root.render(h(SessionQuotaNotice, { token: 'test', sessionId: 'missing-native-id', onReady: () => recoveries++ })))
+  const stop = container.querySelector('button')
+  assert.equal(stop.textContent, '结束等待')
+  await act(async () => stop.click())
+  assert.equal(container.textContent, '')
+  assert.equal(recoveries, 2)
+  assert.ok(calls.some(([method, path]) => method === 'POST' && path === '/sessions/missing-native-id/runtime/interrupt'))
   await act(async () => root.unmount()); container.remove()
 })

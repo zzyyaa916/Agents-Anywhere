@@ -130,8 +130,8 @@ class SessionRunService:
         self._quota_finished = quota_finished
 
     async def finish_quota(self, session_id: str, *, stopped=False, resumed=False, expected=None):
-        quota = await self._store.finish_session_quota(session_id, stopped=stopped, resumed=resumed, expected=expected)
-        if quota and quota.get("state") != "limited" and self._quota_finished is not None:
+        quota, changed = await self._store.finish_session_quota(session_id, stopped=stopped, resumed=resumed, expected=expected)
+        if changed and quota and quota.get("state") != "limited" and self._quota_finished is not None:
             session = await self._store.get_session(session_id)
             # Never close a newer limit that raced with this completion.
             if session.quotaLimit == quota:
@@ -1232,7 +1232,10 @@ class SessionRunService:
             raise SessionRunNotFoundError("session not found") from None
         if require_takeover and not session.takeover:
             raise SessionRunConflictError("session is read-only until takeover is enabled")
-        if session.quotaLimit and session.quotaLimit.get("state") == "limited":
+        if session.quotaLimit and (
+            session.quotaLimit.get("state") == "limited"
+            or (session.quotaLimit.get("state") == "ready" and session.status in {"idle", "error", "limited"})
+        ):
             await self.finish_quota(session_id, stopped=True, expected=session.quotaLimit)
             await self._store.clear_active_run(session_id)
             return RpcResponsePayload(ok=True, result={"stopped": True})

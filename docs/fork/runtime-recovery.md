@@ -12,14 +12,16 @@
 
 ## 后续升级
 
-旧的 upgrade-fork-connector-2.5.4.py 入口已退役。三台设备均保存了当前安装包与新工具：
+旧的原地升级入口已删除，不再使用旧版 wheel 路径。请使用已核对来源和完整 SHA256、解压到独立目录的 2.6.2 更新包：
 
 ```bash
-sudo /opt/agents-anywhere-fork-connector/bin/upgrade-fork-connector --check-only
-sudo /opt/agents-anywhere-fork-connector/bin/upgrade-fork-connector --wheel /opt/agents-anywhere-fork-connector/releases/2.5.5/anywhere_cli-2.5.5-py3-none-any.whl
+cd /path/to/verified-2.6.2-update
+python3 deploy.py verify
+# 确认没有运行任务，并按维护流程停止 Fork Connector 后：
+sudo python3 deploy.py connector
 ```
 
-安装前核对 wheel SHA256；备份代码并保留配对文件摘要。安装后验证 Codex 的 SQLite 初始化、账号读取、模型列表，以及启用的 DSH 服务实际用户能否读取接入文件并连接 Router。验收失败自动恢复原代码和原服务状态；账号失效会提示登录，重装不能代替用户授权。脚本只升级已有 aa-fork 安装，不创建用户或重新配对。
+升级流程和失败恢复见 [2.6.2 发布说明](../releases/2.6.2-fork.md)。不要在未确认任务空闲时停止服务；新流程保留原环境及配对，启动或验证失败时尝试回滚。安装后核对原生账号、模型目录及 DSH 实际用户的文件/Socket 访问；重装不能代替用户登录授权。
 
 原生交互登录使用独立配置：
 

@@ -78,35 +78,33 @@ class SessionQuotaRepositoryMixin:
     async def finish_session_quota(
         self, session_id, *, stopped=False, resumed=False, expected=None
     ):
+        # Polling an already-finished quota must not take a row lock or publish again.
+        async with read_connection(self._engine) as conn:
+            row = (await conn.execute(select(db.sessions.c.quota_json).where(db.sessions.c.id == session_id))).first()
+        if row is None:
+            raise KeyError(session_id)
+        if not row[0]:
+            return None, False
+        original = row[0]
+        quota = json.loads(original)
+        if expected and quota.get("interruptedAt") != expected.get("interruptedAt"):
+            return effective_quota(quota), False
+        target = "stopped" if stopped else "resumed" if resumed else "ready"
+        if quota.get("state") == target:
+            return effective_quota(quota), False
+        quota["state"] = target
         async with self._engine.begin() as conn:
-            row = (
-                await conn.execute(
-                    select(db.sessions.c.quota_json)
-                    .where(db.sessions.c.id == session_id)
-                    .with_for_update()
-                )
-            ).first()
-            if row is None:
-                raise KeyError(session_id)
-            if not row[0]:
-                return None
-            quota = json.loads(row[0])
-            if expected and quota.get("interruptedAt") != expected.get("interruptedAt"):
-                return effective_quota(quota)
-            target = "stopped" if stopped else "resumed" if resumed else "ready"
-            if quota.get("state") == target:
-                return effective_quota(quota)
-            quota["state"] = target
-            await conn.execute(
+            result = await conn.execute(
                 update(db.sessions)
-                .where(db.sessions.c.id == session_id)
-                .values(
-                    quota_json=json.dumps(quota),
-                    status=case(
-                        (db.sessions.c.status == "limited", "idle"),
-                        else_=db.sessions.c.status,
-                    ),
-                )
+                .where(db.sessions.c.id == session_id, db.sessions.c.quota_json == original)
+                .values(quota_json=json.dumps(quota), status=case(
+                    (db.sessions.c.status == "limited", "idle"), else_=db.sessions.c.status,
+                ))
             )
-            await self._bump_session(conn, session_id)
-        return quota
+            changed = bool(result.rowcount)
+            if changed:
+                await self._bump_session(conn, session_id)
+        if not changed:
+            # Another completion or a new limit won; only its writer emits the notice.
+            return await self.session_quota(session_id), False
+        return quota, True

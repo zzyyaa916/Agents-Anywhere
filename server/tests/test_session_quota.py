@@ -375,7 +375,10 @@ def test_only_ready_limits_require_the_saved_native_identity(api, quota_state):
             await service._send_message_admitted(session, MessageCreateRequest(content="continue"), user_id=owner)
             assert manager.request.call_args.args[1] == "session.send_message"
             assert manager.request.call_args.args[2]["externalSessionId"] == "current-native"
-            closed.assert_awaited_once()
+            if quota_state == "stopped":
+                closed.assert_awaited_once()
+            else:
+                closed.assert_not_awaited()
     asyncio.run(exercise())
 
 
@@ -394,8 +397,18 @@ def test_expired_quota_poll_closes_notice_without_repeated_revision_bumps(api, m
     asyncio.run(persist())
     assert client.get(f"/sessions/{sid}/quota", headers=headers).json()["quotaLimit"]["state"] == "ready"
     first = asyncio.run(store.get_session_seq(sid))
-    assert client.get(f"/sessions/{sid}/quota", headers=headers).status_code == 200
+    from sqlalchemy import event
+    statements = []
+    def capture(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement.upper())
+    event.listen(store._engine.sync_engine, "before_cursor_execute", capture)
+    try:
+        assert client.get(f"/sessions/{sid}/quota", headers=headers).status_code == 200
+    finally:
+        event.remove(store._engine.sync_engine, "before_cursor_execute", capture)
+    assert not any("FOR UPDATE" in query or "UPDATE SESSIONS" in query for query in statements), [query for query in statements if "FOR UPDATE" in query or "UPDATE SESSIONS" in query]
     assert asyncio.run(store.get_session_seq(sid)) == first
+    assert published.await_count == 1
     assert published.call_args.args[1]["notices"][0]["status"] == "closed"
 
 
@@ -404,7 +417,7 @@ def test_finishing_an_old_quota_never_closes_a_new_limit_notice():
     async def exercise():
         old = {"state": "ready", "interruptedAt": "old"}
         newer = {"state": "limited", "interruptedAt": "new"}
-        store = SimpleNamespace(finish_session_quota=AsyncMock(return_value=old), get_session=AsyncMock(return_value=SimpleNamespace(quotaLimit=newer)))
+        store = SimpleNamespace(finish_session_quota=AsyncMock(return_value=(old, True)), get_session=AsyncMock(return_value=SimpleNamespace(quotaLimit=newer)))
         closed = AsyncMock()
         service = SessionRunService(store, None, None, quota_finished=closed)
         assert await service.finish_quota("session", expected=old) == old
@@ -414,6 +427,7 @@ def test_finishing_an_old_quota_never_closes_a_new_limit_notice():
 
 def test_closed_quota_notice_uses_the_original_id_and_live_protocol():
     from types import SimpleNamespace
+
     from agent_server.core.events import events_from_invalidation
     from agent_server.core.models import NoticeIn
     from agent_server.core.session_quota import closed_quota_notice
@@ -424,3 +438,70 @@ def test_closed_quota_notice_uses_the_original_id_and_live_protocol():
     assert len(events) == 1 and events[0].type == "runtime.notice.updated"
     assert events[0].payload["notice"]["noticeId"] == "quota_limit_original"
     assert events[0].payload["notice"]["status"] == "closed"
+
+
+def test_ready_limit_without_saved_identity_can_be_explicitly_stopped_and_sent(api):
+    client, headers = api
+    device = create_device(client, headers)
+    project = create_project(client, headers, device, "ready-escape")
+    sid = add_session(client, device, project, "native-now")
+    store = client.app.state.store
+    async def exercise():
+        quota = {"state": "ready", "externalSessionId": None, "resetsAt": None, "interruptedAt": datetime.now(UTC).isoformat()}
+        async with store._engine.begin() as conn:
+            await conn.execute(update(db.sessions).where(db.sessions.c.id == sid).values(quota_json=json.dumps(quota), takeover=1))
+        manager = type("Rpc", (), {"request": AsyncMock(return_value={})})()
+        service = SessionRunService(store, manager, None)
+        service._ensure_session_runtime_running = AsyncMock()
+        service._require_session_capability = AsyncMock()
+        service._read_runtime_status = AsyncMock(return_value="idle")
+        owner = await store.get_session_user_id(sid)
+        session = await store.get_session(sid)
+        with pytest.raises(SessionRunConflictError, match="session_resume_identity_missing"):
+            await service._send_message_admitted(session, MessageCreateRequest(content="continue"), user_id=owner)
+        assert (await service.interrupt_session(sid, user_id=owner)).ok
+        assert (await store.get_session(sid)).quotaLimit["state"] == "stopped"
+        manager.request.assert_not_awaited()
+        await service._send_message_admitted(session, MessageCreateRequest(content="continue"), user_id=owner)
+        assert manager.request.call_args.args[2]["externalSessionId"] == "native-now"
+        assert (await store.get_session(sid)).quotaLimit["state"] == "resumed"
+    asyncio.run(exercise())
+
+
+def test_concurrent_quota_completion_publishes_only_one_close(api):
+    client, headers = api
+    device = create_device(client, headers)
+    project = create_project(client, headers, device, "concurrent-ready")
+    sid = add_session(client, device, project, "native")
+    store = client.app.state.store
+    async def exercise():
+        quota = {"state": "limited", "externalSessionId": "native", "resetsAt": None, "interruptedAt": datetime.now(UTC).isoformat()}
+        async with store._engine.begin() as conn:
+            await conn.execute(update(db.sessions).where(db.sessions.c.id == sid).values(quota_json=json.dumps(quota)))
+        closed = AsyncMock()
+        service = SessionRunService(store, None, None, quota_finished=closed)
+        result = await asyncio.gather(service.finish_quota(sid, expected=quota), service.finish_quota(sid, expected=quota))
+        assert all(value["state"] == "ready" for value in result)
+        closed.assert_awaited_once()
+    asyncio.run(exercise())
+
+
+def test_ready_quota_does_not_bypass_interrupting_an_active_runtime(api):
+    client, headers = api
+    device = create_device(client, headers)
+    project = create_project(client, headers, device, "ready-running")
+    sid = add_session(client, device, project, "native")
+    store = client.app.state.store
+    async def exercise():
+        quota = {"state": "ready", "externalSessionId": "native", "resetsAt": None, "interruptedAt": datetime.now(UTC).isoformat()}
+        async with store._engine.begin() as conn:
+            await conn.execute(update(db.sessions).where(db.sessions.c.id == sid).values(quota_json=json.dumps(quota), status="running", takeover=1))
+        manager = type("Rpc", (), {"request": AsyncMock(return_value={})})()
+        service = SessionRunService(store, manager, None)
+        service._ensure_session_runtime_running = AsyncMock()
+        service._require_session_capability = AsyncMock()
+        owner = await store.get_session_user_id(sid)
+        assert (await service.interrupt_session(sid, user_id=owner)).ok
+        assert manager.request.call_args.args[1] == "session.interrupt"
+        assert (await store.get_session(sid)).quotaLimit["state"] == "ready"
+    asyncio.run(exercise())
