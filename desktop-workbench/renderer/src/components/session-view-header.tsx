@@ -119,19 +119,17 @@ export function SessionViewHeader({
   )
 
   if (!isMobile) {
-    if (!desktopPortalTargets) return null
-
     return (
       <>
         {forwardControl && (
           <div
             data-slot="session-forward-toolbar"
-            className="flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2 border-b px-3 py-1"
+            className="mt-11 flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2 border-b px-3 py-1"
           >
             {forwardControl}
           </div>
         )}
-        {toolsExpanded ? null : createPortal(
+        {!toolsExpanded && desktopPortalTargets && createPortal(
           <div
             className={cn(
               "aa-window-drag flex w-full min-w-0 items-center gap-2 overflow-hidden",
@@ -180,7 +178,7 @@ export function SessionViewHeader({
           </div>,
           desktopPortalTargets.session,
         )}
-        {createPortal(
+        {desktopPortalTargets && createPortal(
           <TooltipProvider delayDuration={800}>
             <Tooltip>
               <TooltipTrigger asChild>

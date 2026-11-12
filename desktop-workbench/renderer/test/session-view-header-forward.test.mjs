@@ -29,12 +29,13 @@ const hooks = registerHooks({ load(url, context, next) {
 const { SessionViewHeader } = await import('../src/components/session-view-header.tsx')
 hooks.deregister(); source.deregister()
 
-for (const mobile of [false, true]) test(`forward control stays inside the ${mobile ? 'page header' : 'session pane'} and remains clickable`, async () => {
+for (const [mobile, portals] of [[false, true], [false, false], [true, true]]) test(`forward control stays inside the ${mobile ? 'page header' : 'session pane'} with portals=${portals} and remains clickable`, async () => {
   globalThis.testHeaderMobile = mobile
   const container = document.createElement('div')
   const title = document.createElement('div'); title.dataset.slot = 'desktop-shell-header-session'
   const actions = document.createElement('div'); actions.dataset.slot = 'desktop-shell-header-session-actions'
-  document.body.append(container, title, actions)
+  document.body.append(container)
+  if (portals) document.body.append(title, actions)
   const root = createRoot(container); let clicked = 0
   try {
     await act(async () => root.render(h(SessionViewHeader, {
@@ -45,7 +46,7 @@ for (const mobile of [false, true]) test(`forward control stays inside the ${mob
     const host = mobile ? container : container.querySelector('[data-slot="session-forward-toolbar"]')
     assert.ok(host, 'desktop forwarding must have a toolbar inside the session pane')
     assert.equal(actions.querySelector('[aria-label="forward-test"]'), null, 'forwarding must not share the global tool sidebar actions')
-    if (!mobile) assert.ok(actions.querySelector('[data-slot="session-tool-sidebar-toggle"]'), 'the tool sidebar control stays in the window header')
+    if (!mobile && portals) assert.ok(actions.querySelector('[data-slot="session-tool-sidebar-toggle"]'), 'the tool sidebar control stays in the window header')
     const button = host.querySelector('[aria-label="forward-test"]')
     assert.ok(button, 'the active header branch must render the forwarding control')
     assert.equal(document.querySelectorAll('[aria-label="forward-test"]').length, 1)

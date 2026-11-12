@@ -212,3 +212,18 @@ test('the sidebar reopens the joint workspace and task-group routes survive othe
   assert.equal(view.state.page, 'joint')
   assert.equal(view.state.jointGroupId, id)
 })
+
+
+test('browser history recognizes joint routes and can leave them again', async (t) => {
+  const view = await render(t)
+  await act(async () => view.state.navigate('settings', 'account'))
+  const id = 'b'.repeat(40)
+  await act(async () => {
+    window.history.replaceState(null, '', '#/joint/' + id)
+    window.dispatchEvent(new window.PopStateEvent('popstate'))
+  })
+  assert.equal(view.state.page, 'joint')
+  assert.equal(view.state.jointGroupId, id)
+  await act(async () => view.state.goHome())
+  assert.equal(view.state.page, 'home')
+})

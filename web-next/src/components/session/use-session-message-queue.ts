@@ -49,7 +49,7 @@ export function useSessionMessageQueue({ scope, canSend, canSteer, autoSend = tr
     window.addEventListener("storage", changed)
     return () => window.removeEventListener("storage", changed)
   }, [scope])
-  const replace = (items: Item[], paused = latest.current.state.paused) => {
+  const replace = React.useCallback((items: Item[], paused = latest.current.state.paused) => {
     const current = latest.current
     if (current.state.scope !== current.scope) return false
     try { persist(current.scope, items) } catch { setError("storage"); return false }
@@ -58,8 +58,8 @@ export function useSessionMessageQueue({ scope, canSend, canSteer, autoSend = tr
     setState(next)
     setError(null)
     return true
-  }
-  const enqueue = (text: string, attachments: AttachedFile[]) => replace([...latest.current.state.items, { id: createClientId("msg"), text, attachments, status: "queued" }])
+  }, [])
+  const enqueue = React.useCallback((text: string, attachments: AttachedFile[]) => replace([...latest.current.state.items, { id: createClientId("msg"), text, attachments, status: "queued" }]), [replace])
   const remove = (id: string) => {
     const item = latest.current.state.items.find(item => item.id === id)
     if (!item || item.status === "sending") return

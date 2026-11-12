@@ -190,6 +190,8 @@ function isWorkspaceRouteHash(hash: string): boolean {
     path === "" ||
     path === "/" ||
     path === "app" ||
+    path === "joint" ||
+    path.startsWith("joint/") ||
     path.startsWith("session/") ||
     path.startsWith("new-session/") ||
     path === "settings" ||
