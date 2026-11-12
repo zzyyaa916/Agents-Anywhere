@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+!/usr/bin/env python3
 """Apply a verified Fork preview bundle on its server or one idle Connector device."""
 from __future__ import annotations
 import hashlib
@@ -106,7 +106,7 @@ def update_server(root, manifest):
     try:
         config.write_text('\n'.join('FORK_IMAGE=' + image if line.startswith('FORK_IMAGE=') else line for line in previous.splitlines()) + '\n')
         config.chmod(0o600)
-        run(compose + ['run', '--rm', '--no-deps', '-T', 'server', '/opt/venv/bin/python', '-m', 'alembic', 'upgrade', 'head'], log=backup / 'migration.log')
+        run(compose + ['run', '--rm', '--no-deps', '-T', 'server', '/opt/venv/bin/python', '-m', 'agent_server.infra.db.migrations', 'upgrade'], log=backup / 'migration.log')
         run(compose + ['up', '-d', '--no-deps', 'server'], log=backup / 'restart.log')
         for _ in range(45):
             try:
