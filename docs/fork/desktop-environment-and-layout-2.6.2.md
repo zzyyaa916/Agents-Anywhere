@@ -19,3 +19,9 @@ Web/Desktop 将整个输入区和审批区放回会话纵向布局，由浏览�
 主进程 161 项回归全部通过，包括 PID 复用、孤儿子进程存活、检查失败不清锁；Desktop renderer 87 个测试文件通过，Web/Desktop 类型检查与 Web 对应交互回归通过，桌面静态生产构建成功。新增真实 Chromium 布局回归位于 `desktop-workbench/renderer/test/session-composer-layout.electron.cjs`，读取生产组件类名与构建 CSS，检查队列展开/收起后回复可见性与旧消息阅读位置，已在真实 Electron/Chromium 与临时虚拟显示中通过。测试合成消息，不访问真实账号。
 
 Linux 测试不替代 Windows PowerShell/真实开机进程验收。最终源码、安装包、校验和及实际测试结果以本轮交付目录 `BUILD-REPORT.md` 为准。GitHub 写入授权尚未配置时只保存本地提交，不声称已推送；不会在源码或仓库地址中保存令牌。
+
+## Windows 消息排序补齐
+
+此前 `6bbea47fe` 的乐观消息排序修复仅覆盖 Android；桌面和 Web 仍把事件游标用于消息顺序。本轮同步改为只用 Timeline 消息顺序，保持发送后到服务端回执之间用户消息位于回复之前；共享函数同时覆盖新建会话、普通会话和分屏会话。
+
+新增回归覆盖 Codex、Claude、DSH 的高事件序号、服务端回执去重、快照恢复、空 Timeline 和连续待发送条目；新增回归在旧桌面实现上失败，修改后通过。未重新构建安装包，已安装客户端仍需以后包含本修复的版本。

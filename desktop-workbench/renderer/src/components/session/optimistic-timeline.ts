@@ -207,7 +207,6 @@ export function buildOptimisticUserMessage({
   text,
   attachments,
   items,
-  nextSeq,
 }: {
   sessionId: string
   clientMessageId: string
@@ -218,7 +217,8 @@ export function buildOptimisticUserMessage({
 }): TimelineItem {
   const now = new Date().toISOString()
   const lastOrderSeq = items.reduce((max, item) => Math.max(max, item.orderSeq), 0)
-  const orderSeq = Math.max(lastOrderSeq + 1, nextSeq + 1)
+  // Event cursors include non-timeline updates and cannot order message rows.
+  const orderSeq = lastOrderSeq + 1
   const optimisticAttachments = attachments.map((attachment) => ({
     fileId: attachment.uploaded?.fileId ?? `optimistic:${attachment.id}`,
     name: attachment.uploaded?.name ?? attachment.name,
