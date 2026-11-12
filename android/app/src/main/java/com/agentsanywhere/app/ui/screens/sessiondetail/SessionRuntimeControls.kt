@@ -465,7 +465,11 @@ internal fun RuntimeNoticeCard(
                     updateDraft(noticeDraft.copy(answers = inputRequestDrafts + (questionId to draft)))
                 },
                 modifier = Modifier
-                    .weight(1f, fill = false)
+                    .then(
+                        if (composerAdjacent) Modifier.weight(1f, fill = false)
+                        // Timeline rows have unbounded height, so weight would hide the questions.
+                        else Modifier.heightIn(max = 360.dp),
+                    )
                     .verticalScroll(inputScrollState),
             )
         }

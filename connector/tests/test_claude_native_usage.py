@@ -2,8 +2,9 @@ import json
 
 import pytest
 from connector.account_usage import LocalAccountUsage
-from connector.runtimes.claude.sdk.events import native_usage_from_message
 from connector.core.json_kv import JsonKeyValueStore
+from connector.runtimes.claude.sdk.events import native_usage_from_message
+
 
 @pytest.fixture
 def native(tmp_path, monkeypatch):
@@ -16,14 +17,14 @@ def native(tmp_path, monkeypatch):
     return service, service.claude_identity()["account_key"], now, profile
 
 def test_strict_native_event_shape():
-    assert native_usage_from_message({"type": "assistant", "rate_limit_info": {"rate_limit_type": "five_hour"}}) is None
+    assert native_usage_from_message({"type": "assistant", "rate_limit_info": {"rate_limit_type": "five_hour"}}) == []
     message = {"type": "rate_limit_event", "rate_limit_info": {"rate_limit_type": "five_hour", "utilization": .5, "resets_at": 2000007200, "raw": {"token": "synthetic-not-forwarded"}}}
-    assert native_usage_from_message(message) == ("five_hour", .5, 2000007200)
+    assert native_usage_from_message(message) == [("five_hour", .5, 2000007200)]
     message["rate_limit_info"]["utilization"] = {"token": "synthetic-not-forwarded"}
     message["rate_limit_info"]["resets_at"] = {"token": "synthetic-not-forwarded"}
-    assert native_usage_from_message(message) == ("five_hour", None, None)
+    assert native_usage_from_message(message) == [("five_hour", None, None)]
     message["rate_limit_info"]["rate_limit_type"] = "unknown"
-    assert native_usage_from_message(message) is None
+    assert native_usage_from_message(message) == []
 
 @pytest.mark.parametrize("used", [None, True, -0.1, 1.1, float("nan"), "0.2"])
 def test_missing_or_invalid_native_utilization_never_invents_a_percentage(native, used):
@@ -88,6 +89,7 @@ async def test_broker_identity_cache_coalesces_events_and_expires_for_account_sw
     import asyncio
     import copy
     from types import SimpleNamespace
+
     from connector.server import runtime_host
     monkeypatch.setenv("AGENT_CONNECTOR_KV_FILE", str(tmp_path / "kv.json"))
     monkeypatch.setattr(runtime_host, "broker_executable", lambda _: "/fake-broker")
@@ -115,6 +117,7 @@ async def test_broker_identity_cache_coalesces_events_and_expires_for_account_sw
 @pytest.mark.anyio
 async def test_broker_identity_failure_is_also_cached(tmp_path, monkeypatch):
     from types import SimpleNamespace
+
     from connector.server import runtime_host
     monkeypatch.setenv("AGENT_CONNECTOR_KV_FILE", str(tmp_path / "kv.json"))
     monkeypatch.setattr(runtime_host, "broker_executable", lambda _: "/fake-broker")
@@ -133,3 +136,71 @@ async def test_broker_identity_failure_is_also_cached(tmp_path, monkeypatch):
     now[0] += 61
     assert await host.claude_usage_observer() is None
     assert len(calls) == 2
+
+
+@pytest.fixture
+def unified_native_event():
+    # CLI unifiedWindows schema; timestamps/values and ids are synthetic.
+    return {
+        "type": "rate_limit_event",
+        "rate_limit_info": {
+            "status": "allowed",
+            "unifiedWindows": {
+                "five_hour": {"utilization": .25, "resetsAt": 2000007200, "status": "allowed"},
+                "seven_day": {"utilization": .4, "resetsAt": 2000604800, "status": "allowed"},
+            },
+        },
+        "uuid": "native-event-fixture",
+        "session_id": "native-session-fixture",
+    }
+
+
+@pytest.mark.parametrize("sdk_parsed", [False, True])
+def test_unified_windows_survive_sdk_raw_and_need_no_outer_kind(unified_native_event, sdk_parsed):
+    from claude_agent_sdk._internal.message_parser import parse_message
+    message = parse_message(unified_native_event) if sdk_parsed else unified_native_event
+    assert native_usage_from_message(message) == [
+        ("five_hour", .25, 2000007200), ("seven_day", .4, 2000604800),
+    ]
+
+
+def test_unified_windows_override_outer_once_and_missing_window_uses_outer(unified_native_event):
+    info = unified_native_event["rate_limit_info"]
+    info.update(rateLimitType="five_hour", utilization=.9, resetsAt=2000008000)
+    assert native_usage_from_message(unified_native_event) == [
+        ("five_hour", .25, 2000007200), ("seven_day", .4, 2000604800),
+    ]
+    del info["unifiedWindows"]["five_hour"]
+    assert native_usage_from_message(unified_native_event) == [
+        ("five_hour", .9, 2000008000), ("seven_day", .4, 2000604800),
+    ]
+
+
+@pytest.mark.parametrize("value", [None, True, -.1, 1.1, float("nan"), "0.25"])
+def test_unified_windows_keep_strict_numeric_validation(unified_native_event, value):
+    unified_native_event["rate_limit_info"]["unifiedWindows"]["five_hour"].update(utilization=value, resetsAt=True)
+    assert native_usage_from_message(unified_native_event) == [
+        ("five_hour", None, None), ("seven_day", .4, 2000604800),
+    ]
+
+
+@pytest.mark.anyio
+async def test_transport_observes_both_unified_windows_once(unified_native_event, native):
+    from claude_agent_sdk._internal.message_parser import parse_message
+    from connector.runtimes.claude.sdk.connection import ClaudeConnection
+    service, key, _, _ = native
+    seen = []
+    class Client:
+        async def receive_messages(self):
+            yield parse_message(unified_native_event)
+    async def ignore(*args): pass
+    async def observe(*args):
+        seen.append(args)
+        assert service.observe_claude_window(key, *args)
+    connection = ClaudeConnection(Client(), ignore, ignore, ignore, lambda: None, on_native_usage=observe)
+    connection.queried.set(); connection.closing = True
+    await connection._run()
+    assert seen == [("five_hour", .25, 2000007200), ("seven_day", .4, 2000604800)]
+    windows, _, stale = service._claude_cached_usage(key)
+    assert len(windows) == 2 and not stale
+    assert "native-session-fixture" not in service.kv.path.read_text()

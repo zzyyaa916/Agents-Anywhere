@@ -280,9 +280,10 @@ class ClaudeConnection:
             preamble = []
             async for message in receive_response_messages(self.client):
                 usage = native_usage_from_message(message)
-                if usage is not None:
+                if usage:
                     if self.on_native_usage is not None:
-                        await self.on_native_usage(*usage)
+                        for window in usage:
+                            await self.on_native_usage(*window)
                     continue
                 had_background = bool(self.background.active_ids)
                 task_event = self.background.observe(message)

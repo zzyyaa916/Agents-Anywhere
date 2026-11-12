@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
 import math
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -106,20 +106,28 @@ def _attr(value: Any, name: str) -> Any:
     return getattr(value, name, None)
 
 
-def native_usage_from_message(message: Any) -> tuple[str, float | None, int | None] | None:
-    """Normalize only native rate-limit events, never assistant text or raw payloads."""
+def native_usage_from_message(message: Any) -> list[tuple[str, float | None, int | None]]:
+    """Read each native window once; unified windows take precedence over the outer fallback."""
     if message.__class__.__name__ != "RateLimitEvent" and _attr(message, "type") != "rate_limit_event":
-        return None
+        return []
     info = _attr(message, "rate_limit_info") or _attr(message, "rate_limitInfo")
     if info is None:
-        return None
-    kind = _string_attr(info, "rate_limit_type", "rateLimitType")
-    if kind not in {"five_hour", "seven_day", "seven_day_opus", "seven_day_sonnet"}:
-        return None
-    utilization = _attr(info, "utilization")
-    resets_at = _attr(info, "resets_at") or _attr(info, "resetsAt")
-    if isinstance(utilization, bool) or not isinstance(utilization, (int, float)) or not math.isfinite(utilization) or not 0 <= utilization <= 1:
-        utilization = None
-    if isinstance(resets_at, bool) or not isinstance(resets_at, int):
-        resets_at = None
-    return kind, utilization, resets_at
+        return []
+    raw = _attr(info, "raw")
+    unified = _attr(raw, "unifiedWindows") or _attr(info, "unifiedWindows")
+    outer_kind = _string_attr(info, "rate_limit_type", "rateLimitType")
+    windows = []
+    for kind in ("five_hour", "seven_day", "seven_day_opus", "seven_day_sonnet"):
+        window = _attr(unified, kind) if kind in {"five_hour", "seven_day"} else None
+        if not isinstance(window, Mapping):
+            window = info if kind == outer_kind else None
+        if window is None:
+            continue
+        utilization = _attr(window, "utilization")
+        resets_at = _attr(window, "resets_at") or _attr(window, "resetsAt")
+        if isinstance(utilization, bool) or not isinstance(utilization, (int, float)) or not math.isfinite(utilization) or not 0 <= utilization <= 1:
+            utilization = None
+        if isinstance(resets_at, bool) or not isinstance(resets_at, int):
+            resets_at = None
+        windows.append((kind, utilization, resets_at))
+    return windows

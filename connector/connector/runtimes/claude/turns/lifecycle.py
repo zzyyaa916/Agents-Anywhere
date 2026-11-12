@@ -410,9 +410,10 @@ class ClaudeTurnRunner:
             usage_observer = await self.native_usage_observer()
             async for message in receive_response_messages(client):
                 usage = native_usage_from_message(message)
-                if usage is not None:
+                if usage:
                     if usage_observer is not None:
-                        await usage_observer(*usage)
+                        for window in usage:
+                            await usage_observer(*window)
                     continue
                 retry_item = self.timeline.retry_item_for_message(session, turn_id, message)
                 if retry_item is not None:
