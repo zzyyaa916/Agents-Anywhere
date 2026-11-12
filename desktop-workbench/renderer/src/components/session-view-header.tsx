@@ -123,6 +123,14 @@ export function SessionViewHeader({
 
     return (
       <>
+        {forwardControl && (
+          <div
+            data-slot="session-forward-toolbar"
+            className="flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2 border-b px-3 py-1"
+          >
+            {forwardControl}
+          </div>
+        )}
         {toolsExpanded ? null : createPortal(
           <div
             className={cn(
@@ -174,7 +182,6 @@ export function SessionViewHeader({
         )}
         {createPortal(
           <TooltipProvider delayDuration={800}>
-            {forwardControl}
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button

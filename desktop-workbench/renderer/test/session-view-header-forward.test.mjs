@@ -29,7 +29,7 @@ const hooks = registerHooks({ load(url, context, next) {
 const { SessionViewHeader } = await import('../src/components/session-view-header.tsx')
 hooks.deregister(); source.deregister()
 
-for (const mobile of [false, true]) test(`forward control stays visible and clickable in ${mobile ? 'page' : 'native desktop'} header`, async () => {
+for (const mobile of [false, true]) test(`forward control stays inside the ${mobile ? 'page header' : 'session pane'} and remains clickable`, async () => {
   globalThis.testHeaderMobile = mobile
   const container = document.createElement('div')
   const title = document.createElement('div'); title.dataset.slot = 'desktop-shell-header-session'
@@ -42,7 +42,10 @@ for (const mobile of [false, true]) test(`forward control stays visible and clic
       memorySnapshot: null, toolsOpen: false, toolsExpanded: false, toolsOverlayWidth: 0, toolsMotionEnabled: false, onToggleTools: () => {},
       forwardControl: h('button', { 'aria-label': 'forward-test', onClick: () => { clicked++ } }, '转发给其他 AI'),
     })))
-    const host = mobile ? container : actions
+    const host = mobile ? container : container.querySelector('[data-slot="session-forward-toolbar"]')
+    assert.ok(host, 'desktop forwarding must have a toolbar inside the session pane')
+    assert.equal(actions.querySelector('[aria-label="forward-test"]'), null, 'forwarding must not share the global tool sidebar actions')
+    if (!mobile) assert.ok(actions.querySelector('[data-slot="session-tool-sidebar-toggle"]'), 'the tool sidebar control stays in the window header')
     const button = host.querySelector('[aria-label="forward-test"]')
     assert.ok(button, 'the active header branch must render the forwarding control')
     assert.equal(document.querySelectorAll('[aria-label="forward-test"]').length, 1)
