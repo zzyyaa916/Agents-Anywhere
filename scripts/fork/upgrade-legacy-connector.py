@@ -91,7 +91,7 @@ def upgrade(root):
         raise RuntimeError('请先确认没有运行任务并在维护连接中停止 Fork Connector；本脚本不停止在线任务。')
     python = VENV / 'bin/python'
     current = run([python, '-c', 'from importlib.metadata import version; print(version("anywhere-cli"))'])
-    if current not in ('2.5.5', '2.6.0', '2.6.1', VERSION):
+    if current not in ('2.5.4', '2.5.5', '2.6.0', '2.6.1', VERSION):
         raise RuntimeError('Connector 来源版本未经验证；未修改服务。')
     if VENV.is_symlink() and (not VENV.resolve().is_relative_to(VENV.parent) or not VENV.resolve().name.startswith('.venv')):
         raise RuntimeError('Connector 环境链接目标未经验证；未修改服务。')
