@@ -18,6 +18,8 @@ type Options = {
   /** Injectable only to exercise long installs without wall-clock delays. */
   now?: () => number;
   watchdogMs?: number;
+  /** Allows PID-reuse checks to be exercised without Windows process inspection. */
+  processStartedAt?: (pid: number) => Promise<number | null | undefined>;
 };
 type Receipt = { schema: 1; fingerprint: string };
 
@@ -219,10 +221,13 @@ export class ConnectorEnvironment {
   private async acquire(environment: string): Promise<void> {
     if (this.lock) return;
     const directory = `${environment}.desktop-lock`;
-    await withMachineStateLock(`${directory}.lease`, () => {
+    await withMachineStateLock(`${directory}.lease`, async () => {
       if (fs.existsSync(directory)) {
-        const owner = readJsonFile<{ pid?: number; childPid?: number } | null>(path.join(directory, "owner.json"), null);
-        if (alive(owner?.pid) || alive(owner?.childPid) || (!owner && Date.now() - fs.statSync(directory).mtimeMs < 10_000)) {
+        const ownerFile = path.join(directory, "owner.json");
+        const owner = readJsonFile<{ pid?: number; childPid?: number } | null>(ownerFile, null);
+        const writtenAt = fs.statSync(fs.existsSync(ownerFile) ? ownerFile : directory).mtimeMs;
+        const inspect = this.options.processStartedAt ?? processStartedAt;
+        if (await alive(owner?.pid, writtenAt, inspect) || await alive(owner?.childPid, writtenAt, inspect) || (!owner && Date.now() - writtenAt < 10_000)) {
           throw new Error(`Environment is busy (Desktop PID ${owner?.pid ?? "unknown"}, child PID ${owner?.childPid ?? "none"}): ${directory}`);
         }
         fs.rmSync(directory, { recursive: true, force: true });
@@ -253,9 +258,27 @@ export class ConnectorEnvironment {
     this.options.onState(this.getState());
   }
 }
-function alive(pid?: number): boolean {
+async function alive(pid: number | undefined, writtenAt: number, inspect: (pid: number) => Promise<number | null | undefined>): Promise<boolean> {
   if (!pid || !Number.isSafeInteger(pid) || pid <= 0) return false;
-  try { process.kill(pid, 0); return true; } catch (error) { return (error as NodeJS.ErrnoException).code !== "ESRCH"; }
+  try { process.kill(pid, 0); }
+  catch (error) { return (error as NodeJS.ErrnoException).code !== "ESRCH"; }
+  // A process created after this record was written cannot be its owner.
+  // In particular, Windows rapidly recycles both Desktop and uv child PIDs.
+  const startedAt = await inspect(pid);
+  return startedAt === undefined || (startedAt !== null && startedAt <= Math.ceil(writtenAt) + 2_000);
+}
+function processStartedAt(pid: number): Promise<number | null | undefined> {
+  if (process.platform !== "win32") return Promise.resolve(undefined);
+  const command = `$ErrorActionPreference='Stop'; $p=Get-Process -Id ${pid} -ErrorAction SilentlyContinue; if($p){[DateTimeOffset]::new($p.StartTime.ToUniversalTime()).ToUnixTimeMilliseconds()}`;
+  return new Promise((resolve, reject) => execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", command],
+    { timeout: 5_000, windowsHide: true }, (error, stdout) => {
+      if (error) { reject(new Error(`Cannot verify environment lock owner PID ${pid}: ${error.message}`)); return; }
+      const value = stdout.trim();
+      if (!value) { resolve(null); return; }
+      const timestamp = Number(value);
+      if (!Number.isFinite(timestamp) || timestamp <= 0) { reject(new Error(`Invalid environment lock owner start time for PID ${pid}.`)); return; }
+      resolve(timestamp);
+    }));
 }
 function version(executable: string, signal: AbortSignal, env: NodeJS.ProcessEnv): Promise<string> {
   return new Promise((resolve, reject) => execFile(executable, ["--version"], { signal, env, timeout: 10_000, windowsHide: true }, (error, stdout, stderr) => {

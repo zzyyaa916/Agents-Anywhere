@@ -55,10 +55,11 @@ else finish();
     env: { ...process.env, CALLS: path.join(root, "calls"), PROJECT: project, UV_PROJECT_ENVIRONMENT: environment, AA_PI_NPM_ROOT: path.join(root, "pi-cache"), UV_CACHE_DIR: path.join(root, "cache") } };
   const states: ConnectorEnvironmentState[] = [];
   let clock = Date.now();
-  const make = (dataPath = root) => new ConnectorEnvironment({ dataPath, resolve: () => context, onState: s => states.push(s), log: () => {}, now: () => clock, watchdogMs: 120_000 });
+  let processStartedAt: ((pid: number) => Promise<number | null | undefined>) | undefined;
+  const make = (dataPath = root) => new ConnectorEnvironment({ dataPath, resolve: () => context, onState: s => states.push(s), log: () => {}, now: () => clock, watchdogMs: 120_000, processStartedAt: pid => processStartedAt?.(pid) ?? Promise.resolve(undefined) });
   const manager = make();
   t.after(() => manager.shutdown());
-  return { root, context, manager, make, states, advance: (ms: number) => { clock += ms; }, calls: () => fs.existsSync(context.env.CALLS!) ? fs.readFileSync(context.env.CALLS!, "utf8").trim().split('\n').map(l => JSON.parse(l) as string[]).filter(args => args[0] === "sync") : [] };
+  return { root, context, manager, make, states, inspect: (read: (pid: number) => Promise<number | null | undefined>) => { processStartedAt = read; }, advance: (ms: number) => { clock += ms; }, calls: () => fs.existsSync(context.env.CALLS!) ? fs.readFileSync(context.env.CALLS!, "utf8").trim().split('\n').map(l => JSON.parse(l) as string[]).filter(args => args[0] === "sync") : [] };
 }
 async function until(check: () => boolean): Promise<void> {
   const deadline = Date.now() + 5000;
@@ -203,4 +204,46 @@ test("cancelling Pi preparation cancels environment readiness and permits retry"
   delete f.context.env.WAIT_PI;
   await f.manager.prepare();
   assert.equal(f.manager.getState().status, "ready");
+});
+
+
+test("recycled Desktop and child PIDs do not keep an abandoned environment locked", async t => {
+  if (process.platform === "win32") { t.skip("POSIX fixture executable"); return; }
+  const f = fixture(t);
+  const directory = `${f.context.environment}.desktop-lock`;
+  fs.mkdirSync(directory);
+  const file = path.join(directory, "owner.json");
+  // Both PIDs exist, but belong to processes created after the crashed owner wrote its lock.
+  fs.writeFileSync(file, JSON.stringify({ pid: process.pid, childPid: process.pid, token: "old" }));
+  const writtenAt = fs.statSync(file).mtimeMs;
+  f.inspect(async () => writtenAt + 60_000);
+  await f.manager.prepare();
+  assert.equal(f.manager.getState().status, "ready");
+  assert.notEqual(JSON.parse(fs.readFileSync(file, "utf8")).token, "old");
+});
+
+test("a surviving child still protects the environment after its Desktop PID was recycled", async t => {
+  if (process.platform === "win32") { t.skip("POSIX fixture executable"); return; }
+  const f = fixture(t);
+  const directory = `${f.context.environment}.desktop-lock`;
+  fs.mkdirSync(directory);
+  const file = path.join(directory, "owner.json");
+  fs.writeFileSync(file, JSON.stringify({ pid: process.pid, childPid: process.ppid, token: "active-child" }));
+  const writtenAt = fs.statSync(file).mtimeMs;
+  f.inspect(async pid => writtenAt + (pid === process.pid ? 60_000 : -60_000));
+  await assert.rejects(f.manager.prepare(), /Environment is busy/);
+  await assert.rejects(f.manager.reset(() => assert.fail("must not clear a live child environment")), /Environment is busy/);
+  assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).token, "active-child");
+});
+
+test("failed process inspection never clears an environment owned by an unverified live PID", async t => {
+  if (process.platform === "win32") { t.skip("POSIX fixture executable"); return; }
+  const f = fixture(t);
+  const directory = `${f.context.environment}.desktop-lock`;
+  fs.mkdirSync(directory);
+  const file = path.join(directory, "owner.json");
+  fs.writeFileSync(file, JSON.stringify({ pid: process.pid, token: "unverified" }));
+  f.inspect(async () => { throw new Error("Cannot verify environment lock owner: access denied"); });
+  await assert.rejects(f.manager.prepare(), /Cannot verify/);
+  assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).token, "unverified");
 });

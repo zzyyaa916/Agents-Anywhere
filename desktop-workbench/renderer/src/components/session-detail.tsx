@@ -388,8 +388,6 @@ export function SessionDetail({
   const [sourceErrorCode, setSourceErrorCode] = React.useState<SessionSourceErrorCode | null>(null)
   const [commandQuery, setCommandQuery] = React.useState<string | null>(null)
   const [catalogRecoveryGeneration, setCatalogRecoveryGeneration] = React.useState(0)
-  const [blockingInteractionStackHeight, setBlockingInteractionStackHeight] = React.useState(0)
-  const [composerHeight, setComposerHeight] = React.useState(144)
   const [timelineGroupOpenByKey, setTimelineGroupOpenByKey] = React.useState<Record<string, boolean>>({})
   const [timelineItemOpenById, setTimelineItemOpenById] = React.useState<Record<string, boolean>>({})
   const [composerDraftState, setComposerDraftState] = React.useState<ComposerDraftState>(() => ({
@@ -398,7 +396,6 @@ export function SessionDetail({
   }))
   const timelineRef = React.useRef<HTMLDivElement | null>(null)
   const timelineContentRef = React.useRef<HTMLDivElement | null>(null)
-  const composerContainerRef = React.useRef<HTMLDivElement | null>(null)
   const eventSequenceCursorRef = React.useRef<SessionEventSequenceCursor | null>(null)
   if (eventSequenceCursorRef.current === null) {
     eventSequenceCursorRef.current = new SessionEventSequenceCursor(
@@ -1621,28 +1618,11 @@ export function SessionDetail({
     [state?.notices],
   )
   const blockingInteractionCount = blockingInteractionList.length
-  const timelineBottomPadding = `calc(${composerHeight}px + ${blockingInteractionStackHeight}px + 2rem)`
-  const scrollBottomButtonOffset = `calc(${composerHeight}px + ${blockingInteractionStackHeight}px + 0.5rem)`
   const interactionTargetIds = React.useMemo(
     () => new Set(timelineInteractions.map(noticeTimelineTargetId).filter((id): id is string => Boolean(id))),
     [timelineInteractions],
   )
 
-  React.useEffect(() => {
-    if (blockingInteractionCount === 0 && blockingInteractionStackHeight !== 0) {
-      setBlockingInteractionStackHeight(0)
-    }
-  }, [blockingInteractionCount, blockingInteractionStackHeight])
-
-  React.useLayoutEffect(() => {
-    const node = composerContainerRef.current
-    if (!node) return
-    const publishHeight = () => setComposerHeight(Math.ceil(node.getBoundingClientRect().height))
-    publishHeight()
-    const resizeObserver = new ResizeObserver(publishHeight)
-    resizeObserver.observe(node)
-    return () => resizeObserver.disconnect()
-  }, [session?.id])
   const planEcho = React.useMemo(() => planEchoFilter(planning.state, planning.documents), [planning.state, planning.documents])
   const timelineGroups = React.useMemo(
     () => groupTimelineItems(
@@ -1725,7 +1705,7 @@ export function SessionDetail({
         </Alert>
       ) : null}
 
-      <div className="relative min-h-0 flex-1 overflow-hidden">
+      <div data-slot="session-timeline" className="relative min-h-0 flex-1 overflow-hidden">
         <ScrollArea
           viewportRef={timelineRef}
           className="h-full"
@@ -1735,9 +1715,8 @@ export function SessionDetail({
             ref={timelineContentRef}
             aria-busy={!creationFailed && (runtimeStatus === "waiting" || runtimeStatus === "pending" || runtimeStatus === "running")}
             className={cn(
-              "mx-auto flex w-full min-w-0 max-w-[calc(48rem+2rem)] flex-col gap-3 overflow-hidden px-4 pb-44 pt-20",
+              "mx-auto flex w-full min-w-0 max-w-[calc(48rem+2rem)] flex-col gap-3 overflow-hidden px-4 pb-8 pt-20",
             )}
-            style={{ paddingBottom: timelineBottomPadding }}
           >
             {loadingOlder ? (
               <div className="flex justify-center py-2 text-muted-foreground">
@@ -1826,8 +1805,7 @@ export function SessionDetail({
             type="button"
             size="sm"
             variant="secondary"
-            className="absolute left-1/2 z-30 h-8 -translate-x-1/2 gap-1.5 rounded-full border bg-background/95 px-3 shadow-lg backdrop-blur"
-            style={{ bottom: scrollBottomButtonOffset }}
+            className="absolute bottom-2 left-1/2 z-30 h-8 -translate-x-1/2 gap-1.5 rounded-full border bg-background/95 px-3 shadow-lg backdrop-blur"
             onClick={scrollToBottom}
           >
             <ArrowDown data-icon="inline-start" />
@@ -1836,15 +1814,14 @@ export function SessionDetail({
         ) : null}
       </div>
 
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10">
+      <div data-slot="session-composer-stack" className="pointer-events-none relative z-10 shrink-0">
         <BlockingInteractionStack
           notices={blockingInteractionList}
           resolvingNoticeId={resolvingNoticeId}
           resolvingActionId={resolvingActionId}
-          onHeightChange={setBlockingInteractionStackHeight}
           onRespondInteraction={handleRespondInteraction}
         />
-        <div ref={composerContainerRef} className="pointer-events-auto relative">
+        <div className="pointer-events-auto relative">
           {onOpenReview && turnReviewDisplay.activeReview ? (
             <SessionReviewTag files={turnReviewDisplay.activeReview.files} onReview={() => onOpenReview()} />
           ) : null}
@@ -2034,40 +2011,20 @@ function BlockingInteractionStack({
   notices,
   resolvingNoticeId,
   resolvingActionId,
-  onHeightChange,
   onRespondInteraction,
 }: {
   notices: Notice[]
   resolvingNoticeId: string | null
   resolvingActionId: string | null
-  onHeightChange: (height: number) => void
   onRespondInteraction: (noticeId: string, actionId: string, input?: Record<string, unknown>) => void
 }) {
-  const stackRef = React.useRef<HTMLDivElement | null>(null)
-
-  React.useLayoutEffect(() => {
-    const node = stackRef.current
-    if (!node) return
-
-    const publishHeight = () => {
-      onHeightChange(Math.ceil(node.getBoundingClientRect().height))
-    }
-
-    publishHeight()
-    const resizeObserver = new ResizeObserver(publishHeight)
-    resizeObserver.observe(node)
-    return () => {
-      resizeObserver.disconnect()
-    }
-  }, [onHeightChange, notices.length])
-
   if (notices.length === 0) return null
 
   const activeNotice = notices[0]!
   const backingNotices = notices.slice(1, 4).reverse()
 
   return (
-    <div ref={stackRef} className="pointer-events-auto mx-auto w-full max-w-[calc(48rem+2rem)] px-4 pb-1">
+    <div className="pointer-events-auto mx-auto w-full max-w-[calc(48rem+2rem)] px-4 pb-1">
       <div className={cn("relative", backingNotices.length > 0 && "pt-4")}>
         {backingNotices.map((notice, index) => {
           const depth = backingNotices.length - index
