@@ -1,4 +1,4 @@
-!/usr/bin/env python3
+#!/usr/bin/env python3
 """Apply a verified Fork preview bundle on its server or one idle Connector device."""
 from __future__ import annotations
 import hashlib
