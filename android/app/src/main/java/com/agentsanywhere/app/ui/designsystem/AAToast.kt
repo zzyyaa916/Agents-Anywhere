@@ -1,5 +1,18 @@
 package com.agentsanywhere.app.ui.designsystem
 
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.ui.res.stringResource
+import com.agentsanywhere.app.R
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -35,6 +48,21 @@ fun AAToastHost(
     hostState: SnackbarHostState,
     modifier: Modifier = Modifier,
 ) {
+    var errorDetails by remember { mutableStateOf<String?>(null) }
+    errorDetails?.let { message ->
+        AlertDialog(
+            onDismissRequest = { errorDetails = null },
+            title = { Text(stringResource(R.string.common_error_details)) },
+            text = {
+                SelectionContainer {
+                    Column(Modifier.fillMaxWidth().heightIn(max = 400.dp).verticalScroll(rememberScrollState())) {
+                        Text(message)
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { errorDetails = null }) { Text(stringResource(R.string.common_close)) } },
+        )
+    }
     Box(
         modifier = modifier.fillMaxWidth(),
         contentAlignment = Alignment.TopCenter,
@@ -47,13 +75,13 @@ fun AAToastHost(
                     data.dismiss()
                 }
             }
-            AAToast(data)
+            AAToast(data) { errorDetails = data.visuals.message; data.dismiss() }
         }
     }
 }
 
 @Composable
-private fun AAToast(data: SnackbarData) {
+private fun AAToast(data: SnackbarData, onShowDetails: () -> Unit) {
     val colors = LocalAAColors.current
     val darkMode = colors.canvas == Color(0xFF09090B)
     val visuals = data.visuals as? AAToastVisuals
@@ -107,9 +135,13 @@ private fun AAToast(data: SnackbarData) {
             fontSize = 15.sp,
             fontWeight = FontWeight.SemiBold,
             lineHeight = 19.sp,
+            modifier = Modifier.weight(1f),
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
+        if (isError) {
+            TextButton(onClick = onShowDetails) { Text(stringResource(R.string.common_view_details), color = content) }
+        }
         data.visuals.actionLabel?.let { label ->
             Text(
                 text = label,
@@ -129,7 +161,7 @@ data class AAToastVisuals(
     override val message: String,
     override val actionLabel: String? = null,
     val isError: Boolean = false,
-    val timeoutMillis: Long? = if (actionLabel == null) 1_600L else null,
+    val timeoutMillis: Long? = if (actionLabel == null && !isError) 1_600L else null,
     override val withDismissAction: Boolean = false,
-    override val duration: SnackbarDuration = SnackbarDuration.Short,
+    override val duration: SnackbarDuration = if (isError) SnackbarDuration.Long else SnackbarDuration.Short,
 ) : SnackbarVisuals

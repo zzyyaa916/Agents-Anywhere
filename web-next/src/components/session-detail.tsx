@@ -2,6 +2,7 @@
 
 import { useAuth } from "@/components/auth/auth-context"
 import { useRuntimeErrorText } from "@/lib/runtime-error-text"
+import { SessionQuotaNotice } from "@/components/session-quota"
 import { useSessionGoal } from "@/features/goals/use-session-goal"
 import { GoalPanel } from "@/components/session/goal-panel"
 import { useSessionPlanning } from "@/features/planning/use-session-planning"
@@ -361,6 +362,8 @@ export function SessionDetail({
     markOptimisticMessageFailed,
     replaceHome,
   } = useWorkspace()
+  const quotaRecoveryRef = React.useRef<(() => void) | null>(null)
+  const recoverQuota = React.useCallback(() => quotaRecoveryRef.current?.(), [])
   const initialOptimisticState = getOptimisticSessionState(sessionId)
   const [state, setState] = React.useState<SessionRemoteState | null>(() =>
     initialOptimisticState ? remoteStateFromOptimisticState(initialOptimisticState) : null,
@@ -1157,6 +1160,7 @@ export function SessionDetail({
       }
     }
 
+    quotaRecoveryRef.current = () => { void recoverEvents(eventSequenceCursor.current(sessionId), "quota.ready") }
     void connect()
 
     loadInitialSessionState(token, sessionId, {
@@ -1195,6 +1199,7 @@ export function SessionDetail({
 
     return () => {
       cancelled = true
+      quotaRecoveryRef.current = null
       renderBuffer.dispose()
       bufferedEvents = []
       streamConnectedRef.current = false
@@ -1711,6 +1716,7 @@ export function SessionDetail({
   return (
     <div className="@container/plan-layout flex h-full min-h-0 min-w-0 overflow-hidden">
     <div className={cn("relative h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden overscroll-none", planReader.document ? "hidden @min-[48rem]/plan-layout:flex" : "flex")}>
+      <SessionQuotaNotice token={token} sessionId={sessionId} onReady={recoverQuota} />
       {error ? (
         <Alert variant="destructive" className="mx-auto mt-4 w-[calc(100%-2rem)] max-w-3xl">
           <CircleAlert />

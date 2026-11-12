@@ -55,3 +55,16 @@ test('usage stays collapsed until clicked, supports Escape, and retains cached v
   await act(async () => root.unmount())
   container.remove()
 })
+
+
+test('expired zero-percent cache does not keep showing a current limit warning or invent new quota', async () => {
+  fail = false
+  body.snapshots[0].windows[0] = { kind: 'five_hour', remainingPercent: 0, resetsAt: '2000-01-01T00:00:00Z', windowDurationMins: 300 }
+  const container = document.createElement('div'); document.body.append(container)
+  const root = createRoot(container)
+  await act(async () => root.render(h(AccountUsageProvider, {}, h(AccountUsagePanel), h(SessionUsageNotice, { connectorId: 'device', runtimeId: 'native' }))))
+  assert.equal(container.querySelector('[role="status"]'), null)
+  await act(async () => container.querySelector('button[aria-label="查看账号用量"]').click())
+  assert.match(document.querySelector('[role="dialog"]').textContent, /剩余 0%/)
+  await act(async () => root.unmount()); container.remove()
+})

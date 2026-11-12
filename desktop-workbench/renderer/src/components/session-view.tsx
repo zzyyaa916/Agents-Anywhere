@@ -1,6 +1,5 @@
 "use client"
 
-import { SessionQuotaNotice } from "@/components/session-quota"
 import { SessionUsageNotice } from "@/components/account-usage"
 
 import * as React from "react"
@@ -255,7 +254,6 @@ export function SessionView() {
             onToggleTools={toolSidebar.toggleSidebar}
           />
 
-          {token && <SessionQuotaNotice token={token} sessionId={session.id} />}
           <SessionUsageNotice connectorId={session.connectorId} runtimeId={session.runtimeId} />
           <div className="min-h-0 flex-1 overflow-hidden">
             {token ? (

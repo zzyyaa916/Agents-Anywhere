@@ -2,7 +2,6 @@
 
 import * as React from "react"
 import { useSessionForward } from "@/components/session/session-forward"
-import { SessionQuotaNotice } from "@/components/session-quota"
 import { SessionUsageNotice } from "@/components/account-usage"
 
 import { SessionDetail, type SessionMemorySnapshot } from "@/components/session-detail"
@@ -245,7 +244,6 @@ export function SessionView() {
             onToggleTools={toolSidebar.toggleSidebar}
           />
 
-          {token && <SessionQuotaNotice token={token} sessionId={session.id} />}
           <SessionUsageNotice connectorId={session.connectorId} runtimeId={session.runtimeId} />
           <div className="min-h-0 flex-1 overflow-hidden">
             {token ? (

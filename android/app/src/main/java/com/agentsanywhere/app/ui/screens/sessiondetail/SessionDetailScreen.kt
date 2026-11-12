@@ -1365,12 +1365,15 @@ fun SessionDetailScreen(
     LaunchedEffect(sessionId, appVisible, queueScope) {
         val id = sessionId
         var ticks = 0
+        var recoveredQuota = false
         if (id != null && forkController != null && appVisible) while (true) {
             if (ticks++ % 12 == 0) forkController.usage().onSuccess { usageCache = it }.onFailure { usageCache = null }
             forkController.quota(id).onSuccess { value ->
-                val becameReady = quotaWait?.state == "limited" && value?.state == "ready"
+                val ready = value?.state in setOf("ready", "stopped", "resumed")
                 quotaWait = value
-                if (becameReady) loadInitialSnapshot()
+                if (value?.state == "limited" && queueStore?.paused == false) { queueStore.pause(); queueVersion++ }
+                if (ready && !recoveredQuota) loadInitialSnapshot()
+                recoveredQuota = ready
             }
             delay(5000)
         }

@@ -242,6 +242,9 @@ export function SessionComposer({
     onSend,
   })
   React.useEffect(() => {
+    if (runtimeStatus === "limited") messageQueue.pause()
+  }, [runtimeStatus, session.id])
+  React.useEffect(() => {
     onQueueReady?.(text => messageQueue.enqueue(text, []))
     return () => onQueueReady?.(null)
   }, [onQueueReady, messageQueue.enqueue])

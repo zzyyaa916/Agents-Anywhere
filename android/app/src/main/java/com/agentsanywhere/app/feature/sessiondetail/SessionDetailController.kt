@@ -792,7 +792,8 @@ class SessionDetailController(
             state.timeline.orderingItems.maxOfOrNull { it.orderSeq } ?: 0,
             state.messages.maxOfOrNull { it.orderSeq } ?: 0,
         )
-        val optimisticOrderSeq = maxOf(lastOrderSeq + 1, state.nextSeq + 1)
+        // Event cursors include non-timeline events and cannot order message rows.
+        val optimisticOrderSeq = lastOrderSeq + 1
         val message = TimelineMessage(
             id = clientMessageId,
             sourceItemId = clientMessageId,

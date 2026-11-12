@@ -82,7 +82,7 @@ export function AccountUsagePanel() {
 export function SessionUsageNotice({ connectorId, runtimeId }: { connectorId: string; runtimeId?: string }) {
   const { data } = React.useContext(Context)
   const matches = data?.snapshots.filter(s => s.bindings.some(b => b.connectorId === connectorId && b.runtimeId === runtimeId)) ?? []
-  return <>{matches.flatMap(s => s.windows.filter(w => w.kind === "five_hour" && w.remainingPercent <= 20).map((w, index) =>
+  return <>{matches.flatMap(s => s.windows.filter(w => w.kind === "five_hour" && w.remainingPercent <= 20 && Date.parse(w.resetsAt) > Date.now()).map((w, index) =>
     <div role="status" key={`${s.accountKey}-${index}`} className={`px-4 py-2 text-sm ${w.remainingPercent === 0 ? "bg-amber-100 text-amber-950 dark:bg-amber-950 dark:text-amber-100" : "bg-muted"}`}>
       {s.runtime === "codex" ? "Codex" : "Claude Code"} 5 小时窗口仅剩 {Math.round(w.remainingPercent)}%，{localTime(w.resetsAt)} 重置{s.stale ? "（数据已过期）" : ""}
     </div>))}</>

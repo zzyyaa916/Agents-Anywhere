@@ -760,4 +760,6 @@
     <string name="goal_state_unavailable">The current goal state is unavailable. Refresh to check.</string>
     <string name="session_markdown_image">Image</string>
     <string name="session_markdown_image_failed">Could not load image.</string>
+    <string name="common_error_details">Error details</string>
+    <string name="common_view_details">Details</string>
 </resources>
