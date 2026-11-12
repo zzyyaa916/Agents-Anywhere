@@ -72,6 +72,7 @@ fun ForkUsageButton(controller: ForkController, modifier: Modifier = Modifier) {
 @Composable
 fun ForkDeleteDialog(controller: ForkController, id: String, title: String, project: Boolean, onDismiss: () -> Unit, onDeleted: () -> Unit) {
     var count by remember(id) { mutableStateOf<Int?>(null) }
+    var abandonConfirmed by remember(id) { mutableStateOf(false) }
     var confirmation by remember(id) { mutableStateOf("") }
     var busy by remember(id) { mutableStateOf(false) }
     var error by remember(id) { mutableStateOf<Throwable?>(null) }
@@ -94,6 +95,19 @@ fun ForkDeleteDialog(controller: ForkController, id: String, title: String, proj
                     api?.statusCode == 409 -> stringResource(R.string.fork_busy, api.blockingSessionIds.joinToString(", "))
                     else -> stringResource(R.string.fork_failed)
                 }, color = MaterialTheme.colorScheme.error)
+                if (api?.errorCode in setOf("device_cleanup_incomplete", "deletion_cleanup_failed")) {
+                    if (abandonConfirmed) Text(stringResource(R.string.fork_abandon_warning))
+                    TextButton(enabled = !busy, onClick = {
+                        if (!abandonConfirmed) abandonConfirmed = true
+                        else {
+                            busy = true
+                            scope.launch {
+                                controller.abandonCleanup(id, project).onSuccess { onDeleted() }.onFailure { error = it }
+                                busy = false
+                            }
+                        }
+                    }) { Text(stringResource(if (abandonConfirmed) R.string.fork_abandon_confirm else R.string.fork_abandon)) }
+                }
                 if (project && count == null) TextButton(onClick = { scope.launch { error = null; preview() } }) { Text(stringResource(R.string.fork_retry)) }
             }
         }

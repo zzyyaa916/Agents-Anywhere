@@ -1310,3 +1310,27 @@ class _FakeModelDump:
     def model_dump(self, **kwargs: Any) -> dict[str, Any]:
         _ = kwargs
         return self.value
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("archive_missing", [False, True])
+async def test_history_delete_still_runs_when_archive_is_already_missing(archive_missing, monkeypatch):
+    from unittest.mock import AsyncMock
+    from openai_codex import JsonRpcError
+    client = object.__new__(CodexSdkClient)
+    request = AsyncMock(side_effect=[JsonRpcError(-32600, "no rollout found for thread id test") if archive_missing else {}, {}])
+    monkeypatch.setattr(client, "_settings_request", AsyncMock(return_value=request))
+    await client.delete_thread_history("test")
+    assert [call.args[0] for call in request.await_args_list] == ["thread/archive", "thread/delete"]
+
+
+@pytest.mark.anyio
+async def test_history_delete_does_not_ignore_archive_permission_failure(monkeypatch):
+    from unittest.mock import AsyncMock
+    from openai_codex import JsonRpcError
+    client = object.__new__(CodexSdkClient)
+    request = AsyncMock(side_effect=JsonRpcError(-32600, "permission denied"))
+    monkeypatch.setattr(client, "_settings_request", AsyncMock(return_value=request))
+    with pytest.raises(JsonRpcError, match="permission denied"):
+        await client.delete_thread_history("test")
+    assert request.await_count == 1

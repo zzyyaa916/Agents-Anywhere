@@ -408,6 +408,7 @@ export type WorkspaceState = ReturnType<typeof useSessionCreation> & {
   resolveProject: (payload: Pick<ProjectCreateRequest, "connectorId" | "workspacePath">) => Promise<ProjectView>
   updateProject: (projectId: string, patch: ProjectPatchRequest) => Promise<ProjectView | null>
   deleteProject: (projectId: string, expectedSessionCount?: number) => Promise<boolean>
+  abandonHistoryCleanup: (id: string, project: boolean) => Promise<void>
   deleteSession: (sessionId: string) => Promise<void>
   projectDeletionCount: (projectId: string) => Promise<number>
   archiveProjectSessions: (projectId: string) => Promise<boolean>
@@ -1263,6 +1264,19 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     return (await dashboardApi.projectDeletionPreview(token, projectId)).sessionCount
   }, [authSession?.accessToken])
 
+  const abandonHistoryCleanup = React.useCallback(async (id: string, project: boolean): Promise<void> => {
+    const token = authSession?.accessToken
+    if (!token) throw new Error("Authentication required")
+    await dashboardApi.abandonHistoryCleanup(token, id, project)
+    if (currentAccessTokenRef.current !== token) return
+    dashboardDataGenerationRef.current += 1
+    projectDataGenerationRef.current += 1
+    const ids = project ? sessionsRef.current.filter((session) => session.projectId === id).map((session) => session.id) : [id]
+    removeDeletedSessions(new Set(ids))
+    if (project) setProjects((current) => current.filter((item) => item.id !== id))
+    void refreshProjects().catch(() => undefined)
+  }, [authSession?.accessToken, refreshProjects, removeDeletedSessions])
+
   const deleteSession = React.useCallback(async (sessionId: string): Promise<void> => {
     const token = authSession?.accessToken
     if (!token) throw new Error("Authentication required")
@@ -1698,6 +1712,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     deleteProject,
     deleteSession,
     projectDeletionCount,
+    abandonHistoryCleanup,
     archiveProjectSessions,
     markSessionRead,
     upsertSession,

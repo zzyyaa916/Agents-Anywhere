@@ -11,7 +11,7 @@ import time
 
 SERVICE = 'agents-anywhere-fork.service'
 VENV = Path('/home/aa-fork/.venv')
-VERSION = '2.6.2'
+VERSION = '2.6.3'
 
 
 def run(args):
@@ -57,11 +57,46 @@ def prepare_environment(root, manifest, uv, venv, new):
         subprocess.run(['cp', '-a', '--reflink=auto', str(venv) + '/.', str(new)], check=True)
         install_package(root, manifest, uv, new / 'bin/python')
         subprocess.run([uv, 'pip', 'check', '--python', str(new / 'bin/python')], check=True)
-        run([new / 'bin/python', '-c', 'import connector.cli; from connector.local import worktrees; from connector.server import local_rpc; from importlib.metadata import version; assert version("anywhere-cli") == "2.6.2"; print("import check OK")'])
+        run([new / 'bin/python', '-c', 'import connector.cli; from connector.local import worktrees; from connector.server import local_rpc; from importlib.metadata import version; assert version("anywhere-cli") == "2.6.3"; print("import check OK")'])
         owner = venv.stat()
         subprocess.run(['chown', '-R', f'{owner.st_uid}:{owner.st_gid}', str(new)], check=True)
     except BaseException:
         shutil.rmtree(new)
+        raise
+
+
+def install_native_cleanup(root, manifest, unit, command=run, *, broker=Path('/usr/local/libexec/aa-fork-runtime-broker'), helper=Path('/opt/agents-anywhere-fork-connector/bin/native-history-cleanup.py')):
+    if 'AA_FORK_RUNTIME_BROKER=1' not in unit:
+        return
+    # Old bundles do not introduce native deletion and keep their old broker untouched.
+    if 'runtime-broker.py' not in manifest['files'] or 'native-history-cleanup.py' not in manifest['files']:
+        return
+    if broker.is_symlink() or broker.stat().st_uid != 0:
+        raise RuntimeError('固定身份代理来源不匹配；未修改代理。')
+    if str(broker) not in command(['systemctl', 'show', 'aa-fork-runtime.service', '-p', 'ExecStart', '--value']):
+        raise RuntimeError('固定身份代理服务不匹配；未修改代理。')
+    previous = broker.read_bytes()
+    saved = root / 'runtime-broker.before.py'
+    saved.write_bytes(previous)
+    saved.chmod(0o600)
+    old_helper = helper.read_bytes() if helper.exists() else None
+    try:
+        for source, target in [(root / 'native-history-cleanup.py', helper), (root / 'runtime-broker.py', broker)]:
+            temporary = target.with_suffix('.update.tmp')
+            temporary.write_bytes(source.read_bytes())
+            os.chown(temporary, 0, 0)
+            temporary.chmod(0o755)
+            temporary.replace(target)
+        command(['systemctl', 'restart', 'aa-fork-runtime.service'])
+        command(['systemctl', 'is-active', '--quiet', 'aa-fork-runtime.service'])
+    except BaseException:
+        broker.write_bytes(previous)
+        broker.chmod(0o755)
+        if old_helper is None:
+            helper.unlink(missing_ok=True)
+        else:
+            helper.write_bytes(old_helper)
+        command(['systemctl', 'restart', 'aa-fork-runtime.service'])
         raise
 
 
@@ -91,7 +126,7 @@ def upgrade(root):
         raise RuntimeError('请先确认没有运行任务并在维护连接中停止 Fork Connector；本脚本不停止在线任务。')
     python = VENV / 'bin/python'
     current = run([python, '-c', 'from importlib.metadata import version; print(version("anywhere-cli"))'])
-    if current not in ('2.5.4', '2.5.5', '2.6.0', '2.6.1', VERSION):
+    if current not in ('2.5.4', '2.5.5', '2.6.0', '2.6.1', '2.6.2', VERSION):
         raise RuntimeError('Connector 来源版本未经验证；未修改服务。')
     if VENV.is_symlink() and (not VENV.resolve().is_relative_to(VENV.parent) or not VENV.resolve().name.startswith('.venv')):
         raise RuntimeError('Connector 环境链接目标未经验证；未修改服务。')
@@ -117,8 +152,12 @@ def upgrade(root):
                  str(VENV / 'bin/python'), '-c',
                  'from connector.core.fork_profile import validate_fork_environment, broker_executable; validate_fork_environment(); assert broker_executable("claude") and broker_executable("codex")'])
     try:
+        install_native_cleanup(root, manifest, unit)
         switch(VENV, new, backup, validate=validate)
     except BaseException:
+        if VENV.resolve() != new:
+            shutil.rmtree(new)
+            run(['systemctl', 'start', SERVICE])
         print('新版启动失败，已尝试恢复原环境和原服务。', file=sys.stderr)
         raise
     print(json.dumps({'status': 'ok', 'release': VERSION + '-fork', 'connectorVersion': VERSION, 'previousVersion': current, 'backup': str(backup), 'environment': str(new)}, ensure_ascii=False))

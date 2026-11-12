@@ -176,13 +176,17 @@ export class DashboardApi {
     return this.client.get(`/projects/${encodeURIComponent(projectId)}/deletion-preview`, { token });
   }
 
+  abandonHistoryCleanup(token: string, id: string, project: boolean): Promise<void> {
+    return this.client.post(`/${project ? "projects" : "sessions"}/${encodeURIComponent(id)}/contents/abandon`, {}, { token });
+  }
+
   deleteSession(token: string, sessionId: string): Promise<void> {
-    return this.client.delete(`/sessions/${encodeURIComponent(sessionId)}`, { token });
+    return this.client.delete(`/sessions/${encodeURIComponent(sessionId)}/contents`, { token });
   }
 
   deleteProject(token: string, projectId: string, expectedSessionCount?: number): Promise<ProjectDeleteResponse> {
     return this.client.delete<ProjectDeleteResponse>(
-      `/projects/${encodeURIComponent(projectId)}`,
+      `/projects/${encodeURIComponent(projectId)}/contents`,
       { token, query: { expectedSessionCount } },
     );
   }

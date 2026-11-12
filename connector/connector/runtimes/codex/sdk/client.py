@@ -23,6 +23,8 @@ from openai_codex.generated.v2_all import (
     SandboxPolicy,
     SortDirection,
     TextUserInput,
+    ThreadArchiveResponse,
+    ThreadDeleteResponse,
     ThreadResumeParams,
     ThreadSortKey,
     ThreadStartParams,
@@ -867,6 +869,20 @@ class CodexSdkClient:
             response_model=CodexSettingsUpdateResponse,
         )
         return True
+
+    async def delete_thread_history(self, thread_id: str) -> None:
+        request = await self._settings_request()
+        if request is None:
+            raise RuntimeError("native_history_deletion_unsupported")
+        # An already archived thread returns "no rollout found" from archive in CLI 0.166.
+        # Still issue delete: archive absence alone never proves the history was erased.
+        for method, model in (("thread/archive", ThreadArchiveResponse), ("thread/delete", ThreadDeleteResponse)):
+            try:
+                await request(method, {"threadId": thread_id}, response_model=model)
+            except JsonRpcError as error:
+                text = str(error).lower()
+                if "thread not found" not in text and "no rollout found" not in text:
+                    raise
 
     async def _settings_request(self) -> Callable[..., Awaitable[Any]] | None:
         await ensure_codex_initialized(self._client)

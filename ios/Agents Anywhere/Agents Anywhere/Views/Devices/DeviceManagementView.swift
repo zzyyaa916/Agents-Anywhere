@@ -121,6 +121,7 @@ struct DeviceManagementView: View {
                 .padding(.top, 8)
         }
         .onChange(of: allSessions, initial: true) { _, values in model.updateSessions(connectorId: connector.id, allSessions: values) }
+        .safeAreaInset(edge: .bottom) { HistoryCleanupRecoveryView(repository: dashboard) }
         .onChange(of: model.errorMessage, initial: true) { _, error in report(error, source: "device") }
         .onChange(of: dashboard.error, initial: true) { _, error in report(error, source: "sync") }
         .sheet(isPresented: $createsProject) { ProjectEditorSheet(repository: dashboard, connectorID: connector.id) }
@@ -169,7 +170,7 @@ struct DeviceManagementView: View {
                 }
             }
         } message: {
-            Text(projectActionIsDeletion ? String(localized: "Only empty projects can be deleted. Files on the device are kept.") :
+            Text(projectActionIsDeletion ? String(localized: "Permanently delete this project, all sessions, native AI history, attachments and its entire directory on the device. This cannot be undone.") :
                 String(localized: "Archive all sessions in \(pendingProject?.name ?? "")? The project will remain available for future sessions."))
         }
     }

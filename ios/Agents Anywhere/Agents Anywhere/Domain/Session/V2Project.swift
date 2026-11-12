@@ -23,6 +23,7 @@ nonisolated struct V2ProjectSessionCounts: Codable, Hashable {
 
 nonisolated struct V2ProjectListResponse: Decodable { let projects: [V2Project]; let serverTime: String }
 nonisolated struct V2ProjectResponse: Decodable { let project: V2Project; let serverTime: String }
+nonisolated struct V2ProjectDeletionPreview: Decodable { let sessionCount: Int }
 nonisolated struct V2ProjectDeleteResponse: Decodable { let projectId: String; let detachedSessions: Int }
 nonisolated struct V2ProjectCreateRequest: Encodable {
     let name: String

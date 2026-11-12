@@ -1423,8 +1423,8 @@
     "historyDelete": {
       "projectTitle": "Delete project",
       "sessionTitle": "Delete session",
-      "projectDescription": "Permanently delete “{name}” and all {count} sessions, messages and attachments. This cannot be undone. Type the project name to confirm.",
-      "sessionDescription": "Permanently delete “{name}” and its messages, timeline and attachments. This cannot be undone.",
+      "projectDescription": "Permanently delete “{name}”, all {count} sessions, native history, attachments, and the entire project directory on the device. This cannot be undone. Type the project name to confirm.",
+      "sessionDescription": "Permanently delete “{name}”, server and device session data, native history, attachments, and private session files. Shared project files remain. This cannot be undone.",
       "confirmName": "Type the project name to confirm deletion",
       "confirm": "Delete",
       "deleting": "Deleting…",
@@ -1433,7 +1433,11 @@
       "running": "A session is running. Stop it first.",
       "countChanged": "The session count changed. Check again and confirm.",
       "failed": "Deletion did not finish. Please retry.",
-      "reload": "Check again"
+      "reload": "Check again",
+      "abandon": "Abandon remaining device cleanup",
+      "abandonConfirm": "Keep remaining files and abandon cleanup",
+      "abandonWarning": "Deleted data cannot be restored. Remaining device files and native history will be kept, and the project path will be unlocked. Abandon remaining cleanup?",
+      "abandonFailed": "Cancellation was not confirmed. Connect the device and retry; file and path protections remain."
     }
   },
   "desktopConnector": {

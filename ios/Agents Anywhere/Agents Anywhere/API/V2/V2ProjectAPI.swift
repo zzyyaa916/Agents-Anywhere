@@ -12,8 +12,12 @@ struct V2ProjectAPI {
     func update(_ id: String, _ body: V2ProjectPatchRequest) async throws -> V2ProjectResponse {
         try await transport.send(HTTPRequest<V2ProjectPatchRequest, V2ProjectResponse>(method: .patch, path: path(id), body: body))
     }
+    func abandonCleanup(_ id: String) async throws {
+        let _: EmptyResponse = try await transport.send(HTTPRequest<EmptyRequestBody, EmptyResponse>(method: .post, path: path(id) + "/contents/abandon"))
+    }
     func delete(_ id: String) async throws {
-        let _: V2ProjectDeleteResponse = try await transport.send(HTTPRequest<EmptyRequestBody, V2ProjectDeleteResponse>(method: .delete, path: path(id)))
+        let preview: V2ProjectDeletionPreview = try await transport.send(HTTPRequest<EmptyRequestBody, V2ProjectDeletionPreview>(method: .get, path: path(id) + "/deletion-preview"))
+        let _: V2ProjectDeleteResponse = try await transport.send(HTTPRequest<EmptyRequestBody, V2ProjectDeleteResponse>(method: .delete, path: path(id) + "/contents", queryItems: [URLQueryItem(name: "expectedSessionCount", value: String(preview.sessionCount))]))
     }
     func sessions(_ id: String, archived: Bool, cursor: String?) async throws -> V2SessionListResponse {
         var query = [URLQueryItem(name: "archived", value: String(archived)), URLQueryItem(name: "limit", value: "100")]

@@ -7,6 +7,7 @@ from connector.account_usage import (
     UsageUnavailable,
     codex_windows,
     identity,
+    window,
 )
 
 
@@ -243,3 +244,32 @@ async def test_usage_cancellation_propagates(tmp_path):
     collector = LocalAccountUsage(KV(), home=tmp_path, codex_factory=cancelled)
     with pytest.raises(asyncio.CancelledError):
         await collector.identify("codex")
+
+
+@pytest.mark.parametrize("latest_age, expected_stale", [(0, False), (299, False), (300, True)])
+def test_claude_cache_filters_expired_windows_and_uses_latest_observation(latest_age, expected_stale):
+    now = 2000000000
+    kv = KV()
+    service = LocalAccountUsage(kv, clock=lambda: now)
+    kv.set("native-claude-usage/account", {"windows": {
+        "seven_day_opus": {"window": window("weekly_scoped", 90, now - 1, 10080, "opus"), "observed_at": now - 7200},
+        "seven_day": {"window": window("seven_day", 28, now + 86400, 10080), "observed_at": now - 600},
+        "five_hour": {"window": window("five_hour", 71, now + 3600, 300), "observed_at": now - latest_age},
+    }})
+    windows, observed_at, stale = service._claude_cached_usage("account")
+    assert [item["kind"] for item in windows] == ["seven_day", "five_hour"]
+    assert [item["used_percent"] for item in windows] == [28, 71]
+    assert observed_at == now - latest_age
+    assert stale is expected_stale
+
+
+@pytest.mark.parametrize("reset_offset", [-1, 0])
+def test_claude_cache_with_only_reset_windows_is_unavailable(reset_offset):
+    now = 2000000000
+    kv = KV()
+    service = LocalAccountUsage(kv, clock=lambda: now)
+    kv.set("native-claude-usage/account", {"windows": {
+        "five_hour": {"window": window("five_hour", 71, now + reset_offset, 300), "observed_at": now},
+    }})
+    with pytest.raises(UsageUnavailable, match="unavailable"):
+        service._claude_cached_usage("account")

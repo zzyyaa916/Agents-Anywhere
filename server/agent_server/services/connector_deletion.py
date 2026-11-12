@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import TYPE_CHECKING
 
 from loguru import logger
@@ -80,7 +81,13 @@ class ConnectorDeletionRecovery:
         if callable(pending):
             for audit in await pending():
                 try:
-                    await cleanup_deleted_history(self._store, self._timeline_buffer, self._runtime_state_cache, [audit], self._terminals)
+                    if audit.get("device_cleanup_json"):
+                        connector_id = json.loads(audit["device_cleanup_json"])["request"]["connectorId"]
+                        async with self._store.connector_lifecycle(connector_id):
+                            current = await pending(object_id=audit["object_id"], project=audit["object_type"] == "project", user_id=audit["user_id"])
+                            await cleanup_deleted_history(self._store, self._timeline_buffer, self._runtime_state_cache, current, self._terminals, self._manager)
+                    else:
+                        await cleanup_deleted_history(self._store, self._timeline_buffer, self._runtime_state_cache, [audit], self._terminals, self._manager)
                 except Exception:
                     logger.warning("history deletion cleanup deferred object_id={}", audit["object_id"])
         # Only explicit pending deletions (2), never legacy revoked credentials (1).

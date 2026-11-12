@@ -4,6 +4,7 @@ import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
+from agent_server.infra.connector_rpc import ConnectorOfflineError
 from agent_server.core.history_deletion import SessionDeletedError
 from agent_server.core.models import SessionRuntimeState
 from agent_server.core.utc import utc_now
@@ -243,9 +244,8 @@ def test_storage_failure_does_not_report_success_and_can_retry(api, monkeypatch)
         "delete_session",
         AsyncMock(side_effect=OSError("synthetic storage failure")),
     )
-    response = client.delete(f"/sessions/{sid}", headers=headers)
-    assert response.status_code == 503
-    assert response.json()["detail"]["code"] == "deletion_cleanup_failed"
+    with pytest.raises(OSError, match="synthetic storage failure"):
+        client.delete(f"/sessions/{sid}", headers=headers)
     assert client.get(f"/sessions/{sid}/meta", headers=headers).status_code == 200
     monkeypatch.setattr(files, "delete_session", original)
     assert client.delete(f"/sessions/{sid}", headers=headers).status_code == 204
@@ -258,7 +258,8 @@ def test_cache_cleanup_failure_persists_retry_across_recovery(api, monkeypatch):
     monkeypatch.setattr(
         cache, "discard", AsyncMock(side_effect=OSError("synthetic cache failure"))
     )
-    assert client.delete(f"/sessions/{sid}", headers=headers).status_code == 503
+    with pytest.raises(OSError, match="synthetic cache failure"):
+        client.delete(f"/sessions/{sid}", headers=headers)
     assert client.get(f"/sessions/{sid}/meta", headers=headers).status_code == 404
     monkeypatch.setattr(cache, "discard", original)
     # Same request can finish cleanup despite the business row being gone.
@@ -381,7 +382,8 @@ def test_background_recovery_finishes_durable_pending_cleanup(api, monkeypatch):
     monkeypatch.setattr(
         cache, "discard", AsyncMock(side_effect=OSError("synthetic failure"))
     )
-    assert client.delete(f"/sessions/{sid}", headers=headers).status_code == 503
+    with pytest.raises(OSError, match="synthetic failure"):
+        client.delete(f"/sessions/{sid}", headers=headers)
     monkeypatch.setattr(cache, "discard", original)
 
     async def recover():
@@ -499,3 +501,137 @@ def test_late_terminal_root_cannot_recreate_deleted_session_data(api):
         )
 
     asyncio.run(late())
+
+
+def device_cleanup(api, tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from connector.core.json_kv import JsonKeyValueStore
+    from connector.server.history_cleanup import HistoryCleanup
+    client, headers, device, project, sid = setup_history(api)
+    directory = tmp_path / "project"; directory.mkdir(); (directory / "source.txt").write_text("project data")
+    home = tmp_path / "home"; home.mkdir()
+    data = home / ".agents-anywhere-fork"; data.mkdir()
+    native = SimpleNamespace(prepare_history_deletion=AsyncMock(), delete_session_history=AsyncMock())
+    worker = HistoryCleanup(device, lambda _: native, kv=JsonKeyValueStore(data / "kv.json"), data_dir=data, home=home)
+    async def configure():
+        async with client.app.state.store.engine.begin() as conn:
+            await conn.execute(update(db.projects).where(db.projects.c.id == project).values(workspace_path=str(directory), workspace_key=str(directory)))
+    asyncio.run(configure())
+    async def rpc(connector, method, params, **kwargs):
+        assert connector == device
+        if method == "history.cleanup.prepare": return await worker.prepare(params)
+        if method == "history.cleanup.commit": return await worker.commit(params)
+        return await worker.release(params, cancel=method.endswith("cancel"))
+    request = AsyncMock(side_effect=rpc)
+    monkeypatch.setattr(client.app.state.rpc, "request", request)
+    return client, headers, project, sid, directory, native, request, rpc
+
+
+def test_complete_session_deletion_cleans_native_data_but_keeps_project_files(api, tmp_path, monkeypatch):
+    client, headers, project, sid, directory, native, request, _ = device_cleanup(api, tmp_path, monkeypatch)
+    result = client.delete(f"/sessions/{sid}/contents", headers=headers)
+    assert result.status_code == 204, result.text
+    native.delete_session_history.assert_awaited_once()
+    assert request.await_count == 3
+    assert directory.exists() and (directory / "source.txt").exists()
+    assert client.get(f"/sessions/{sid}/meta", headers=headers).status_code == 404
+    assert any(item["id"] == project for item in client.get("/projects", headers=headers).json()["projects"])
+
+
+def test_offline_device_never_turns_full_deletion_into_record_only_deletion(api, tmp_path, monkeypatch):
+    client, headers, project, sid, directory, native, request, _ = device_cleanup(api, tmp_path, monkeypatch)
+    request.side_effect = ConnectorOfflineError("device offline")
+    result = client.delete(f"/projects/{project}/contents?expectedSessionCount=1", headers=headers)
+    assert result.status_code == 503
+    assert client.get(f"/sessions/{sid}/meta", headers=headers).status_code == 200
+    assert directory.exists()
+    native.delete_session_history.assert_not_awaited()
+
+
+def test_interrupted_device_cleanup_is_durable_and_retry_removes_the_project_directory(api, tmp_path, monkeypatch):
+    client, headers, project, sid, directory, native, request, rpc = device_cleanup(api, tmp_path, monkeypatch)
+    store = client.app.state.store
+    owner = asyncio.run(store.get_session_user_id(sid))
+    connector = asyncio.run(store.get_session(sid)).connectorId
+    async def disconnect_after_commit(connector, method, params, **kwargs):
+        if method.endswith("commit"): raise ConnectorOfflineError("lost connection after SQL deletion")
+        return await rpc(connector, method, params, **kwargs)
+    request.side_effect = disconnect_after_commit
+    result = client.delete(f"/projects/{project}/contents?expectedSessionCount=1", headers=headers)
+    assert result.status_code == 503 and directory.exists()
+    async def verify_pending():
+        audits = await store.pending_history_cleanup(object_id=project, project=True, user_id=owner)
+        assert len(audits) == 1 and audits[0]["device_cleanup_json"]
+        with pytest.raises(SessionDeletedError):
+            await store.create_project(user_id=owner, connector_id=connector, name="new", workspace_path=str(directory))
+    asyncio.run(verify_pending())
+    request.side_effect = rpc
+    result = client.delete(f"/projects/{project}/contents?expectedSessionCount=1", headers=headers)
+    assert result.status_code == 200, result.text
+    assert result.json()["deletedSessions"] == 1
+    assert not directory.exists()
+    native.delete_session_history.assert_awaited_once()
+    async def verify_done():
+        async with store.engine.connect() as conn:
+            audit = (await conn.execute(select(db.history_deletion_audit).where(db.history_deletion_audit.c.object_id == project))).mappings().one()
+            assert audit["cleanup_pending"] == 0 and audit["device_cleanup_json"] is None
+        await store.create_project(user_id=owner, connector_id=connector, name="new", workspace_path=str(directory))
+    asyncio.run(verify_done())
+
+
+def test_legacy_endpoint_can_retry_full_device_cleanup(api, tmp_path, monkeypatch):
+    client, headers, project, sid, directory, native, request, rpc = device_cleanup(api, tmp_path, monkeypatch)
+    async def fail_commit(connector, method, params, **kwargs):
+        if method.endswith("commit"): raise ConnectorOfflineError("offline")
+        return await rpc(connector, method, params, **kwargs)
+    request.side_effect = fail_commit
+    assert client.delete(f"/projects/{project}/contents?expectedSessionCount=1", headers=headers).status_code == 503
+    request.side_effect = rpc
+    result = client.delete(f"/projects/{project}", headers=headers)
+    assert result.status_code == 200, result.text
+    assert not directory.exists()
+
+
+def test_abandon_cleanup_preserves_replaced_directory_and_unlocks_path(api, tmp_path, monkeypatch):
+    client, headers, project, sid, directory, native, request, rpc = device_cleanup(api, tmp_path, monkeypatch)
+    store = client.app.state.store
+    owner = asyncio.run(store.get_session_user_id(sid))
+    connector = asyncio.run(store.get_session(sid)).connectorId
+    async def replace_after_prepare(connector, method, params, **kwargs):
+        if method.endswith("commit"):
+            directory.rename(directory.with_name("original")); directory.mkdir()
+            (directory / "new").write_text("keep this")
+            from agent_server.infra.connector_rpc import ConnectorRpcError
+            try: return await rpc(connector, method, params, **kwargs)
+            except ValueError as error: raise ConnectorRpcError("invalid_request", str(error)) from error
+        return await rpc(connector, method, params, **kwargs)
+    request.side_effect = replace_after_prepare
+    assert client.delete(f"/projects/{project}/contents", headers=headers).status_code == 503
+    request.side_effect = rpc
+    response = client.post(f"/projects/{project}/contents/abandon", headers=headers)
+    assert response.status_code == 204, response.text
+    assert (directory / "new").read_text() == "keep this"
+    native.delete_session_history.assert_not_awaited()
+    asyncio.run(store.create_project(user_id=owner, connector_id=connector, name="reused", workspace_path=str(directory)))
+
+
+def test_unexpected_prepare_error_is_not_reported_as_offline_device(api, tmp_path, monkeypatch):
+    client, headers, project, sid, directory, native, request, _ = device_cleanup(api, tmp_path, monkeypatch)
+    request.side_effect = RuntimeError("programming defect")
+    with pytest.raises(RuntimeError, match="programming defect"):
+        client.delete(f"/projects/{project}/contents", headers=headers)
+    assert directory.exists()
+
+
+def test_lost_release_ack_is_retryable_without_repeating_native_deletion(api, tmp_path, monkeypatch):
+    client, headers, project, sid, directory, native, request, rpc = device_cleanup(api, tmp_path, monkeypatch)
+    async def lose_release_ack(connector, method, params, **kwargs):
+        result = await rpc(connector, method, params, **kwargs)
+        if method.endswith("release"): raise ConnectorOfflineError("ack lost")
+        return result
+    request.side_effect = lose_release_ack
+    assert client.delete(f"/projects/{project}/contents", headers=headers).status_code == 503
+    assert not directory.exists()
+    request.side_effect = rpc
+    assert client.delete(f"/projects/{project}/contents", headers=headers).status_code == 200
+    native.delete_session_history.assert_awaited_once()

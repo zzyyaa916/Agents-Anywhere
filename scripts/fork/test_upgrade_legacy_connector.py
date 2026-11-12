@@ -75,9 +75,9 @@ class SwitchTests(unittest.TestCase):
 class InstallPackageTests(unittest.TestCase):
     def test_verified_wheel_is_installed_without_network_or_build_dependencies(self):
         calls = []
-        module['install_package'](Path('/bundle'), {'files': {'anywhere_cli-2.6.2-py3-none-any.whl': 'verified'}}, '/uv', Path('/new/bin/python'), lambda args, **kw: calls.append((args, kw)))
+        module['install_package'](Path('/bundle'), {'files': {'anywhere_cli-2.6.3-py3-none-any.whl': 'verified'}}, '/uv', Path('/new/bin/python'), lambda args, **kw: calls.append((args, kw)))
         self.assertIn('--no-index', calls[0][0])
-        self.assertEqual('/bundle/anywhere_cli-2.6.2-py3-none-any.whl', calls[0][0][-1])
+        self.assertEqual('/bundle/anywhere_cli-2.6.3-py3-none-any.whl', calls[0][0][-1])
         self.assertTrue(calls[0][1]['check'])
 
     def test_unlisted_wheel_is_not_trusted(self):
@@ -111,3 +111,38 @@ class PrepareEnvironmentTests(unittest.TestCase):
                         module["prepare_environment"](root, {"files": {}}, "uv", old, new)
                 self.assertFalse(new.exists())
                 self.assertEqual((old / "auth.json").read_text(), "synthetic-native-login")
+
+
+class NativeCleanupUpgradeTests(unittest.TestCase):
+    def test_broker_install_and_restart_failure_restore_both_files(self):
+        import os
+        for fail in (False, True):
+            with self.subTest(fail=fail), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                broker, helper = root / "broker", root / "helper"
+                broker.write_bytes(b"old broker"); helper.write_bytes(b"old helper")
+                (root / "runtime-broker.py").write_bytes(b"new broker")
+                (root / "native-history-cleanup.py").write_bytes(b"new helper")
+                manifest = {"files": {"runtime-broker.py": "verified", "native-history-cleanup.py": "verified"}}
+                calls = []
+                def command(args):
+                    calls.append(args)
+                    if args[1] == "show": return str(broker)
+                    if fail and args[1] == "is-active": raise RuntimeError("restart failed")
+                    return ""
+                actual_stat = Path.stat
+                def root_owned(path, *args, **kwargs):
+                    result = actual_stat(path, *args, **kwargs)
+                    if path == broker:
+                        values = list(result); values[4] = 0
+                        return os.stat_result(values)
+                    return result
+                with patch.object(Path, "stat", root_owned), patch("os.chown"):
+                    if fail:
+                        with self.assertRaisesRegex(RuntimeError, "restart failed"):
+                            module["install_native_cleanup"](root, manifest, "AA_FORK_RUNTIME_BROKER=1", command, broker=broker, helper=helper)
+                    else:
+                        module["install_native_cleanup"](root, manifest, "AA_FORK_RUNTIME_BROKER=1", command, broker=broker, helper=helper)
+                self.assertEqual(broker.read_bytes(), b"old broker" if fail else b"new broker")
+                self.assertEqual(helper.read_bytes(), b"old helper" if fail else b"new helper")
+                self.assertEqual((root / "runtime-broker.before.py").read_bytes(), b"old broker")

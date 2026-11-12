@@ -59,8 +59,10 @@ class ConnectorRequestDispatcher:
             schedule_background=schedule_background,
         )
         self.account_usage_rpc = AccountUsageRpc(agent_runtime_supervisor, agent_runtime_host)
+        self._history_cleanup = None
         self._default_session = self.new_session()
         self.runtime_rpc = self._default_session.runtime_rpc
+        self._history_cleanup = self.runtime_rpc.history_cleanup
 
     def new_session(self) -> ConnectorRequestSession:
         session = ConnectorRequestSession(
@@ -68,6 +70,7 @@ class ConnectorRequestDispatcher:
                 agent_runtime_supervisor=self._agent_runtime_supervisor,
                 agent_runtime_host=self._agent_runtime_host,
                 schedule_background=self._schedule_background,
+                history_cleanup=self._history_cleanup,
             ),
             local_rpc=self.local_rpc,
         )

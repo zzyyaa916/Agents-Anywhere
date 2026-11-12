@@ -11,12 +11,16 @@ class ForkApi(private val client: ApiClient) {
     fun deletionCount(server: String, token: String, project: String): Int =
         client.getJson(server, "/projects/${project.urlEncode()}/deletion-preview", token).getInt("sessionCount")
 
+    fun abandonCleanup(server: String, token: String, id: String, project: Boolean) {
+        client.postJson(server, "/${if (project) "projects" else "sessions"}/${id.urlEncode()}/contents/abandon", JSONObject(), token)
+    }
+
     fun deleteSession(server: String, token: String, id: String) {
-        client.deleteJson(server, "/sessions/${id.urlEncode()}", token)
+        client.deleteJson(server, "/sessions/${id.urlEncode()}/contents", token)
     }
 
     fun deleteProject(server: String, token: String, id: String, count: Int) {
-        client.deleteJson(server, "/projects/${id.urlEncode()}?expectedSessionCount=$count", token)
+        client.deleteJson(server, "/projects/${id.urlEncode()}/contents?expectedSessionCount=$count", token)
     }
 
     fun quota(server: String, token: String, id: String, recheck: Boolean): JSONObject? =

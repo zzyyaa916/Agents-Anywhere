@@ -15,18 +15,27 @@ class ForkApiTest {
             assertEquals(123, count); assertEquals("GET", server.takeRequest().method)
             api.deleteProject(url, "synthetic", "project a", count)
             val request = server.takeRequest(); assertEquals("DELETE", request.method)
-            assertTrue(request.path!!.contains("expectedSessionCount=123")); assertTrue(request.path!!.contains("project%20a") || request.path!!.contains("project+a"))
+            assertTrue(request.path!!.contains("/contents?")); assertTrue(request.path!!.contains("expectedSessionCount=123")); assertTrue(request.path!!.contains("project%20a") || request.path!!.contains("project+a"))
         }
     }
     @Test fun sessionDeletionHandles204AndBusyIds() {
         MockWebServer().use { server ->
             server.enqueue(MockResponse().setResponseCode(204))
             val api = ForkApi(ApiClient()); val url = server.url("/").toString()
-            api.deleteSession(url, "synthetic", "sess_1"); server.takeRequest()
+            api.deleteSession(url, "synthetic", "sess_1"); assertEquals("/api/v2/sessions/sess_1/contents", server.takeRequest().path)
             server.enqueue(MockResponse().setResponseCode(409).setHeader("Content-Type", "application/json").setBody("""{"detail":{"code":"session_running","sessionIds":["sess_2"]}}"""))
             try { api.deleteSession(url, "synthetic", "sess_2"); fail("must reject busy deletion") } catch (error: ApiException) {
                 assertEquals(409, error.statusCode); assertEquals(listOf("sess_2"), error.blockingSessionIds)
             }
+        }
+    }
+    @Test fun cleanupAbandonmentUsesExplicitPost() {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setResponseCode(204))
+            ForkApi(ApiClient()).abandonCleanup(server.url("/").toString(), "synthetic", "project a", true)
+            val request = server.takeRequest()
+            assertEquals("POST", request.method)
+            assertTrue(request.path!!.endsWith("/contents/abandon"))
         }
     }
     @Test fun usageAndQuotaUseOnlyServerCacheRoutes() {

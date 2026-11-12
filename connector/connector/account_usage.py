@@ -281,12 +281,16 @@ class LocalAccountUsage:
 
     def _claude_cached_usage(self, account_key):
         value = self.kv.get("native-claude-usage/" + account_key) or {}
-        observations = list((value.get("windows") or {}).values())
+        now = self.clock()
+        observations = [
+            item for item in (value.get("windows") or {}).values()
+            if datetime.fromisoformat(item["window"]["resets_at"]).timestamp() > now
+        ]
         if not observations:
             raise UsageUnavailable("unavailable")
         windows = [item["window"] for item in observations]
-        observed_at = min(item["observed_at"] for item in observations)
-        stale = self.clock() - observed_at >= MINIMUM["claude_code"] or any(datetime.fromisoformat(w["resets_at"]).timestamp() <= self.clock() for w in windows)
+        observed_at = max(item["observed_at"] for item in observations)
+        stale = now - observed_at >= MINIMUM["claude_code"]
         return windows, observed_at, stale
 
     async def collect(self, runtime, expected_account_key, executable=None):

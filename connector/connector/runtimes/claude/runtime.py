@@ -200,6 +200,47 @@ class ClaudeRuntime(AgentRuntime):
             external_session_id,
         )
 
+    async def _delete_native_history(self, target, *, commit=False):
+        import asyncio
+        import json
+        import os
+        import subprocess
+        from pathlib import Path
+        from connector.core.fork_profile import broker_executable
+        from connector.native_cli import claude_command
+        from connector.runtimes.claude.history.deletion import cleanup_claude_history
+        from connector.runtimes.claude.sdk.client import claude_sdk_environment
+        external = target["externalSessionId"]
+        if broker_executable("claude"):
+            args = claude_command(["--aa-history-delete", "commit" if commit else "prepare", external])
+            result = await asyncio.to_thread(subprocess.run, args, capture_output=True, text=True, timeout=30)
+            if result.returncode:
+                raise RuntimeError("native_history_cleanup_requires_updated_broker_or_permissions")
+            value = json.loads(result.stdout)
+            if value.get("complete" if commit else "prepared") is not True:
+                raise RuntimeError("native_history_cleanup_incomplete")
+            return
+        environment = claude_sdk_environment(self.config.values)
+        root = Path(environment.get("CLAUDE_CONFIG_DIR", os.environ.get("CLAUDE_CONFIG_DIR", str(Path.home() / ".claude"))))
+        await asyncio.to_thread(cleanup_claude_history, root, external, commit=commit)
+
+    async def prepare_history_deletion(self, target):
+        state = await self.get_session_state(target["sessionId"], target["externalSessionId"])
+        if state and state.status in {"running", "pending", "waiting", "waiting_approval", "stopping"}:
+            raise RuntimeError("native_session_in_use")
+        await self._delete_native_history(target)
+
+    async def delete_session_history(self, target):
+        await self.prepare_history_deletion(target)
+        connection = self._turns.runner.connections.get(target["sessionId"])
+        if connection is not None:
+            await connection.close()
+        await self._delete_native_history(target, commit=True)
+        self._pending_messages.delete_unresolved_session(target["sessionId"])
+        self._sessions.pop(target["sessionId"], None)
+        if self.goals is not None:
+            await self.goals.forget(target["sessionId"])
+
     async def get_session_notices(
         self,
         session_id: str,

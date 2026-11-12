@@ -27,7 +27,12 @@ class HistoryDeletionConflict(ValueError):
             "code": code,
             "message": "会话正在运行，请先停止"
             if code == "session_running"
+            else "此原生会话仍被其他会话引用，不能单独删除" if code == "shared_native_history"
             else "会话数量已变化，请重新确认",
             "sessionIds": session_ids,
         }
         super().__init__(self.detail["message"])
+
+
+class DeviceCleanupIncomplete(RuntimeError):
+    """The device did not acknowledge the requested cleanup phase."""

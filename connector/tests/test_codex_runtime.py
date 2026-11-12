@@ -5614,11 +5614,12 @@ async def _test_codex_runtime_merges_v1_bindings_from_multiple_session_aliases(
     assert "platformItemId" not in migrated["bindings"][0]
 
 
-def test_codex_runtime_tags_live_steer_echo_with_client_message_id() -> None:
-    asyncio.run(_test_codex_runtime_tags_live_steer_echo_with_client_message_id())
+@pytest.mark.parametrize("raw_type", ["userMessage", "steeringUserMessage"])
+def test_codex_runtime_tags_live_steer_echo_with_client_message_id(raw_type: str) -> None:
+    asyncio.run(_test_codex_runtime_tags_live_steer_echo_with_client_message_id(raw_type))
 
 
-async def _test_codex_runtime_tags_live_steer_echo_with_client_message_id() -> None:
+async def _test_codex_runtime_tags_live_steer_echo_with_client_message_id(raw_type: str) -> None:
     client = FakeCodexClient()
     host = FakeHost()
     runtime = CodexRuntime(config=_config(), host=host, client=client)
@@ -5639,7 +5640,7 @@ async def _test_codex_runtime_tags_live_steer_echo_with_client_message_id() -> N
                 "turnId": "turn_new",
                 "item": {
                     "id": "item_steer_user",
-                    "type": "steeringUserMessage",
+                    "type": raw_type,
                     "text": "more context",
                 },
             },
@@ -5649,7 +5650,7 @@ async def _test_codex_runtime_tags_live_steer_echo_with_client_message_id() -> N
     item = host.timeline_item_upserts[-1]
     assert item.id == client_message_item_id("thread_1", "cm_steer_1")
     assert item.source["clientMessageId"] == "cm_steer_1"
-    assert item.source["rawType"] == "steeringUserMessage"
+    assert item.source["rawType"] == raw_type
     assert item.role == "user"
 
 

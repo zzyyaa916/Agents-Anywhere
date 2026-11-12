@@ -166,6 +166,12 @@ export class BridgeService {
   @mutates({ description: 'Send a message to an existing session.', request: payload, response: payload, inject: [callScope] })
   async startTurn(request: Payload, call: CallScope, context: RpcContext): Promise<Payload> { return this.forward('startTurn', request, call, context) }
 
+  @query({ description: 'Check whether native history can be permanently removed.', request: payload, response: payload, inject: [callScope] })
+  async prepareSessionDeletion(request: Payload, call: CallScope, context: RpcContext): Promise<Payload> { return this.forward('prepareSessionDeletion', request, call, context) }
+
+  @mutates({ description: 'Permanently erase a detached native session.', request: payload, response: payload, inject: [callScope] })
+  async deleteSessionHistory(request: Payload, call: CallScope, context: RpcContext): Promise<Payload> { return this.forward('deleteSessionHistory', request, call, context) }
+
   @mutates({ description: 'Interrupt the running turn of a session.', request: payload, response: payload, inject: [callScope] })
   async interruptSession(request: Payload, call: CallScope, context: RpcContext): Promise<Payload> { return this.forward('interruptSession', request, call, context) }
 

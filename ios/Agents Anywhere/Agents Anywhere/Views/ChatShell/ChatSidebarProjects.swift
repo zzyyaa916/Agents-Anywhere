@@ -72,6 +72,7 @@ struct ChatSidebarProjects: View {
                 sessionRows(unassigned, inset: false)
             }
         }
+        .safeAreaInset(edge: .bottom) { HistoryCleanupRecoveryView(repository: repository) }
         .sheet(isPresented: $createsProject) {
             ProjectEditorSheet(repository: repository) {
                 repository.sidebarPreferences.expandedProjects.insert($0.id)
@@ -91,7 +92,7 @@ struct ChatSidebarProjects: View {
                 }
             }
         } message: {
-            Text(action?.deletes == true ? String(localized: "只有没有会话的项目可以删除，设备上的文件会保留。") : String(localized: "Archive all sessions in \(action?.project.name ?? "")? The project will remain available for future sessions."))
+            Text(action?.deletes == true ? String(localized: "将永久删除项目、全部会话、AI 原生历史、附件和设备上的整个项目文件夹，无法撤销。") : String(localized: "Archive all sessions in \(action?.project.name ?? "")? The project will remain available for future sessions."))
         }
         .alert(String(localized: "操作未完成"), isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
             Button(String(localized: "好")) { error = nil }
@@ -231,5 +232,35 @@ struct ArchivedSessionsSheet: View {
         }
         .appSheetPresentation(.compact)
         .alert(String(localized: "无法恢复会话，请稍后重试。"), isPresented: $restoreError) { Button(String(localized: "好"), role: .cancel) {} }
+    }
+}
+
+
+struct HistoryCleanupRecoveryView: View {
+    @Bindable var repository: V2DashboardRepository
+    @State private var confirms = false
+    @State private var pending = false
+    @State private var failure: String?
+    var body: some View {
+        if repository.cleanupRecoveryProjectID != nil {
+            VStack {
+                if let failure { Text(failure).font(.footnote).foregroundStyle(.red) }
+                Button(String(localized: "Abandon remaining device cleanup")) { confirms = true }
+                    .disabled(pending || !repository.canWrite)
+            }.padding(8)
+            .alert(String(localized: "Abandon remaining device cleanup"), isPresented: $confirms) {
+                Button(String(localized: "Cancel"), role: .cancel) {}
+                Button(String(localized: "Keep remaining files and abandon cleanup"), role: .destructive) {
+                    pending = true
+                    Task {
+                        defer { pending = false }
+                        do { try await repository.abandonProjectCleanup() }
+                        catch { failure = error.localizedDescription }
+                    }
+                }
+            } message: {
+                Text(String(localized: "Deleted data cannot be restored. Remaining files and native history will be kept and the project path unlocked."))
+            }
+        }
     }
 }

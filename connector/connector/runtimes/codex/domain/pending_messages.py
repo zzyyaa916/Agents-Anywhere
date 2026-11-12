@@ -185,7 +185,7 @@ class PendingClientMessageRegistry:
                 continue
             if pending.turn_id and turn_id and pending.turn_id != turn_id:
                 continue
-            if pending.steering and raw_type != "steeringUserMessage":
+            if pending.steering and raw_type not in {"userMessage", "steeringUserMessage"}:
                 continue
             if not _text_matches(text, pending.text):
                 continue

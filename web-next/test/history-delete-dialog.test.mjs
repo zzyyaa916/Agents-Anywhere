@@ -121,3 +121,27 @@ test('a repeated click while deletion is pending sends only one request', async 
   await act(async () => { finish(); await delay(1) })
   assert.equal(ui.closed(), 1)
 })
+
+
+test('abandoning failed device cleanup requires a separate confirmation', async t => {
+  const calls = []
+  const ui = await render(t, {}, {
+    deleteSession: async () => { throw new ApiError({ status: 503, kind: 'http', detail: 'device unavailable', code: 'device_cleanup_incomplete' }) },
+    abandonHistoryCleanup: async (...args) => { calls.push(args) },
+  })
+  await click('删除')
+  assert.equal(ui.closed(), 0)
+  await click('放弃剩余设备清理')
+  assert.equal(calls.length, 0)
+  assert.match(document.body.textContent, /尚未删除的设备文件和原生历史将保留/)
+  await click('确认保留剩余文件并放弃清理')
+  assert.deepEqual(calls, [['object', false]])
+  assert.equal(ui.closed(), 1)
+})
+
+
+test('unexpected server errors never offer device cleanup abandonment', async t => {
+  await render(t, {}, { deleteSession: async () => { throw new ApiError({ status: 500, kind: 'http', detail: 'database failure' }) } })
+  await click('删除')
+  assert.equal(button('放弃剩余设备清理'), undefined)
+})

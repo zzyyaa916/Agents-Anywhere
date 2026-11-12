@@ -22,11 +22,13 @@ type Props = {
 export function HistoryDeleteDialog({ open, onOpenChange, id, name, project = false }: Props) {
   const t = useTranslations("dashboard.historyDelete")
   const common = useTranslations("common")
-  const { deleteProject, deleteSession, projectDeletionCount } = useWorkspace()
+  const { deleteProject, deleteSession, projectDeletionCount, abandonHistoryCleanup } = useWorkspace()
   const [count, setCount] = React.useState<number | null>(null)
   const [confirmation, setConfirmation] = React.useState("")
   const [pending, setPending] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
+  const [cleanupFailed, setCleanupFailed] = React.useState(false)
+  const [abandonConfirmed, setAbandonConfirmed] = React.useState(false)
   const [revision, setRevision] = React.useState(0)
   const submitting = React.useRef(false)
 
@@ -34,6 +36,8 @@ export function HistoryDeleteDialog({ open, onOpenChange, id, name, project = fa
     if (!open) return
     let cancelled = false
     setError(null)
+    setCleanupFailed(false)
+    setAbandonConfirmed(false)
     setCount(null)
     setConfirmation("")
     if (project) {
@@ -59,6 +63,7 @@ export function HistoryDeleteDialog({ open, onOpenChange, id, name, project = fa
       }
       onOpenChange(false)
     } catch (cause) {
+      setCleanupFailed(isApiError(cause) && ["device_cleanup_incomplete", "deletion_cleanup_failed"].includes(cause.code ?? ""))
       if (isApiError(cause) && cause.code === "session_running") {
         const payload = cause.payload as { detail?: { sessionIds?: unknown } } | undefined
         const ids = payload?.detail?.sessionIds
@@ -75,6 +80,18 @@ export function HistoryDeleteDialog({ open, onOpenChange, id, name, project = fa
       submitting.current = false
       setPending(false)
     }
+  }
+
+  const abandon = async () => {
+    if (submitting.current) return
+    if (!abandonConfirmed) { setAbandonConfirmed(true); return }
+    submitting.current = true
+    setPending(true)
+    try {
+      await abandonHistoryCleanup(id, project)
+      onOpenChange(false)
+    } catch { setError(t("abandonFailed")) }
+    finally { submitting.current = false; setPending(false) }
   }
 
   return (
@@ -95,7 +112,9 @@ export function HistoryDeleteDialog({ open, onOpenChange, id, name, project = fa
           autoComplete="off"
         />}
         {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+        {abandonConfirmed && <p role="alert" className="text-sm text-destructive">{t("abandonWarning")}</p>}
         <AlertDialogFooter>
+          {cleanupFailed && <Button variant="outline" disabled={pending} onClick={() => void abandon()}>{t(abandonConfirmed ? "abandonConfirm" : "abandon")}</Button>}
           <AlertDialogCancel disabled={pending}>{common("cancel")}</AlertDialogCancel>
           {project && count === null && error && <Button variant="outline" onClick={() => setRevision((value) => value + 1)}>{t("reload")}</Button>}
           <Button variant="destructive" onClick={() => void submit()} disabled={pending || (project && (count === null || confirmation !== name))}>

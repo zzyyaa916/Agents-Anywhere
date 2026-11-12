@@ -38,17 +38,19 @@ def test_account_change_rejects_old_connection(native):
     assert not service.observe_claude_window(key, "five_hour", .2, 2000007200)
     assert service.kv.get("native-claude-usage/" + key) is None
 
-def test_merge_windows_restart_and_conservative_staleness(native):
+def test_merge_windows_restart_uses_latest_valid_observation(native):
     service, key, now, _ = native
     assert service.observe_claude_window(key, "seven_day", .3, now[0] + 86400)
     first = now[0]; now[0] += 301
     assert service.observe_claude_window(key, "five_hour", .1, now[0] + 3600)
     restarted = LocalAccountUsage(service.kv, home=service.home, clock=lambda: now[0])
     windows, observed, stale = restarted._claude_cached_usage(key)
-    assert len(windows) == 2 and stale and observed == first
+    assert len(windows) == 2 and not stale and observed == now[0]
     now[0] += 7200
-    windows, _, stale = restarted._claude_cached_usage(key)
-    assert stale and next(w for w in windows if w["kind"] == "five_hour")["remaining_percent"] == 90
+    windows, observed, stale = restarted._claude_cached_usage(key)
+    assert stale and observed == first
+    assert [w["kind"] for w in windows] == ["seven_day"]
+    assert windows[0]["remaining_percent"] == 70
     assert "account-a" not in service.kv.path.read_text()
 
 @pytest.mark.anyio

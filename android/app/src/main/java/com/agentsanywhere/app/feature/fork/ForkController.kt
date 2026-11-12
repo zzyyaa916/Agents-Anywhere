@@ -20,6 +20,7 @@ class ForkController(private val api: ForkApi, private val auth: AuthSessionRead
     val taskGroups = com.agentsanywhere.app.feature.taskgroups.TaskGroupsController(api.taskGroups, auth)
     suspend fun usage(refresh: Boolean = false) = request { s, t -> UsageCache.parse(api.usage(s, t, refresh)) }
     suspend fun deletionCount(id: String) = request { s, t -> api.deletionCount(s, t, id) }
+    suspend fun abandonCleanup(id: String, project: Boolean) = request { s, t -> api.abandonCleanup(s, t, id, project) }
     suspend fun deleteSession(id: String) = request { s, t -> api.deleteSession(s, t, id) }
     suspend fun deleteProject(id: String, count: Int) = request { s, t -> api.deleteProject(s, t, id, count) }
     suspend fun quota(id: String, recheck: Boolean = false) = request { s, t -> api.quota(s, t, id, recheck)?.let(QuotaWait::parse) }

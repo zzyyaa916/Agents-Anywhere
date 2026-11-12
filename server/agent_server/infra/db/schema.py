@@ -866,6 +866,7 @@ history_deletion_audit = Table(
     Column("object_id", Text, nullable=False),
     Column("session_count", Integer, nullable=False),
     Column("cleanup_pending", Integer, nullable=False, server_default="1"),
+    Column("device_cleanup_json", Text),
     Column("deleted_at", Text, nullable=False),
 )
 

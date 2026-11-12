@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from typing import Any, ClassVar
 
+from connector.core.runtime_owner import state_lock
+from connector.goals.store import GoalStore
 from connector.runtime_protocol import (
     AgentRuntime,
     RuntimeHostClient,
@@ -17,6 +20,7 @@ from connector.runtime_protocol.switch_fence import (
     SWITCH_FENCE_FEATURE,
 )
 from connector.runtime_protocol.workflows import RuntimeWorkflowRequest
+from connector.server.history_cleanup import HistoryCleanup
 from connector.server.runtime_rpc_params import (
     RuntimeCatalogParams,
     RuntimeConfigParams,
@@ -73,6 +77,10 @@ class RuntimeRpcHandler:
     """Route Runtime Control and Agent Runtime Protocol calls."""
 
     METHODS: ClassVar[set[str]] = {
+        "history.cleanup.prepare",
+        "history.cleanup.commit",
+        "history.cleanup.release",
+        "history.cleanup.cancel",
         "session.goal.forget",
         "session.goal.get",
         "session.goal.execute",
@@ -113,15 +121,42 @@ class RuntimeRpcHandler:
         agent_runtime_supervisor: RuntimeSupervisor,
         agent_runtime_host: RuntimeHostClient,
         schedule_background: BackgroundScheduler | None = None,
+        history_cleanup: HistoryCleanup | None = None,
     ) -> None:
         self.agent_runtime_supervisor = agent_runtime_supervisor
         self.agent_runtime_host = agent_runtime_host
         self.schedule_background = schedule_background
+        self.history_cleanup = history_cleanup or HistoryCleanup(agent_runtime_host.connector_id, self._resolve_agent_runtime, forget_session=self._forget_history_session)
+
+    async def _forget_history_session(self, target):
+        bound = await self.agent_runtime_host.prepare_runtime_host(target["runtimeId"])
+        kv = bound.runtime_kv
+        ids = {target["sessionId"], target.get("externalSessionId")} - {None}
+        # Delete complete identity path segments, never another session's prefix or shared account data.
+        with state_lock(kv.path):
+            document = kv.read_document()
+            for key in list(document["values"]):
+                if ids.intersection(re.split(r"[/\x00:]", key)):
+                    del document["values"][key]
+            kv.write_document(document)
+        goals = kv.path.parent / "goal.sqlite3"
+        if goals.is_file():
+            GoalStore(goals).delete(target["sessionId"], tombstone=True)
+        state = getattr(bound, "_sync_state_store", None)
+        if state and target.get("externalSessionId"):
+            state.delete(target["runtime"], self.agent_runtime_host.connector_id, target["externalSessionId"])
+            state.flush()
 
     def supports(self, method: str) -> bool:
         return method in self.METHODS or method in WORKFLOW_RPC
 
     async def dispatch(self, method: str, params: dict[str, Any]) -> Any:
+        if method in {"history.cleanup.release", "history.cleanup.cancel"}:
+            return await self.history_cleanup.release(params, cancel=method.endswith("cancel"))
+        if method == "history.cleanup.prepare":
+            return await self.history_cleanup.prepare(params)
+        if method == "history.cleanup.commit":
+            return await self.history_cleanup.commit(params)
         if method == "session.goal.forget":
             # Only an explicit Server deletion receipt can discard local goal data.
             session_ids = params.get("sessionIds")
@@ -129,7 +164,6 @@ class RuntimeRpcHandler:
                 isinstance(sid, str) for sid in session_ids
             ):
                 raise RuntimeInvalidRequestError("invalid_goal_deletion")
-            from connector.goals.store import GoalStore
 
             for runtime_id in self.agent_runtime_supervisor.runtimes:
                 if params.get("runtimeId") and params["runtimeId"] != runtime_id:

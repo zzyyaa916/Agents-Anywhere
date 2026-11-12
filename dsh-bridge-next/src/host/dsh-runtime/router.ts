@@ -187,6 +187,13 @@ export class RuntimeRouter {
         }
         return { ok: true, result: { state: await this.request('getSessionState', params, signal) } }
       }
+      case 'prepareSessionDeletion':
+      case 'deleteSessionHistory': {
+        if (!this.reader.native) throw new BridgeError('UNSUPPORTED_OPERATION', 'Native deletion is unavailable.')
+        const id = await this.resolve(params, signal, true)
+        await this.reader.native.deleteHistory(id, method === 'deleteSessionHistory')
+        return { complete: method === 'deleteSessionHistory', prepared: method === 'prepareSessionDeletion' }
+      }
       case 'interruptSession': {
         if (!this.reader.native) throw new BridgeError('UNSUPPORTED_OPERATION', 'Interrupt is unavailable.')
         const id = await this.resolve(params, signal)

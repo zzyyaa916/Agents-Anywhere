@@ -14,7 +14,7 @@ import urllib.error
 import urllib.request
 
 
-VERSION = '2.6.2'
+VERSION = '2.6.3'
 
 
 def digest(path):
@@ -79,7 +79,8 @@ def update_server(root, manifest):
         ids = run(['docker', 'ps', '-q']).splitlines()
         return {row['Name']: (row['Id'], row['State']['StartedAt']) for row in json.loads(run(['docker', 'inspect', *ids])) if row['Name'] != '/agents-anywhere-fork-server-1'}
     health = get('http://127.0.0.1:18500/api/v2/health')
-    if health.get('version') not in ('2.6.0', '2.6.1', VERSION) or query('SELECT version_num FROM alembic_version') != 'v2_57':
+    previous_revision = query('SELECT version_num FROM alembic_version')
+    if health.get('version') not in ('2.6.0', '2.6.1', '2.6.2', VERSION) or previous_revision not in ('v2_57', 'v2_58'):
         raise RuntimeError('当前版本或数据库版本不匹配；未修改服务，不执行数据库迁移。')
     idle()
     old_containers = inventory()
@@ -105,6 +106,7 @@ def update_server(root, manifest):
     try:
         config.write_text('\n'.join('FORK_IMAGE=' + image if line.startswith('FORK_IMAGE=') else line for line in previous.splitlines()) + '\n')
         config.chmod(0o600)
+        run(compose + ['run', '--rm', '--no-deps', '-T', 'server', '/opt/venv/bin/python', '-m', 'alembic', 'upgrade', 'head'], log=backup / 'migration.log')
         run(compose + ['up', '-d', '--no-deps', 'server'], log=backup / 'restart.log')
         for _ in range(45):
             try:
@@ -123,18 +125,20 @@ def update_server(root, manifest):
         with urllib.request.urlopen(public + '/', timeout=15) as response:
             if hashlib.sha256(response.read()).hexdigest() != manifest['files']['web-static/index.html']:
                 raise RuntimeError('公网 Web 页面与更新包不一致。')
-        if query('SELECT version_num FROM alembic_version') != 'v2_57' or inventory() != old_containers:
+        if query('SELECT version_num FROM alembic_version') != 'v2_58' or inventory() != old_containers:
             raise RuntimeError('数据库版本或其他容器发生变化。')
         auth = get('http://127.0.0.1:18500/api/v2/auth/config')
         if auth['registrationOpen'] or auth['oauthRegistrationOpen']:
             raise RuntimeError('注册设置发生变化。')
-    except BaseException:
+    except BaseException as error:
+        if query('SELECT version_num FROM alembic_version') != previous_revision:
+            raise RuntimeError('数据库已迁移，旧镜像可能拒绝新 schema，未自动回退镜像或还原数据；请使用兼容镜像恢复，备份目录: ' + str(backup)) from error
         config.write_text(previous)
         config.chmod(0o600)
         run(compose + ['up', '-d', '--no-deps', 'server'], log=backup / 'rollback.log')
-        print('验证失败，已恢复原 Fork 镜像配置并请求恢复原服务。数据库未迁移、未还原。', flush=True)
+        print('验证失败，数据库版本未变；已恢复原 Fork 镜像配置并请求恢复原服务。', flush=True)
         raise
-    result = {'status': 'ok', 'source': manifest['source'], 'image': image, 'backup': str(backup), 'schema': 'v2_57', 'webUpdated': True, 'forwardEndpointVerified': True}
+    result = {'status': 'ok', 'source': manifest['source'], 'image': image, 'backup': str(backup), 'schema': 'v2_58', 'webUpdated': True, 'forwardEndpointVerified': True}
     (backup / 'result.json').write_text(json.dumps(result, indent=2))
     print(json.dumps(result, ensure_ascii=False), flush=True)
 

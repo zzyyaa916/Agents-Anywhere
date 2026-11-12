@@ -17,6 +17,7 @@ final class V2DashboardRepository {
     private(set) var isLoading = false
     private(set) var hasLoaded = false
     private(set) var isFresh = false
+    private(set) var cleanupRecoveryProjectID: String?
     private(set) var error: String?
     private(set) var network = V2NetworkStatus()
     @ObservationIgnored var onChange: (() -> Void)?
@@ -200,10 +201,28 @@ final class V2DashboardRepository {
     }
     func deleteProject(_ id: String) async throws {
         try requireWritable()
-        try await service.projectAPI.delete(id)
+        do { try await service.projectAPI.delete(id) }
+        catch {
+            if let code = (error as? HTTPError)?.serverCode,
+               ["device_cleanup_incomplete", "deletion_cleanup_failed"].contains(code) {
+                cleanupRecoveryProjectID = id
+            }
+            throw error
+        }
         try requireValid()
+        if cleanupRecoveryProjectID == id { cleanupRecoveryProjectID = nil }
         generation += 1; projectGeneration += 1; projects.removeAll { $0.id == id }
-        for index in sessions.indices where sessions[index].projectId == id { sessions[index].projectId = nil }
+        sessions.removeAll { $0.projectId == id }
+        changed(); await refreshProjects()
+    }
+    func abandonProjectCleanup() async throws {
+        try requireWritable()
+        guard let id = cleanupRecoveryProjectID else { return }
+        try await service.projectAPI.abandonCleanup(id)
+        try requireValid()
+        cleanupRecoveryProjectID = nil
+        generation += 1; projectGeneration += 1
+        projects.removeAll { $0.id == id }; sessions.removeAll { $0.projectId == id }
         changed(); await refreshProjects()
     }
     func archiveProject(_ id: String, archived: Bool) async throws {
@@ -219,6 +238,7 @@ final class V2DashboardRepository {
         isValid = false; generation += 1; onChange = nil
         projectRefreshTask?.cancel(); projectRefreshTask = nil; projectRefreshID = nil
         checkedMissingProjects = []
+        cleanupRecoveryProjectID = nil
         sessions = []; connectors = []; projects = []; runtimes = []; modelConfig = nil
     }
     func upsertProject(_ project: V2Project) {

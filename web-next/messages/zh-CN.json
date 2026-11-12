@@ -1338,8 +1338,8 @@
     "historyDelete": {
       "projectTitle": "删除项目",
       "sessionTitle": "删除会话",
-      "projectDescription": "将永久删除「{name}」及其全部 {count} 个会话、消息与附件。此操作无法撤销。请输入项目名确认。",
-      "sessionDescription": "将永久删除「{name}」及其消息、时间线与附件。此操作无法撤销。",
+      "projectDescription": "将永久删除「{name}」及其全部 {count} 个会话、原生聊天历史、上传附件和工作设备上的整个项目文件夹。此操作无法撤销。请输入项目名确认。",
+      "sessionDescription": "将永久删除「{name}」在服务端和设备上的会话数据、原生聊天历史、上传附件及专属文件。共享项目文件夹保留；此操作无法撤销。",
       "confirmName": "输入项目名确认删除",
       "confirm": "删除",
       "deleting": "正在删除…",
@@ -1348,7 +1348,11 @@
       "running": "会话正在运行，请先停止",
       "countChanged": "会话数量已变化，请重新核对并确认。",
       "failed": "删除未完成，请重试。",
-      "reload": "重新核对"
+      "reload": "重新核对",
+      "abandon": "放弃剩余设备清理",
+      "abandonConfirm": "确认保留剩余文件并放弃清理",
+      "abandonWarning": "此操作不会恢复已删除的数据。尚未删除的设备文件和原生历史将保留，项目路径占用将解除。是否放弃剩余清理？",
+      "abandonFailed": "未能确认取消清理。请连接设备后重试；文件和路径保护仍保留。"
     }
   },
   "privacy": {

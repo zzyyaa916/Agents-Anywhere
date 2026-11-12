@@ -185,6 +185,7 @@ class ProjectRepositoryMixin:
             raise MissingWorkspaceError("session workdir is required")
         candidate_path = workspace_path.strip()
         cleaned_path, workspace_key = _clean_workspace_path(candidate_path, device_os)
+        await self.require_workspace_not_deleting(conn, connector_id, cleaned_path)
         if session_id:
             parent = await self._task_group_session_project(conn, session_id=session_id, connector_id=connector_id, cwd=cleaned_path, user_id=connector["user_id"])
             if parent:
@@ -335,6 +336,7 @@ class ProjectRepositoryMixin:
                     workspace_path,
                     connector.device_os,
                 )
+                await self.require_workspace_not_deleting(conn, connector_id, cleaned_path)
                 existing_workspace = (
                     await conn.execute(
                         select(projects_t.c.id).where(

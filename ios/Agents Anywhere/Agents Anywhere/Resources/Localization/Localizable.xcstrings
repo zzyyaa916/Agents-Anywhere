@@ -1,6 +1,86 @@
 {
   "sourceLanguage": "en",
   "strings": {
+  "Abandon remaining device cleanup": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Abandon remaining device cleanup"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "放弃剩余设备清理"
+        }
+      }
+    }
+  },
+  "Keep remaining files and abandon cleanup": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Keep remaining files and abandon cleanup"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "保留剩余文件并放弃清理"
+        }
+      }
+    }
+  },
+  "Deleted data cannot be restored. Remaining files and native history will be kept and the project path unlocked.": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Deleted data cannot be restored. Remaining files and native history will be kept and the project path unlocked."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "已删除的数据不会恢复。剩余文件和原生历史将保留，项目路径占用将解除。"
+        }
+      }
+    }
+  },
+  "将永久删除项目、全部会话、AI 原生历史、附件和设备上的整个项目文件夹，无法撤销。": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Permanently delete this project, all sessions, native AI history, attachments and its entire directory on the device. This cannot be undone."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "将永久删除项目、全部会话、AI 原生历史、附件和设备上的整个项目文件夹，无法撤销。"
+        }
+      }
+    }
+  },
+  "Permanently delete this project, all sessions, native AI history, attachments and its entire directory on the device. This cannot be undone.": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Permanently delete this project, all sessions, native AI history, attachments and its entire directory on the device. This cannot be undone."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "将永久删除项目、全部会话、AI 原生历史、附件和设备上的整个项目文件夹，无法撤销。"
+        }
+      }
+    }
+  },
     "": {
       "extractionState": "manual",
       "localizations": {

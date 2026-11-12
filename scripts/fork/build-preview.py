@@ -35,6 +35,8 @@ def build(destination):
             files['web-static/' + str(path.relative_to(web))] = path
     files['deploy.py'] = ROOT / 'scripts/fork/update-preview.py'
     files['upgrade-legacy-connector.py'] = ROOT / 'scripts/fork/upgrade-legacy-connector.py'
+    files['runtime-broker.py'] = ROOT / 'scripts/fork/runtime-broker.py'
+    files['native-history-cleanup.py'] = ROOT / 'connector/connector/runtimes/claude/history/deletion.py'
     payload = {}
     for name, path in files.items():
         if path.is_symlink():

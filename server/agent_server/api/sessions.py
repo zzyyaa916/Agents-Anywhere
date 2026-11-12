@@ -37,6 +37,10 @@ from agent_server.core.events import (
     event_cursor,
     protocol_event,
 )
+from agent_server.core.history_deletion import (
+    DeviceCleanupIncomplete,
+    HistoryDeletionConflict,
+)
 from agent_server.core.models import (
     BulkArchiveResponse,
     InteractionRespondRequest,
@@ -74,11 +78,8 @@ from agent_server.core.runtime_identity import (
     SessionRuntimeBindingError,
     resolve_session_runtime_binding,
 )
-from agent_server.core.utc import utc_now
 from agent_server.core.session_quota import project_quota_state
-from agent_server.core.history_deletion import HistoryDeletionConflict
-from agent_server.services.history_deletion import delete_history_data
-from agent_server.infra.terminal_broker import TerminalBroker
+from agent_server.core.utc import utc_now
 from agent_server.deps import (
     current_user_id,
     get_catalog_service,
@@ -101,6 +102,7 @@ from agent_server.infra.connector_rpc import (
 )
 from agent_server.infra.event_preparation import EventPreparationCapacityError
 from agent_server.infra.repositories.facade import Store
+from agent_server.infra.terminal_broker import TerminalBroker
 from agent_server.infra.timeline_broker import TimelineBroker
 from agent_server.infra.ws_tickets import ClientWsTicketManager
 from agent_server.services.catalogs import CatalogService
@@ -118,6 +120,10 @@ from agent_server.services.effective_capabilities import (
     read_session_capability_facts,
 )
 from agent_server.services.event_recovery import EventRecoveryService
+from agent_server.services.history_deletion import (
+    abandon_device_cleanup,
+    delete_history_data,
+)
 from agent_server.services.model_channels import ModelChannelService
 from agent_server.services.session_meta_projection import (
     project_session_meta_for_dashboard,
@@ -1321,6 +1327,7 @@ async def execute_session_command(
         raise HTTPException(status_code=404, detail="session not found") from None
     if payload.command == "plan":
         from uuid import uuid4
+
         from agent_server.core.capabilities import SESSION_PLANNING
         from agent_server.core.planning.commands import parse_plan_command
         from agent_server.core.planning.models import PlanningRequest
@@ -1993,6 +2000,7 @@ async def delete_session_history(
     session_id: str,
     user_id: str = Depends(current_user_id),
     store: Store = Depends(get_store),
+    manager: ConnectorRpcManager = Depends(get_rpc),
     broker: TimelineBroker = Depends(get_timeline_broker),
     timeline_buffer: TimelineWriteBuffer = Depends(get_timeline_write_buffer),
     runtime_state_cache: SessionRuntimeStateCache = Depends(get_session_runtime_state_cache),
@@ -2000,13 +2008,60 @@ async def delete_session_history(
 ) -> None:
     try:
         await delete_history_data(session_id, user_id=user_id, project=False, store=store,
-            runtime_state_cache=runtime_state_cache, timeline_buffer=timeline_buffer, terminals=terminals)
+            runtime_state_cache=runtime_state_cache, timeline_buffer=timeline_buffer, terminals=terminals, manager=manager)
     except PermissionError:
         raise HTTPException(status_code=403, detail="forbidden") from None
     except KeyError:
         raise HTTPException(status_code=404, detail="session not found") from None
     except HistoryDeletionConflict as exc:
         raise HTTPException(status_code=409, detail=exc.detail) from exc
-    except Exception:
+    except (ConnectorOfflineError, ConnectorRpcError, TimeoutError, DeviceCleanupIncomplete):
         raise HTTPException(status_code=503, detail={"code": "deletion_cleanup_failed", "message": "删除清理未完成，请重试"}) from None
     await publish_dashboard_changed(store, broker, user_id=user_id, reason="session.deleted")
+
+
+@router.delete("/{session_id}/contents", status_code=204)
+async def delete_session_contents(
+    session_id: str,
+    user_id: str = Depends(current_user_id),
+    store: Store = Depends(get_store),
+    manager: ConnectorRpcManager = Depends(get_rpc),
+    broker: TimelineBroker = Depends(get_timeline_broker),
+    timeline_buffer: TimelineWriteBuffer = Depends(get_timeline_write_buffer),
+    runtime_state_cache: SessionRuntimeStateCache = Depends(get_session_runtime_state_cache),
+    terminals: TerminalBroker = Depends(get_terminal_broker),
+) -> None:
+    try:
+        await delete_history_data(session_id, user_id=user_id, project=False, store=store,
+            runtime_state_cache=runtime_state_cache, timeline_buffer=timeline_buffer, terminals=terminals,
+            manager=manager, delete_contents=True)
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="forbidden") from None
+    except KeyError:
+        raise HTTPException(status_code=404, detail="session not found") from None
+    except HistoryDeletionConflict as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
+    except (ConnectorOfflineError, ConnectorRpcError, TimeoutError, DeviceCleanupIncomplete):
+        raise HTTPException(status_code=503, detail={"code": "device_cleanup_incomplete", "message": "设备文件未清理完成：请确认设备在线、Connector/原生代理已更新且会话已关闭，然后重试"}) from None
+    await publish_dashboard_changed(store, broker, user_id=user_id, reason="session.deleted")
+
+
+@router.post("/{session_id}/contents/abandon", status_code=204)
+async def abandon_session_device_cleanup(
+    session_id: str,
+    user_id: str = Depends(current_user_id),
+    store: Store = Depends(get_store),
+    manager: ConnectorRpcManager = Depends(get_rpc),
+    timeline_buffer: TimelineWriteBuffer = Depends(get_timeline_write_buffer),
+    runtime_state_cache: SessionRuntimeStateCache = Depends(get_session_runtime_state_cache),
+    terminals: TerminalBroker = Depends(get_terminal_broker),
+) -> None:
+    try:
+        await abandon_device_cleanup(session_id, user_id=user_id, project=False, store=store,
+            manager=manager, timeline_buffer=timeline_buffer, runtime_state_cache=runtime_state_cache, terminals=terminals)
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="forbidden") from None
+    except KeyError:
+        raise HTTPException(status_code=404, detail="pending cleanup not found") from None
+    except (ConnectorOfflineError, ConnectorRpcError, TimeoutError, DeviceCleanupIncomplete):
+        raise HTTPException(status_code=503, detail={"code": "device_cleanup_incomplete", "message": "设备未确认取消，请连接设备后重试；路径占用仍保留"}) from None

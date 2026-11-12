@@ -15,8 +15,8 @@
     <string name="fork_delete">永久删除</string>
     <string name="fork_delete_session">删除会话？</string>
     <string name="fork_delete_project">删除项目？</string>
-    <string name="fork_delete_session_body">将删除此会话、消息和上传附件，无法撤销。</string>
-    <string name="fork_delete_project_body">将删除全部 %1$d 个会话（含已归档）及上传附件，保留设备上的项目文件。请输入项目名称确认。</string>
+    <string name="fork_delete_session_body">将永久删除服务端与设备上的会话数据、AI 原生聊天历史、上传附件及专属文件，共享项目文件夹保留。无法撤销。</string>
+    <string name="fork_delete_project_body">将永久删除全部 %1$d 个会话、AI 原生聊天历史、上传附件及设备上的整个项目文件夹。请输入项目名称确认。</string>
     <string name="fork_confirm_name">项目名称</string>
     <string name="fork_cancel">取消</string>
     <string name="fork_loading">正在加载…</string>
@@ -56,4 +56,7 @@
     <string name="fork_forward_instructions">补充指令</string>
     <string name="fork_joint_publish">发布</string>
     <string name="fork_joint_select">选择同项目的两条不同 AI 会话</string>
+    <string name="fork_abandon">放弃剩余设备清理</string>
+    <string name="fork_abandon_confirm">确认保留剩余文件并放弃清理</string>
+    <string name="fork_abandon_warning">已删除的数据不会恢复，剩余的设备文件和原生历史将保留，项目路径占用将解除。确认放弃剩余清理？</string>
 </resources>

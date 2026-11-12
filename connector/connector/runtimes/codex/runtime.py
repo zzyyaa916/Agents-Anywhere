@@ -5,6 +5,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
+from uuid import UUID
 from weakref import WeakValueDictionary
 
 from connector.core.json_kv import JsonKeyValueStore
@@ -815,6 +816,20 @@ class CodexRuntime(AgentRuntime):
             session_id,
             external_session_id,
         )
+
+    async def prepare_history_deletion(self, target) -> None:
+        UUID(target["externalSessionId"])
+        if self.client is None or not callable(getattr(self.client, "delete_thread_history", None)):
+            raise RuntimeError("native_history_deletion_unsupported")
+        state = await self.get_session_state(target["sessionId"], target["externalSessionId"])
+        if state and state.status in {"running", "pending", "waiting", "waiting_approval", "stopping"}:
+            raise RuntimeError("native_session_in_use")
+
+    async def delete_session_history(self, target) -> None:
+        await self.prepare_history_deletion(target)
+        await self.client.delete_thread_history(target["externalSessionId"])
+        if self.goals is not None:
+            await self.goals.forget(target["sessionId"])
 
     async def get_session_notices(
         self,

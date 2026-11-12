@@ -1,3 +1,4 @@
+import { deleteNativeHistory } from './history-deletion.js'
 import type { Context } from '@deepseek-ai/cordis'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { SessionPromptRequest } from '@deepseek-ai/dsh-api-session-controller'
@@ -356,6 +357,15 @@ export class NativeRuntime {
     this.writes.set(id, task)
     try { return await task } finally { if (this.writes.get(id) === task) this.writes.delete(id) }
   }
+  async deleteHistory(id: SessionId, commit: boolean): Promise<void> {
+    await deleteNativeHistory(this.ctx.get('sessionPersistence'), id, Boolean(this.ctx.sessions.get(id)), commit)
+    if (commit) {
+      this.source.release(id)
+      await this.source.refresh()
+      this.emit({ type: 'refresh', id })
+    }
+  }
+
   async interrupt(id: SessionId): Promise<void> {
     await this.source.requireAvailable(id)
     this.ctx.get('agents')?.get(id)?.cancel({ kind: 'user' })

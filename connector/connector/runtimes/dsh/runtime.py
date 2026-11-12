@@ -338,6 +338,22 @@ class DshRuntime(AgentRuntime):
             }])
         return state
 
+    async def prepare_history_deletion(self, target):
+        await self._ensure_client()
+        result = await self._client.request("prepareSessionDeletion", {
+            "sessionId": target["sessionId"], "externalSessionId": target["externalSessionId"],
+        })
+        if result.get("prepared") is not True:
+            raise RuntimeError("native_history_deletion_unsupported")
+
+    async def delete_session_history(self, target):
+        await self.prepare_history_deletion(target)
+        result = await self._client.request("deleteSessionHistory", {
+            "sessionId": target["sessionId"], "externalSessionId": target["externalSessionId"],
+        })
+        if result.get("complete") is not True:
+            raise RuntimeError("native_history_cleanup_incomplete")
+
     async def get_session_capabilities(
         self,
         session_id: str,

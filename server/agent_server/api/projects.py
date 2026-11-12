@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from agent_server.core.history_deletion import (
+    DeviceCleanupIncomplete,
+    HistoryDeletionConflict,
+)
 from agent_server.core.models import (
     ArchiveAllRequest,
     ArchiveAllResponse,
@@ -14,31 +18,36 @@ from agent_server.core.models import (
     ProjectSessionListResponse,
 )
 from agent_server.core.utc import utc_now
-from agent_server.core.history_deletion import HistoryDeletionConflict
-from agent_server.services.history_deletion import delete_history_data
-from agent_server.infra.terminal_broker import TerminalBroker
 from agent_server.deps import (
     current_user_id,
     get_rpc,
     get_session_runtime_state_cache,
     get_store,
+    get_terminal_broker,
     get_timeline_broker,
     get_timeline_write_buffer,
-    get_terminal_broker,
 )
-from agent_server.infra.connector_rpc import ConnectorRpcManager
+from agent_server.infra.connector_rpc import (
+    ConnectorOfflineError,
+    ConnectorRpcError,
+    ConnectorRpcManager,
+)
 from agent_server.infra.repositories.facade import Store
 from agent_server.infra.repositories.projects import ProjectNameConflictError
+from agent_server.infra.terminal_broker import TerminalBroker
 from agent_server.infra.timeline_broker import TimelineBroker
 from agent_server.services.connector_presence import (
     with_effective_session_connector_statuses,
 )
 from agent_server.services.dashboard_events import publish_dashboard_changed
+from agent_server.services.history_deletion import (
+    abandon_device_cleanup,
+    delete_history_data,
+)
 from agent_server.services.session_meta_projection import (
     project_session_meta_for_dashboard,
 )
 from agent_server.services.session_runtime_state_cache import SessionRuntimeStateCache
-
 from agent_server.services.timeline_write_buffer import TimelineWriteBuffer
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -150,6 +159,7 @@ async def delete_project(
     expectedSessionCount: int | None = Query(default=None, ge=0),
     user_id: str = Depends(current_user_id),
     store: Store = Depends(get_store),
+    manager: ConnectorRpcManager = Depends(get_rpc),
     broker: TimelineBroker = Depends(get_timeline_broker),
     timeline_buffer: TimelineWriteBuffer = Depends(get_timeline_write_buffer),
     runtime_state_cache: SessionRuntimeStateCache = Depends(get_session_runtime_state_cache),
@@ -157,15 +167,43 @@ async def delete_project(
 ) -> ProjectDeleteResponse:
     try:
         ids = await delete_history_data(project_id, user_id=user_id, project=True, store=store,
-            runtime_state_cache=runtime_state_cache, timeline_buffer=timeline_buffer, terminals=terminals, expected_count=expectedSessionCount)
+            runtime_state_cache=runtime_state_cache, timeline_buffer=timeline_buffer, terminals=terminals, expected_count=expectedSessionCount, manager=manager)
     except PermissionError:
         raise HTTPException(status_code=403, detail="forbidden") from None
     except KeyError:
         raise HTTPException(status_code=404, detail="project not found") from None
     except HistoryDeletionConflict as exc:
         raise HTTPException(status_code=409, detail=exc.detail) from exc
-    except Exception:
+    except (ConnectorOfflineError, ConnectorRpcError, TimeoutError, DeviceCleanupIncomplete):
         raise HTTPException(status_code=503, detail={"code": "deletion_cleanup_failed", "message": "删除清理未完成，请重试"}) from None
+    await publish_dashboard_changed(store, broker, user_id=user_id, reason="project.deleted")
+    return ProjectDeleteResponse(projectId=project_id, detachedSessions=0, deletedSessions=len(ids), serverTime=utc_now())
+
+
+@router.delete("/{project_id}/contents", response_model=ProjectDeleteResponse)
+async def delete_project_contents(
+    project_id: str,
+    expectedSessionCount: int | None = Query(default=None, ge=0),
+    user_id: str = Depends(current_user_id),
+    store: Store = Depends(get_store),
+    manager: ConnectorRpcManager = Depends(get_rpc),
+    broker: TimelineBroker = Depends(get_timeline_broker),
+    timeline_buffer: TimelineWriteBuffer = Depends(get_timeline_write_buffer),
+    runtime_state_cache: SessionRuntimeStateCache = Depends(get_session_runtime_state_cache),
+    terminals: TerminalBroker = Depends(get_terminal_broker),
+) -> ProjectDeleteResponse:
+    try:
+        ids = await delete_history_data(project_id, user_id=user_id, project=True, store=store,
+            runtime_state_cache=runtime_state_cache, timeline_buffer=timeline_buffer, terminals=terminals,
+            expected_count=expectedSessionCount, manager=manager, delete_contents=True)
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="forbidden") from None
+    except KeyError:
+        raise HTTPException(status_code=404, detail="project not found") from None
+    except HistoryDeletionConflict as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
+    except (ConnectorOfflineError, ConnectorRpcError, TimeoutError, DeviceCleanupIncomplete):
+        raise HTTPException(status_code=503, detail={"code": "device_cleanup_incomplete", "message": "设备文件未清理完成：请确认设备在线、Connector/原生代理已更新且会话已关闭，然后重试"}) from None
     await publish_dashboard_changed(store, broker, user_id=user_id, reason="project.deleted")
     return ProjectDeleteResponse(projectId=project_id, detachedSessions=0, deletedSessions=len(ids), serverTime=utc_now())
 
@@ -248,3 +286,24 @@ async def archive_all_project_sessions(
         affected=len(sessions),
         serverTime=utc_now(),
     )
+
+
+@router.post("/{project_id}/contents/abandon", status_code=204)
+async def abandon_project_device_cleanup(
+    project_id: str,
+    user_id: str = Depends(current_user_id),
+    store: Store = Depends(get_store),
+    manager: ConnectorRpcManager = Depends(get_rpc),
+    timeline_buffer: TimelineWriteBuffer = Depends(get_timeline_write_buffer),
+    runtime_state_cache: SessionRuntimeStateCache = Depends(get_session_runtime_state_cache),
+    terminals: TerminalBroker = Depends(get_terminal_broker),
+) -> None:
+    try:
+        await abandon_device_cleanup(project_id, user_id=user_id, project=True, store=store,
+            manager=manager, timeline_buffer=timeline_buffer, runtime_state_cache=runtime_state_cache, terminals=terminals)
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="forbidden") from None
+    except KeyError:
+        raise HTTPException(status_code=404, detail="pending cleanup not found") from None
+    except (ConnectorOfflineError, ConnectorRpcError, TimeoutError, DeviceCleanupIncomplete):
+        raise HTTPException(status_code=503, detail={"code": "device_cleanup_incomplete", "message": "设备未确认取消，请连接设备后重试；路径占用仍保留"}) from None

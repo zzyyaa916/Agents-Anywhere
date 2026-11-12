@@ -80,6 +80,7 @@ class HistoryDeletionRepositoryMixin:
         project: bool,
         expected_count: int | None = None,
         cached_busy: set[str] | None = None,
+        device_cleanup: dict | None = None,
     ) -> list[str]:
         connector_id, _ = await self.history_deletion_target(
             object_id, user_id=user_id, project=project
@@ -123,6 +124,12 @@ class HistoryDeletionRepositoryMixin:
             if not project and not rows:
                 raise KeyError(object_id)
             ids = [r["id"] for r in rows]
+            if device_cleanup is not None:
+                planned = device_cleanup["request"]["sessions"]
+                expected = {(r["sessionId"], r.get("externalSessionId"), r.get("cwd")) for r in planned}
+                actual = {(r["id"], r["external_session_id"], r["cwd"]) for r in rows}
+                if expected != actual:
+                    raise HistoryDeletionConflict([], "deletion_count_changed")
             if expected_count is not None and len(ids) != expected_count:
                 raise HistoryDeletionConflict([], "deletion_count_changed")
             busy = {r["id"] for r in rows if r["status"] in BUSY_SESSION_STATUSES} | (
@@ -241,6 +248,7 @@ class HistoryDeletionRepositoryMixin:
                     object_type="project" if project else "session",
                     object_id=object_id,
                     session_count=len(ids),
+                    device_cleanup_json=json.dumps(device_cleanup) if device_cleanup else None,
                     deleted_at=now,
                 )
             )
@@ -280,12 +288,24 @@ class HistoryDeletionRepositoryMixin:
                 result.append({**audit, "session_ids": ids})
             return result
 
+    async def mark_device_cleanup_complete(self, deletion_id, plan):
+        async with self._engine.begin() as conn:
+            await conn.execute(update(db.history_deletion_audit).where(
+                db.history_deletion_audit.c.id == deletion_id
+            ).values(device_cleanup_json=json.dumps(plan)))
+
+    async def abandon_device_cleanup(self, deletion_id):
+        async with self._engine.begin() as conn:
+            await conn.execute(update(db.history_deletion_audit).where(
+                db.history_deletion_audit.c.id == deletion_id
+            ).values(device_cleanup_json=None))
+
     async def finish_history_cleanup(self, deletion_id):
         async with self._engine.begin() as conn:
             await conn.execute(
                 update(db.history_deletion_audit)
                 .where(db.history_deletion_audit.c.id == deletion_id)
-                .values(cleanup_pending=0)
+                .values(cleanup_pending=0, device_cleanup_json=None)
             )
 
     async def require_history_source_available(
@@ -303,3 +323,48 @@ class HistoryDeletionRepositoryMixin:
             )
         ).first() is not None:
             raise SessionDeletedError(session_id)
+
+
+    async def history_device_cleanup_plan(self, object_id, *, user_id, project):
+        connector_id, ids = await self.history_deletion_target(object_id, user_id=user_id, project=project)
+        async with read_connection(self._engine) as conn:
+            rows = (await conn.execute(select(db.sessions).where(db.sessions.c.id.in_(ids)))).mappings().all() if ids else []
+            projects = (await conn.execute(select(db.projects).where(db.projects.c.connector_id == connector_id))).mappings().all()
+            target = next((p for p in projects if p["id"] == object_id), None) if project else None
+            if project and target is None:
+                raise KeyError(object_id)
+            for row in rows:
+                if row["external_session_id"]:
+                    shared = (await conn.execute(select(db.sessions.c.id).where(
+                        db.sessions.c.connector_id == connector_id,
+                        db.sessions.c.runtime_id == row["runtime_id"],
+                        db.sessions.c.external_session_id == row["external_session_id"],
+                        db.sessions.c.id.not_in(ids),
+                    ).limit(1))).first()
+                    if shared:
+                        raise HistoryDeletionConflict([], "shared_native_history")
+            protected = [p["workspace_path"] for p in projects if not project or p["id"] != object_id]
+            other_cwds = (await conn.execute(select(db.sessions.c.cwd).where(db.sessions.c.connector_id == connector_id, db.sessions.c.id.not_in(ids)))).scalars().all()
+            protected.extend(path for path in other_cwds if path)
+            return {
+                "connectorId": connector_id,
+                "projectPath": target["workspace_path"] if target else None,
+                "protectedPaths": sorted(set(protected)),
+                "sessions": [{"sessionId": r["id"], "runtimeId": r["runtime_id"], "runtime": r["runtime"],
+                              "externalSessionId": r["external_session_id"], "cwd": r["cwd"]} for r in rows],
+            }
+
+
+    async def require_workspace_not_deleting(self, conn, connector_id, workspace_path):
+        from pathlib import PurePosixPath, PureWindowsPath
+        from agent_server.core.history_deletion import SessionDeletedError
+        query = select(db.history_deletion_audit.c.device_cleanup_json).where(db.history_deletion_audit.c.cleanup_pending == 1, db.history_deletion_audit.c.device_cleanup_json.is_not(None))
+        for raw in (await conn.execute(query)).scalars():
+            plan = json.loads(raw)["request"]
+            if plan["connectorId"] != connector_id or not plan.get("projectPath"):
+                continue
+            windows = "\\" in workspace_path or (len(workspace_path) > 1 and workspace_path[1] == ":")
+            cls = PureWindowsPath if windows else PurePosixPath
+            a, b = cls(workspace_path), cls(plan["projectPath"])
+            if a == b or a.is_relative_to(b) or b.is_relative_to(a):
+                raise SessionDeletedError("workspace_cleanup_pending")

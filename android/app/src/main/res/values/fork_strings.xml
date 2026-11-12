@@ -15,8 +15,8 @@
     <string name="fork_delete">Delete permanently</string>
     <string name="fork_delete_session">Delete session?</string>
     <string name="fork_delete_project">Delete project?</string>
-    <string name="fork_delete_session_body">Delete this session and its messages and uploaded attachments? This cannot be undone.</string>
-    <string name="fork_delete_project_body">This deletes all %1$d sessions, including archived sessions, and their uploaded attachments. Project files on the device are kept. Type the project name to confirm.</string>
+    <string name="fork_delete_session_body">Permanently delete server and device session data, native AI history, attachments and private files. Shared project files are kept. This cannot be undone.</string>
+    <string name="fork_delete_project_body">Permanently delete all %1$d sessions, native AI history, attachments and the entire project directory on the device. Type the project name to confirm.</string>
     <string name="fork_confirm_name">Project name</string>
     <string name="fork_cancel">Cancel</string>
     <string name="fork_loading">Loading…</string>
@@ -56,4 +56,7 @@
     <string name="fork_forward_instructions">Additional instructions</string>
     <string name="fork_joint_publish">Publish</string>
     <string name="fork_joint_select">Select two conversations from different AIs in one project</string>
+    <string name="fork_abandon">Abandon remaining device cleanup</string>
+    <string name="fork_abandon_confirm">Keep remaining files and abandon cleanup</string>
+    <string name="fork_abandon_warning">Deleted data cannot be restored. Remaining files and native history will be kept and the project path unlocked. Abandon cleanup?</string>
 </resources>
