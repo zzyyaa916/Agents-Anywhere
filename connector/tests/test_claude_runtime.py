@@ -5697,3 +5697,117 @@ async def _wait_until(predicate: Any) -> None:
             return
         await asyncio.sleep(0)
     assert predicate()
+
+
+class _SteerableClaudeClient(_FakeClaudeClient):
+    """Holds the turn open until the test injects a supplement, then completes."""
+
+    def __init__(self, messages: list[Any] | None = None) -> None:
+        super().__init__(messages=messages)
+        self.release = asyncio.Event()
+        self.first_query = asyncio.Event()
+
+    async def query(self, prompt: str) -> None:
+        self.queries.append(prompt)
+        if len(self.queries) == 1:
+            self.first_query.set()
+
+    async def receive_messages(self):
+        await self.first_query.wait()
+        await self.release.wait()
+        for message in self.messages:
+            yield message
+
+
+def _steer_messages() -> list[Any]:
+    return [
+        AssistantMessage(
+            uuid="assistant_1",
+            session_id="claude_session_1",
+            content=[{"type": "text", "text": "done"}],
+        ),
+        SimpleNamespace(
+            type="result", session_id="claude_session_1", is_error=False
+        ),
+    ]
+
+
+async def _await_active_client(runtime: ClaudeRuntime, session_id: str) -> Any:
+    for _ in range(200):
+        session = runtime._sessions.get(session_id)
+        execution = session.execution if session else None
+        if execution is not None and execution.client is not None:
+            return execution
+        await asyncio.sleep(0.01)
+    raise AssertionError("turn never became active")
+
+
+def test_claude_steer_injects_into_live_turn(monkeypatch) -> None:
+    monkeypatch.setenv("AA_FORK_CLAUDE_STEERING", "1")
+    asyncio.run(_test_claude_steer_injects_into_live_turn())
+
+
+async def _test_claude_steer_injects_into_live_turn() -> None:
+    host = _RecordingHost()
+    client = _SteerableClaudeClient(messages=_steer_messages())
+    runtime = _runtime(host=host, client=client)
+
+    await runtime.start_turn("sess_s", "claude_session_0", "hello", client_message_id="cm_init")
+    execution = await _await_active_client(runtime, "sess_s")
+
+    result = await runtime.steer_turn(
+        "sess_s", "claude_session_1", "also translate to English", client_message_id="cm_supp"
+    )
+    assert result.ok is True
+    assert result.result["messageAccepted"] is True
+    assert client.queries == ["hello", "also translate to English"]
+    assert "cm_supp" in execution.steered_ids
+
+    supplement = next(
+        item
+        for item in host.timeline_item_upserts
+        if item.source.get("event") == "claude.turn.user.supplement"
+    )
+    assert supplement.role == "user"
+    assert supplement.turn_id == execution.turn_id
+    assert supplement.source["clientMessageId"] == "cm_supp"
+    assert supplement.content["text"] == "also translate to English"
+
+    # Idempotent: same clientMessageId must not inject a second time.
+    again = await runtime.steer_turn(
+        "sess_s", "claude_session_1", "also translate to English", client_message_id="cm_supp"
+    )
+    assert again.ok is True
+    assert again.result["deduplicated"] is True
+    assert client.queries == ["hello", "also translate to English"]
+
+    client.release.set()
+    task = runtime._sessions["sess_s"].active_task
+    if task is not None:
+        await task
+
+
+def test_claude_steer_disabled_without_flag(monkeypatch) -> None:
+    monkeypatch.delenv("AA_FORK_CLAUDE_STEERING", raising=False)
+    asyncio.run(_test_claude_steer_disabled_without_flag())
+
+
+async def _test_claude_steer_disabled_without_flag() -> None:
+    from connector.runtimes.claude.provider_config import claude_capabilities
+    assert claude_capabilities()["steerTurn"] is False
+    runtime = _runtime()
+    result = await runtime.steer_turn("sess_x", None, "late note", client_message_id="cm")
+    assert result.ok is False
+    assert result.code == "claude_steering_disabled"
+
+
+def test_claude_steer_rejected_without_active_turn(monkeypatch) -> None:
+    monkeypatch.setenv("AA_FORK_CLAUDE_STEERING", "1")
+    asyncio.run(_test_claude_steer_rejected_without_active_turn())
+
+
+async def _test_claude_steer_rejected_without_active_turn() -> None:
+    runtime = _runtime()
+    result = await runtime.steer_turn("sess_idle", None, "late note", client_message_id="cm")
+    assert result.ok is False
+    assert result.code == "claude_no_active_turn"

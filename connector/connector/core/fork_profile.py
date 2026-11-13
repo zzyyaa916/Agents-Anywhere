@@ -35,6 +35,11 @@ def fork_enabled() -> bool:
     return value == "fork"
 
 
+def claude_steering_enabled() -> bool:
+    """Opt-in kill switch for Claude mid-turn supplements; off disables the whole path."""
+    return os.environ.get("AA_FORK_CLAUDE_STEERING") == "1"
+
+
 def broker_executable(runtime: str) -> str | None:
     """Keep fixed Unix identities across package upgrades; never fall back."""
     if not fork_enabled():

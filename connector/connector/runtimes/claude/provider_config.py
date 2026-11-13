@@ -73,6 +73,8 @@ def claude_config_schema() -> dict[str, Any]:
 
 
 def claude_capabilities() -> dict[str, bool]:
+    from connector.core.fork_profile import claude_steering_enabled
+
     return {
         "modelCatalog": True,
         "permissionCatalog": True,
@@ -82,7 +84,9 @@ def claude_capabilities() -> dict[str, bool]:
         "sessionNotices": True,
         "createAndStartSession": True,
         "startTurn": True,
-        "steerTurn": False,
+        # Mid-turn supplements ride the live SDK connection; advertised only when
+        # the Fork kill switch is on so a bad release degrades to queue-and-wait.
+        "steerTurn": claude_steering_enabled(),
         "interruptTurn": True,
         "commands": False,
         "interactions": True,

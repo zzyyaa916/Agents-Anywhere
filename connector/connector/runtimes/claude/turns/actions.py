@@ -16,9 +16,13 @@ from connector.runtimes.claude.domain.session import ClaudeExecution, ClaudeSess
 from connector.runtimes.claude.notifications.projector import (
     ClaudeNotificationProjector,
 )
-from connector.runtimes.claude.sdk.client import interrupt_client
+from connector.runtimes.claude.sdk.client import interrupt_client, query_client
 from connector.runtimes.claude.sdk.events import interrupted_terminal_event
 from connector.runtimes.claude.sessions.cache import ClaudeSessionStore
+from connector.runtimes.claude.turns.attachments import (
+    content_with_attachment_notes,
+    materialize_claude_attachments,
+)
 from connector.runtimes.claude.turns.interactions import ClaudeInteractionController
 from connector.runtimes.claude.turns.lifecycle import ClaudeTurnRunner
 from connector.runtimes.claude.turns.selections import ClaudeSelectionController
@@ -116,6 +120,119 @@ class ClaudeTurnActionHandler:
             result={
                 "turnId": execution.turn_id,
                 "externalSessionId": session.external_session_id,
+            },
+        )
+
+    async def steer_turn(
+        self,
+        *,
+        session_id: str,
+        external_session_id: str | None,
+        content: str,
+        attachments: tuple[RuntimeAttachment, ...] = (),
+        client_message_id: str | None = None,
+    ) -> RuntimeOperationResult:
+        """Inject a supplement into the live turn; it lands at the next tool boundary."""
+        from connector.core.fork_profile import claude_steering_enabled
+
+        if not claude_steering_enabled():
+            return RuntimeOperationResult(
+                ok=False,
+                code="claude_steering_disabled",
+                message="Claude mid-turn supplements are disabled on this connector",
+            )
+        session = self.session_store.get(session_id)
+        if session is None:
+            return RuntimeOperationResult(
+                ok=False,
+                code="claude_no_active_turn",
+                message="session has no active Claude turn",
+            )
+        # Snapshot the execution and its live client under the lock; the SDK round
+        # trip itself must never run while holding the per-session execution lock.
+        async with session.execution_lock:
+            execution = session.execution
+            if execution is None or execution.client is None:
+                return RuntimeOperationResult(
+                    ok=False,
+                    code="claude_no_active_turn",
+                    message="session has no active Claude turn",
+                )
+            if client_message_id and client_message_id in execution.steered_ids:
+                # Idempotent: a retry or reconnect must not run the same instruction twice.
+                return RuntimeOperationResult(
+                    ok=True,
+                    result={
+                        "turnId": execution.turn_id,
+                        "deduplicated": True,
+                        "externalSessionId": session.external_session_id,
+                    },
+                )
+            # A pending approval owns the turn; a supplement never bypasses it.
+            if any(
+                notice.response_required
+                for notice in self.runner.notifications.notices.current_for_session(
+                    session_id
+                )
+            ):
+                return RuntimeOperationResult(
+                    ok=False,
+                    code="claude_steer_blocked_approval",
+                    message="resolve the pending approval before supplementing this turn",
+                )
+            turn_id = execution.turn_id
+            target_client = execution.client
+            if client_message_id:
+                execution.steered_ids.add(client_message_id)
+        try:
+            materialized = await materialize_claude_attachments(
+                self.runner.host,
+                session_id,
+                attachments,
+                self.runner.notifications.notices,
+            )
+            effective_content = content_with_attachment_notes(content, materialized)
+            attachment_mappings = tuple(
+                attachment.to_mapping() for attachment in materialized
+            )
+            supplement_item = self.runner.timeline.message_item(
+                session=session,
+                turn_id=turn_id,
+                role="user",
+                text=content,
+                event="claude.turn.user.supplement",
+                client_message_id=client_message_id,
+                attachments=attachment_mappings,
+            )
+            await self.runner.publish_user_message(
+                session=session,
+                item=supplement_item,
+                content=content,
+                attachments=attachment_mappings,
+                client_message_id=client_message_id,
+                native_message_id=None,
+            )
+            await query_client(target_client, effective_content)
+        except Exception as exc:  # noqa: BLE001 -- surface a clean error, never silently drop
+            if client_message_id:
+                async with session.execution_lock:
+                    execution.steered_ids.discard(client_message_id)
+            logger.debug(
+                "Claude steer injection failed session_id={} error={}",
+                session_id,
+                type(exc).__name__,
+            )
+            return RuntimeOperationResult(
+                ok=False,
+                code="claude_steer_failed",
+                message=str(exc),
+            )
+        return RuntimeOperationResult(
+            ok=True,
+            result={
+                "turnId": turn_id,
+                "externalSessionId": session.external_session_id,
+                "messageAccepted": True,
             },
         )
 

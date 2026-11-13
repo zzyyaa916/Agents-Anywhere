@@ -18,6 +18,9 @@ class ClaudeExecution:
     interrupt_reason: str | None = None
     finalization_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     finished: asyncio.Event = field(default_factory=asyncio.Event)
+    # clientMessageIds already injected as mid-turn supplements; blocks a retry
+    # or a reconnect from running the same instruction twice in one turn.
+    steered_ids: set[str] = field(default_factory=set)
 
 
 @dataclass(slots=True)
