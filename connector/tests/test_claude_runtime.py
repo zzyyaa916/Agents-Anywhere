@@ -5754,6 +5754,8 @@ async def _test_claude_steer_injects_into_live_turn() -> None:
 
     await runtime.start_turn("sess_s", "claude_session_0", "hello", client_message_id="cm_init")
     execution = await _await_active_client(runtime, "sess_s")
+    # Clients show the button from the session-scoped set, not the runtime one.
+    assert _capability_available(host.session_capability_updates[-1], "session.steer")
 
     result = await runtime.steer_turn(
         "sess_s", "claude_session_1", "also translate to English", client_message_id="cm_supp"

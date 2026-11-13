@@ -96,6 +96,21 @@ def claude_session_capabilities(
                 metadata={"source": "claude.runtime"},
             ),
             RuntimeCapability(
+                capability_id=CAPABILITY_SESSION_STEER,
+                scope="session",
+                runtime="claude",
+                session_id=session_id,
+                connector_id=context.connector_id,
+                supported=capabilities.get("steerTurn") is True,
+                available=capabilities.get("steerTurn") is True and active,
+                unavailable_reason=(
+                    "not_implemented"
+                    if capabilities.get("steerTurn") is not True
+                    else None if active else "no_active_turn"
+                ),
+                metadata={"source": "claude.runtime"},
+            ),
+            RuntimeCapability(
                 capability_id=CAPABILITY_SESSION_INTERACTION_APPROVAL,
                 scope="session",
                 runtime="claude",

@@ -212,7 +212,14 @@ class ClaudeTurnActionHandler:
                 client_message_id=client_message_id,
                 native_message_id=None,
             )
-            await query_client(target_client, effective_content)
+            # The live turn's handle wraps the shared connection and stamps its own
+            # prompt id and "later" priority; a supplement must go in as a plain new
+            # user message so Claude takes it at the next tool boundary.
+            connection = getattr(target_client, "connection", None)
+            await query_client(
+                getattr(connection, "client", None) or target_client,
+                effective_content,
+            )
         except Exception as exc:  # noqa: BLE001 -- surface a clean error, never silently drop
             if client_message_id:
                 async with session.execution_lock:
