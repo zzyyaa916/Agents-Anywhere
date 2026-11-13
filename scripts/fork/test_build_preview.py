@@ -15,8 +15,8 @@ class PreviewBuildTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / 'source'
             root.mkdir()
-            files = {'connector/pyproject.toml': '[project]\nversion="2.6.5"\n',
-                     'server/pyproject.toml': '[project]\nversion="2.6.5"\n',
+            files = {'connector/pyproject.toml': '[project]\nversion="2.6.6"\n',
+                     'server/pyproject.toml': '[project]\nversion="2.6.6"\n',
                      'scripts/fork/update-preview.py': '# deploy',
                      'scripts/fork/upgrade-legacy-connector.py': '# upgrade',
                      'scripts/fork/runtime-broker.py': '# broker',
@@ -37,7 +37,7 @@ class PreviewBuildTests(unittest.TestCase):
                 function(output)
                 with tarfile.open(output) as archive:
                     manifest = json.load(archive.extractfile('manifest.json'))
-                    self.assertEqual(manifest['version'], '2.6.5')
+                    self.assertEqual(manifest['version'], '2.6.6')
                     self.assertIn('upgrade-legacy-connector.py', manifest['files'])
                     self.assertIn('runtime-broker.py', manifest['files'])
                     self.assertIn('native-history-cleanup.py', manifest['files'])
