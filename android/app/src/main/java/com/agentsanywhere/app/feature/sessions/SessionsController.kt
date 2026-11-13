@@ -169,7 +169,7 @@ class SessionsController(
                     knownProjects = projects,
                     list = { sessionsApi.listProjects(serverUrl, accessToken).projects.map(RemoteProject::toAgentProject) },
                     create = { name, workspace -> sessionsApi.createProject(
-                        serverUrl, accessToken, name, draft.connectorId, workspace, manuallyCreated = false,
+                        serverUrl, accessToken, name, draft.connectorId, workspace, manuallyCreated = true,
                     ).project.toAgentProject() },
                 )
                 draft.copy(projectId = project.id, cwd = project.workspacePath)

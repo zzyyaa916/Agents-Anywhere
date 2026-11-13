@@ -59,4 +59,5 @@
     <string name="fork_abandon">放弃剩余设备清理</string>
     <string name="fork_abandon_confirm">确认保留剩余文件并放弃清理</string>
     <string name="fork_abandon_warning">已删除的数据不会恢复，剩余的设备文件和原生历史将保留，项目路径占用将解除。确认放弃剩余清理？</string>
+    <string name="fork_project_parent_hint">将在所选父目录下创建与项目同名的文件夹。</string>
 </resources>

@@ -351,6 +351,7 @@ class HistoryDeletionRepositoryMixin:
                 "projectPath": target["workspace_path"] if target else None,
                 "protectedPaths": sorted(set(protected)),
                 "sessions": [{"sessionId": r["id"], "runtimeId": r["runtime_id"], "runtime": r["runtime"],
+                              "projectPath": next((p["workspace_path"] for p in projects if p["id"] == r["project_id"]), None),
                               "externalSessionId": r["external_session_id"], "cwd": r["cwd"]} for r in rows],
             }
 

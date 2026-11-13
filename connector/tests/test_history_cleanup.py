@@ -143,3 +143,94 @@ async def test_replacement_while_native_cleanup_awaits_is_not_deleted(fixture):
     with pytest.raises(ValueError, match="replaced"):
         await worker.commit({"request": body, "receipt": receipt["receipt"]})
     assert (project / "new").exists()
+
+
+@pytest.mark.anyio
+async def test_project_directory_creates_named_child_and_replays_receipt(fixture):
+    worker, _, project = fixture
+    body = {"connectorId": worker.connector_id, "operationId": "e" * 64, "parentPath": str(project), "name": "新项目"}
+    prepared = await worker.project_directory("prepare", body)
+    assert Path(prepared["path"]) == project / "新项目"
+    assert await worker.project_directory("prepare", body) == prepared
+    await worker.project_directory("release", {**body, **prepared})
+    assert (project / "新项目").is_dir() and project.is_dir()
+
+
+@pytest.mark.anyio
+async def test_project_directory_rejects_existing_folders_and_nonempty_rollback(fixture):
+    worker, _, project = fixture
+    body = {"connectorId": worker.connector_id, "operationId": "e" * 64, "parentPath": str(project), "name": "existing"}
+    (project / "existing").mkdir()
+    (project / "existing/code.py").write_text("keep")
+    with pytest.raises(FileExistsError):
+        await worker.project_directory("prepare", body)
+    body["name"] = "new"
+    prepared = await worker.project_directory("prepare", body)
+    (project / "new/code.py").write_text("keep")
+    with pytest.raises(OSError):
+        await worker.project_directory("cancel", {**body, **prepared})
+    assert (project / "new/code.py").read_text() == "keep"
+    (project / "new/code.py").unlink()
+    await worker.project_directory("cancel", {**body, **prepared})
+    assert not (project / "new").exists() and (project / "existing/code.py").exists()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("name", ["../escape", "a/b", "a\\b", ".", "..", "CON", "aux.txt", "bad."])
+async def test_project_directory_rejects_path_names(fixture, name):
+    worker, _, project = fixture
+    with pytest.raises(ValueError):
+        await worker.project_directory("prepare", {"connectorId": worker.connector_id, "operationId": "e" * 64, "parentPath": str(project), "name": name})
+
+
+@pytest.mark.anyio
+async def test_session_cleanup_removes_only_its_private_project_data(fixture):
+    worker, native, project = fixture
+    (project / "code.py").write_text("shared")
+    for sid in ["first", "second"]:
+        cache = project / ".agents-anywhere/sessions" / sid
+        cache.mkdir(parents=True); (cache / "cache").touch()
+    body = request(sessions=[{"sessionId": "first", "externalSessionId": "native", "cwd": str(project), "projectPath": str(project)}], protectedPaths=[str(project)])
+    receipt = await worker.prepare(body)
+    await worker.commit({"request": body, "receipt": receipt["receipt"]})
+    assert not (project / ".agents-anywhere/sessions/first").exists()
+    assert (project / ".agents-anywhere/sessions/second/cache").exists()
+    assert (project / "code.py").read_text() == "shared"
+
+
+@pytest.mark.anyio
+async def test_project_cleanup_also_removes_its_legacy_private_conversation(fixture):
+    worker, _, project = fixture
+    private = worker.data_dir / "conversations/root/group/0"
+    private.mkdir(parents=True); (private / "cache").touch()
+    other = worker.data_dir / "conversations/root/other/0"
+    other.mkdir(parents=True); (other / "keep").touch()
+    body = request(projectPath=str(project), sessions=[{"sessionId": "first", "cwd": str(private), "projectPath": str(project)}], protectedPaths=[str(other)])
+    receipt = await worker.prepare(body)
+    await worker.commit({"request": body, "receipt": receipt["receipt"]})
+    assert not project.exists() and not private.exists()
+    assert (other / "keep").exists()
+
+
+@pytest.mark.anyio
+async def test_new_project_shares_only_itself_and_ancestor_traversal(fixture, monkeypatch):
+    import connector.server.history_cleanup as module
+    worker, _, project = fixture
+    calls = []
+    monkeypatch.setattr(module, "fork_enabled", lambda: True)
+    monkeypatch.setenv("AA_FORK_RUNTIME_BROKER", "1")
+    monkeypatch.setattr(module, "share_runtime_path", lambda path, permission, **kw: calls.append((path, permission, kw)))
+    body = {"connectorId": worker.connector_id, "operationId": "f" * 64, "parentPath": str(project), "name": "shared"}
+    await worker.project_directory("prepare", body)
+    target = project / "shared"
+    assert {kw["runtime"] for path, permission, kw in calls if path == target and permission == "rwx" and kw.get("inherit")} == {"codex", "claude", "dsh"}
+    assert all(permission == "--x" for path, permission, kw in calls if path != target)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("path", ["relative", "/work/../outside"])
+async def test_session_private_cleanup_requires_an_absolute_project_path(fixture, path):
+    worker, _, project = fixture
+    with pytest.raises(ValueError, match="invalid_cleanup_path"):
+        await worker.prepare(request(sessions=[{"sessionId": "first", "projectPath": path}]))
+    assert project.exists()

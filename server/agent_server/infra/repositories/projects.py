@@ -7,20 +7,14 @@ from pathlib import PurePosixPath, PureWindowsPath
 
 from sqlalchemy import case
 
+from agent_server.core.project_directories import ProjectNameConflictError
+
 from agent_server.infra.repositories.store_support import *
 from agent_server.infra.db.engine import read_connection
 
 
 class MissingWorkspaceError(ValueError):
     """Raised when a connector session cannot be assigned to a workspace."""
-
-
-class ProjectNameConflictError(ValueError):
-    """Raised when another project owned by the user already has this name."""
-
-    def __init__(self, name: str) -> None:
-        self.name = name
-        super().__init__(f'project name already exists: "{name}"')
 
 
 def _clean_workspace_path(path: str, device_os: str | None) -> tuple[str, str]:

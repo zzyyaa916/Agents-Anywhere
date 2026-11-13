@@ -98,6 +98,7 @@ internal fun NewProjectScreen(
                 )
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(stringResource(R.string.new_session_project_name), color = colors.inkSoft, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    Text(stringResource(R.string.fork_project_parent_hint), color = colors.inkSoft, fontSize = 12.sp)
                     BasicTextField(
                         value = name,
                         onValueChange = onNameChange,

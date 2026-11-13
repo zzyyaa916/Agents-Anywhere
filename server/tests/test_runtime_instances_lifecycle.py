@@ -802,7 +802,7 @@ def test_named_session_create_starts_an_active_stopped_instance(
                 json={
                     "connectorId": connector_id,
                     "name": "Work",
-                    "workspacePath": "/work",
+                    "manuallyCreated": False, "workspacePath": "/work",
                 },
             ).json()["project"]["id"],
         },
@@ -855,7 +855,7 @@ def test_discovered_custom_provider_type_routes_named_sessions(
                 json={
                     "connectorId": connector_id,
                     "name": "Work",
-                    "workspacePath": "/work",
+                    "manuallyCreated": False, "workspacePath": "/work",
                 },
             ).json()["project"]["id"],
         },
@@ -913,7 +913,7 @@ def test_named_session_create_rejects_mismatched_connector_identity(
                 json={
                     "connectorId": connector_id,
                     "name": "Work",
-                    "workspacePath": "/work",
+                    "manuallyCreated": False, "workspacePath": "/work",
                 },
             ).json()["project"]["id"],
         },

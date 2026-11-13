@@ -55,7 +55,7 @@ test("a new directory uses existing list/create operations with a unique name an
   const actual = project("server-id", "repo (2)", "mac", "/work/repo")
   const fresh = [project("other-device", "repo", "pc", "/work/repo"), project("other-path", "repo (1)", "mac", "/other")]
   const resolved = await resolveWorkspaceProject({ projects: [], connectorId: "mac", path: " /work/repo/ ", list: async () => fresh, create: async payload => { request = payload; return actual } })
-  assert.deepEqual(request, { name: "repo (2)", connectorId: "mac", workspacePath: "/work/repo/", manuallyCreated: false })
+  assert.deepEqual(request, { name: "repo (2)", connectorId: "mac", workspacePath: "/work/repo/", manuallyCreated: true })
   assert.equal(resolved, actual)
 })
 
@@ -82,7 +82,7 @@ test("a concurrent name collision refreshes names before retrying creation", asy
     create: async payload => { requests.push(payload); if (requests.length === 1) throw conflict(); return actual },
   })
   assert.deepEqual(requests.map(payload => payload.name), ["repo", "repo (1)"])
-  assert.ok(requests.every(payload => payload.manuallyCreated === false))
+  assert.ok(requests.every(payload => payload.manuallyCreated === true))
   assert.equal(resolved, actual)
 })
 

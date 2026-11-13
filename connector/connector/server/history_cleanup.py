@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 from uuid import uuid4
 
-from connector.core.fork_profile import system_home
+from connector.core.fork_profile import fork_enabled, share_runtime_path, system_home
 from connector.core.json_kv import JsonKeyValueStore
 from connector.paths import connector_data_dir
 
@@ -79,9 +79,13 @@ class HistoryCleanup:
         ):
             raise ValueError("invalid_cleanup_protected_paths")
         for session in sessions:
-            for name in ("cwd", "runtimeId", "runtime", "externalSessionId"):
+            for name in ("cwd", "runtimeId", "runtime", "externalSessionId", "projectPath"):
                 if session.get(name) is not None and not isinstance(session[name], str):
                     raise TypeError("invalid_cleanup_session")
+            if session.get("projectPath") and (
+                not Path(session["projectPath"]).is_absolute() or ".." in Path(session["projectPath"]).parts
+            ):
+                raise ValueError("invalid_cleanup_path")
         return operation, hashlib.sha256(json.dumps(request, sort_keys=True).encode()).hexdigest()
 
     async def prepare(self, request):
@@ -103,10 +107,17 @@ class HistoryCleanup:
                 directories.append(p)
             for session in request["sessions"]:
                 directories.append(self._path(str(self.data_dir / "attachments" / session["sessionId"])))
+                if session.get("projectPath"):
+                    root = Path(session["projectPath"]).resolve()
+                    private = root / ".agents-anywhere" / "sessions" / session["sessionId"]
+                    for part in (private, private.parent, private.parent.parent):
+                        if part.is_symlink() or part.is_junction():
+                            raise ValueError("cleanup_symlink_refused")
+                    directories.append(self._path(str(private)))
                 # Session deletion never removes the shared project directory.
                 cwd = Path(session["cwd"]).resolve() if session.get("cwd") else None
                 conversation_root = self.data_dir.resolve() / "conversations"
-                if not request.get("projectPath") and cwd and cwd.is_relative_to(conversation_root) and cwd != conversation_root:
+                if cwd and cwd.is_relative_to(conversation_root) and cwd != conversation_root:
                     shared = [Path(value).resolve() for value in request.get("protectedPaths", [])]
                     if not any(q == cwd or q.is_relative_to(cwd) or cwd.is_relative_to(q) for q in shared):
                         directories.append(self._path(str(cwd)))
@@ -132,6 +143,61 @@ class HistoryCleanup:
             receipt = uuid4().hex
             self.kv.set(key, {"digest": digest, "receipt": receipt, "directories": proof, "done": False, "nativeDone": []})
             return {"prepared": True, "receipt": receipt}
+
+    async def project_directory(self, action, request):
+        operation = request.get("operationId", "")
+        name = request.get("name", "")
+        if request.get("connectorId") != self.connector_id or not re.fullmatch(r"[a-f0-9]{64}", operation):
+            raise ValueError("invalid_project_directory_request")
+        if not isinstance(name, str) or name in {"", ".", ".."} or any(c in name for c in '/\\\0<>:"|?*') or name.endswith((".", " ")) or any(ord(c) < 32 for c in name):
+            raise ValueError("invalid_project_directory_name")
+        if name.split(".", 1)[0].upper() in {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}:
+            raise ValueError("invalid_project_directory_name")
+        parent = Path(request["parentPath"])
+        if not parent.is_absolute() or not parent.is_dir() or ".." in parent.parts:
+            raise ValueError("invalid_project_parent_directory")
+        path = self._path(str(parent.resolve() / name))
+        key = "project-directory/" + operation
+        async with self.lock:
+            state = self.kv.get(key)
+            if state and state["path"] != str(path):
+                raise ValueError("project_directory_request_changed")
+            if action == "prepare":
+                if state is None:
+                    path.mkdir(mode=0o700)  # Never adopt a pre-existing folder as disposable project data.
+                    stat = path.stat()
+                    state = {"path": str(path), "identity": [stat.st_dev, stat.st_ino], "receipt": uuid4().hex}
+                    try:
+                        if fork_enabled() and os.environ.get("AA_FORK_RUNTIME_BROKER") == "1":
+                            # Only the new project is shared; ancestors receive traversal, never read access.
+                            for runtime in ("codex", "claude", "dsh"):
+                                for parent in path.parents:
+                                    if parent.stat().st_uid != os.getuid():
+                                        break
+                                    share_runtime_path(parent, "--x", runtime=runtime)
+                                share_runtime_path(path, "rwx", runtime=runtime, inherit=True)
+                        self.kv.set(key, state)
+                    except Exception:
+                        path.rmdir()
+                        raise
+                else:
+                    stat = path.stat()
+                    if state["identity"] != [stat.st_dev, stat.st_ino]:
+                        raise ValueError("project_directory_replaced")
+                return {"path": str(path), "receipt": state["receipt"]}
+            if action not in {"cancel", "release"}:
+                raise ValueError("unknown_project_directory_action")
+            if state is None:
+                return {"released": True}
+            if state["receipt"] != request.get("receipt"):
+                raise ValueError("project_directory_receipt_mismatch")
+            if action == "cancel" and path.exists():
+                stat = path.stat()
+                if state["identity"] != [stat.st_dev, stat.st_ino]:
+                    raise ValueError("project_directory_replaced")
+                path.rmdir()  # Cancellation cannot remove user files added after preparation.
+            self.kv.delete(key)
+            return {"released": True}
 
     async def commit(self, plan):
         request = plan.get("request", {})

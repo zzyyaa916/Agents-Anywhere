@@ -44,4 +44,10 @@ class ForkUsageTest {
         assertEquals(listOf(720.0, 3000.0), windows.map { it.ageSeconds })
         assertEquals(listOf(29.0, 72.0), windows.map { it.remaining })
     }
+    @Test fun singleUpdateLabelAlwaysUsesTheNewestSource() {
+        val probe = UsageWindow("five_hour", 29.0, "2033-05-18T10:00:00Z", null, "probe", receivedAt = "2033-05-18T03:00:00Z")
+        val cached = UsageWindow("seven_day", 72.0, "2033-05-25T10:00:00Z", null, "event", receivedAt = "2033-05-18T04:00:00Z")
+        assertTrue(com.agentsanywhere.app.ui.screens.fork.claudeUpdate(listOf(probe, cached)).endsWith("更新 · 缓存"))
+        assertTrue(com.agentsanywhere.app.ui.screens.fork.claudeUpdate(listOf(probe.copy(receivedAt = "2033-05-18T05:00:00Z"), cached)).endsWith("更新 · 探针"))
+    }
 }

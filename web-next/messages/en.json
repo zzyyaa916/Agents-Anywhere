@@ -512,7 +512,7 @@
       "archiveAllFailed": "Couldn't archive the project.",
       "archiveAllSuccess": "Project archived. Its sessions were archived.",
       "archiveAllTitle": "Archive project",
-      "createDescription": "Choose a device and working directory, then confirm the project name. The project is created when you submit.",
+      "createDescription": "Choose a parent directory and a project name to create a new folder inside it.",
       "createFailed": "Couldn't create the project.",
       "createSuccess": "Project saved.",
       "create": "Create project",
@@ -551,6 +551,7 @@
       "workspaceConflictDescription": "The workspace “{path}” already belongs to “{currentName}”. Continuing will rename that project to “{name}” instead of creating a duplicate. Its sessions and settings will be preserved.",
       "workspaceConflictTitle": "This workspace already has a project",
       "workspaceImmutable": "The workspace is fixed after the project is created.",
+      "parentDirectoryHint": "Create a folder named “{name}” inside the selected parent directory.",
       "showMoreSessions": "Show {count} more",
       "showFewerSessions": "Show less"
     },

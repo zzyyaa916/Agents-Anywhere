@@ -85,8 +85,3 @@ nonisolated enum ProjectWorkspacePath {
         return (path.hasPrefix("//") && !path.hasPrefix("///") ? "//" : "/") + parts.joined(separator: "/")
     }
 }
-
-struct ProjectReuseRequired: LocalizedError {
-    let project: V2Project
-    var errorDescription: String? { String(localized: "这个目录已属于项目「\(project.name)」。") }
-}

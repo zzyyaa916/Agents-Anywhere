@@ -176,7 +176,6 @@ fun NewSessionScreen(
     var projectCreating by remember { mutableStateOf(false) }
     var projectCreateError by remember { mutableStateOf<String?>(null) }
     var nameEdited by rememberSaveable { mutableStateOf(false) }
-    var workspaceConflict by remember { mutableStateOf<AgentProject?>(null) }
     var previousDeviceId by rememberSaveable { mutableStateOf<String?>(null) }
     var previousProjectId by rememberSaveable { mutableStateOf<String?>(null) }
     var previousPath by rememberSaveable { mutableStateOf("") }
@@ -240,7 +239,6 @@ fun NewSessionScreen(
         expandedConfiguration = null
         creatingProject = false
         projectCreateError = null
-        workspaceConflict = null
     }
 
     BackHandler {
@@ -747,7 +745,7 @@ fun NewSessionScreen(
         selectedDeviceId = preferredDeviceId
     }
 
-    fun createProject(confirmRename: Boolean = false) {
+    fun createProject() {
         val device = selectedDevice ?: return
         val inputPath = selectedWorkspacePath.trim()
         val inputName = projectName.trim()
@@ -759,7 +757,6 @@ fun NewSessionScreen(
         projectCreateError = null
         scope.launch {
             var attemptedName = inputName
-            var existingProjectId: String? = null
             try {
                 val path = if (inputPath.startsWith("~")) {
                     onListDirectory(device.id, inputPath, ".").getOrThrow().path.also {
@@ -768,20 +765,14 @@ fun NewSessionScreen(
                         }
                     }
                 } else inputPath
-                // Refresh before checking the workspace so another client's project is not silently renamed.
+                // Names are unique; the selected directory is only the new project's parent.
                 val latest = onLoadProjects().getOrThrow()
-                val existing = workspaceProject(latest, device.id, path, device.deviceOs)
-                existingProjectId = existing?.id
                 attemptedName = availableProjectName(
-                    if (useDirectoryName) existing?.name ?: workspaceProjectName(path) else inputName,
-                    latest, existingProjectId,
+                    if (useDirectoryName) workspaceProjectName(path) else inputName,
+                    latest,
                 )
                 selectedWorkspacePath = path
                 projectName = attemptedName
-                if (!confirmRename && existing != null && existing.name != attemptedName) {
-                    workspaceConflict = existing
-                    return@launch
-                }
                 val project = onCreateProject(attemptedName, device.id, path).getOrThrow()
                 localProject = project
                 selectDevice(project.connectorId, persist = true)
@@ -797,7 +788,7 @@ fun NewSessionScreen(
             } catch (error: Exception) {
                 if (error is ApiException && error.errorCode == "project_name_conflict") {
                     val latest = onLoadProjects().getOrDefault(projects)
-                    projectName = availableProjectName(attemptedName, latest, existingProjectId, setOf(attemptedName))
+                    projectName = availableProjectName(attemptedName, latest, reservedNames = setOf(attemptedName))
                     nameEdited = true
                     projectCreateError = context.getString(R.string.project_name_adjusted)
                 } else {
@@ -807,15 +798,7 @@ fun NewSessionScreen(
         }
     }
 
-    workspaceConflict?.let { project ->
-        AlertDialog(
-            onDismissRequest = { workspaceConflict = null },
-            title = { Text(stringResource(R.string.project_workspace_conflict_title)) },
-            text = { Text(stringResource(R.string.project_workspace_conflict_message, project.name, projectName)) },
-            confirmButton = { TextButton(onClick = { workspaceConflict = null; createProject(confirmRename = true) }) { Text(stringResource(R.string.project_rename_existing)) } },
-            dismissButton = { TextButton(onClick = { workspaceConflict = null }) { Text(stringResource(R.string.common_cancel)) } },
-        )
-    }
+
 
     if (creatingProject) {
         val parent = remoteParentPath(currentPath, selectedDeviceOs, allowWindowsDriveOverview = isWindowsDevice)

@@ -3,16 +3,6 @@
 import * as React from "react"
 import { FolderOpen } from "lucide-react"
 import { toast } from "sonner"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -34,7 +24,7 @@ import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "
 import { FileBrowserDialog } from "@/components/workspace-file-browser-dialog"
 import { useAuth } from "@/components/auth/auth-context"
 import { dashboardApi } from "@/features/dashboard/api"
-import { availableProjectName, findWorkspaceProject, workspaceName } from "@/features/dashboard/project-workspaces"
+import { availableProjectName, workspaceName } from "@/features/dashboard/project-workspaces"
 import {
   Select,
   SelectContent,
@@ -92,14 +82,12 @@ export function ProjectEditorDialog({
   const savingRef = React.useRef(false)
   const [saving, setSaving] = React.useState(false)
   const [nameError, setNameError] = React.useState("")
-  const [workspaceConflict, setWorkspaceConflict] = React.useState<ProjectView | null>(null)
   const editingProject = editor?.mode === "edit" ? editor.project : null
   const onlineConnectors = connectors.filter((connector) => connector.status === "online")
   const selectedConnector = connectors.find((connector) => connector.id === connectorId)
 
   React.useEffect(() => {
     if (!editor) {
-      setWorkspaceConflict(null)
       return
     }
     if (editor.mode === "edit") {
@@ -117,17 +105,15 @@ export function ProjectEditorDialog({
     setNameEdited(false)
     setNameAdjusted(false)
     setNameError("")
-    setWorkspaceConflict(null)
   }, [editor])
 
-  const existingWorkspace = findWorkspaceProject(projects, connectorId, path, selectedConnector?.deviceOs)
-  const ignoredProjectId = editingProject?.id ?? existingWorkspace?.id
+  const ignoredProjectId = editingProject?.id
 
   React.useEffect(() => {
     if (!editor || editingProject || nameEdited) return
-    const base = existingWorkspace?.name ?? (path.trim() ? workspaceName(path) : "")
+    const base = path.trim() ? workspaceName(path) : ""
     setName(base ? availableProjectName(base, projects, ignoredProjectId) : "")
-  }, [editor, editingProject, existingWorkspace?.name, ignoredProjectId, nameEdited, path, projects])
+  }, [editor, editingProject, ignoredProjectId, nameEdited, path, projects])
 
   const normalizeName = () => {
     const next = availableProjectName(name, projects, ignoredProjectId)
@@ -182,10 +168,6 @@ export function ProjectEditorDialog({
   const submit = () => {
     if (!editor || !name.trim() || savingRef.current) return
     normalizeName()
-    if (!editingProject && existingWorkspace && existingWorkspace.name !== name.trim()) {
-      setWorkspaceConflict(existingWorkspace)
-      return
-    }
     void persistProject()
   }
 
@@ -264,7 +246,7 @@ export function ProjectEditorDialog({
                     </InputGroupAddon>
                   ) : null}
                 </InputGroup>
-                {editingProject ? <FieldDescription>{t("workspaceImmutable")}</FieldDescription> : null}
+                {editingProject ? <FieldDescription>{t("workspaceImmutable")}</FieldDescription> : <FieldDescription>{t("parentDirectoryHint", { name: name.trim() || t("name") })}</FieldDescription>}
               </Field>
               <Field data-invalid={Boolean(nameError) || undefined}>
                 <FieldLabel htmlFor="project-name">{t("name")}</FieldLabel>
@@ -315,39 +297,6 @@ export function ProjectEditorDialog({
         onConfirm={(next) => { setPath(next); setNameError("") }}
       />
 
-      <AlertDialog
-        open={workspaceConflict !== null}
-        onOpenChange={(open) => {
-          if (!open) setWorkspaceConflict(null)
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t("workspaceConflictTitle")}</AlertDialogTitle>
-            <AlertDialogDescription className="break-words">
-              {t("workspaceConflictDescription", {
-                currentName: workspaceConflict?.name ?? "",
-                name: name.trim(),
-                path: workspaceConflict?.workspacePath ?? path,
-              })}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={saving}>
-              {t("workspaceConflictBack")}
-            </AlertDialogCancel>
-            <AlertDialogAction
-              disabled={saving}
-              onClick={() => {
-                setWorkspaceConflict(null)
-                void persistProject()
-              }}
-            >
-              {t("workspaceConflictConfirm")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </>
   )
 }

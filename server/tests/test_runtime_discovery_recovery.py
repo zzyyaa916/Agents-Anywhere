@@ -30,7 +30,7 @@ def test_named_snapshot_and_runtime_recover_after_discovery_error(tmp_path):
     project = client.post(
         "/projects",
         headers=headers,
-        json={"connectorId": connector_id, "name": "Work", "workspacePath": "/work"},
+        json={"connectorId": connector_id, "name": "Work", "manuallyCreated": False, "workspacePath": "/work"},
     )
     assert project.status_code == 200, project.text
     imported = client.post(

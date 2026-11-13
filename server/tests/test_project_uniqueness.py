@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
 from conftest import ApiV2TestClient as TestClient
 
 from agent_server.app import create_app
@@ -18,10 +20,15 @@ def _authenticated_client(tmp_path) -> tuple[TestClient, dict[str, str]]:
         },
     )
     assert registered.status_code == 200, registered.text
+    async def directory_request(connector, method, body, **kwargs):
+        if method == "project.directory.prepare":
+            return {"path": body["parentPath"].rstrip("/") + "/" + body["name"], "receipt": "virtual-receipt"}
+        return {"released": True}
+    client.app.state.rpc.request = AsyncMock(side_effect=directory_request)
     return client, {"Authorization": f"Bearer {registered.json()['accessToken']}"}
 
 
-def test_project_create_reuses_workspace_and_rejects_duplicate_name(tmp_path) -> None:
+def test_project_create_uses_named_children_and_rejects_duplicate_name(tmp_path) -> None:
     client, headers = _authenticated_client(tmp_path)
     connector = client.post(
         "/connectors",
@@ -54,7 +61,8 @@ def test_project_create_reuses_workspace_and_rejects_duplicate_name(tmp_path) ->
         },
     )
     assert replacement.status_code == 200, replacement.text
-    assert replacement.json()["project"]["id"] == project_id
+    assert replacement.json()["project"]["id"] != project_id
+    assert replacement.json()["project"]["workspacePath"] == "/repo/Renamed"
     assert replacement.json()["project"]["name"] == "Renamed"
     assert replacement.json()["project"]["manuallyCreated"] is True
 
@@ -82,10 +90,10 @@ def test_project_create_reuses_workspace_and_rejects_duplicate_name(tmp_path) ->
     assert duplicate_name.json()["detail"]["code"] == "project_name_conflict"
 
     projects = client.get("/projects", headers=headers).json()["projects"]
-    assert len(projects) == 2
+    assert len(projects) == 3
     assert (
         next(project for project in projects if project["id"] == project_id)["name"]
-        == "Renamed"
+        == "Original"
     )
 
     archived = client.post(
@@ -133,7 +141,7 @@ def test_project_create_supports_automatic_projects_without_renaming(tmp_path) -
         assert response.status_code == 200, response.text
         return response.json()["project"]
 
-    reused = create_automatic("/repo/./", "repo")
+    reused = create_automatic("/repo/Custom name/./", "repo")
     assert reused == manual
     automatic = create_automatic("/work/repo", "repo")
     assert automatic["name"] == "repo"

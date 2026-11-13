@@ -36,14 +36,10 @@ import Observation
     func suggestName(projects: [V2Project], deviceOS: String?) {
         guard original == nil, !nameEdited else { return }
         guard !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { name = ""; return }
-        if let existing = ProjectWorkspacePath.project(in: projects, connectorID: connectorID, path: path, deviceOS: deviceOS) {
-            name = existing.name
-        } else {
-            name = ProjectWorkspacePath.availableName(ProjectWorkspacePath.name(path), projects: projects)
-        }
+        name = ProjectWorkspacePath.availableName(ProjectWorkspacePath.name(path), projects: projects)
     }
     func normalizeName(projects: [V2Project], deviceOS: String?) {
-        let existing = original ?? ProjectWorkspacePath.project(in: projects, connectorID: connectorID, path: path, deviceOS: deviceOS)
+        let existing = original
         name = ProjectWorkspacePath.availableName(name, projects: projects, ignoring: existing?.id)
     }
 }

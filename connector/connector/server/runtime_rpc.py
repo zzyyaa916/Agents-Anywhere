@@ -77,6 +77,9 @@ class RuntimeRpcHandler:
     """Route Runtime Control and Agent Runtime Protocol calls."""
 
     METHODS: ClassVar[set[str]] = {
+        "project.directory.prepare",
+        "project.directory.cancel",
+        "project.directory.release",
         "history.cleanup.prepare",
         "history.cleanup.commit",
         "history.cleanup.release",
@@ -151,6 +154,8 @@ class RuntimeRpcHandler:
         return method in self.METHODS or method in WORKFLOW_RPC
 
     async def dispatch(self, method: str, params: dict[str, Any]) -> Any:
+        if method.startswith("project.directory."):
+            return await self.history_cleanup.project_directory(method.rsplit(".", 1)[1], params)
         if method in {"history.cleanup.release", "history.cleanup.cancel"}:
             return await self.history_cleanup.release(params, cancel=method.endswith("cancel"))
         if method == "history.cleanup.prepare":

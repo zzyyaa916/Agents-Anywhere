@@ -206,7 +206,7 @@ def _create_project(client: TestClient, connector_id: str, headers: dict[str, st
     response = client.post(
         "/projects",
         headers=headers,
-        json={"connectorId": connector_id, "name": "repo", "workspacePath": "/repo"},
+        json={"connectorId": connector_id, "name": "repo", "manuallyCreated": False, "workspacePath": "/repo"},
     )
     assert response.status_code == 200, response.text
     return response.json()["project"]["id"]

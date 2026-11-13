@@ -67,12 +67,12 @@ import Testing
         let choices = WorkspaceDirectoryChoice.recent(connectorID: "device", deviceOS: "windows", home: "c:/users/me/", projects: values, sessions: sessions)
         #expect(choices.map(\.id) == ["c:/code/app", "d:/work"])
     }
-    @Test func projectNameSuggestionsReuseWorkspaceAndDeduplicateAcrossDevices() {
+    @Test func projectNameSuggestionsUseTheParentNameAndDeduplicateAcrossDevices() {
         let draft = ProjectEditorDraft(connectorID: "device")
         let projects = [project("match", name: "Personal", path: "/home/me"),
                         project("other", name: "app", device: "other"), project("other2", name: "app (1)", device: "third")]
         draft.editPath("/home/me/./", projects: projects, deviceOS: "linux")
-        #expect(draft.name == "Personal")
+        #expect(draft.name == "me")
         draft.editPath("/code/app", projects: projects, deviceOS: "linux")
         #expect(draft.name == "app (2)")
         draft.editName("My custom name")

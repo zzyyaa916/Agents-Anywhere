@@ -8,7 +8,6 @@ struct ProjectEditorSheet: View {
     @State private var draft: ProjectEditorDraft
     @State private var saving = false
     @State private var error: String?
-    @State private var reuse: V2Project?
     @State private var showsFiles = false
     @State private var confirmsDiscard = false
 
@@ -63,7 +62,7 @@ struct ProjectEditorSheet: View {
                         }
                     }
                 } header: { Text(String(localized: "dashboard.projects.workspace")) } footer: {
-                    Text(draft.original == nil ? String(localized: "项目关联这个目录，不会在设备上新建文件夹。") : String(localized: "编辑项目时，设备和工作目录保持不变。"))
+                    Text(draft.original == nil ? String(localized: "将在所选父目录下创建与项目同名的文件夹。") : String(localized: "编辑项目时，设备和工作目录保持不变。"))
                 }
                 Section {
                     TextField(String(localized: "例如 Agents Anywhere"), text: Binding(get: { draft.name }, set: draft.editName))
@@ -90,13 +89,6 @@ struct ProjectEditorSheet: View {
         }
         .appSheetPresentation(.compact).interactiveDismissDisabled(saving || draft.hasChanges)
         .confirmDiscardChanges($confirmsDiscard) { dismiss() }
-        .alert(String(localized: "这个目录已有项目"), isPresented: Binding(get: { reuse != nil }, set: { if !$0 { reuse = nil } })) {
-            Button(String(localized: "取消"), role: .cancel) { reuse = nil }
-            Button(String(localized: "使用此项目并保存名称")) {
-                let id = reuse?.id; reuse = nil
-                Task { await save(reusing: id) }
-            }
-        } message: { Text(String(localized: "The workspace “\(draft.path)” already belongs to “\(reuse?.name ?? "")”. Continuing will rename that project to “\(draft.name)” instead of creating a duplicate. Its sessions and settings will be preserved.")) }
         .sheet(isPresented: $showsFiles) {
             if let device, let service = appState.workspaceFilesService {
                 WorkspaceFilesSheet(connectorId: device.id, deviceName: device.name,
@@ -109,7 +101,7 @@ struct ProjectEditorSheet: View {
 
     private func updatePath(_ value: String) { draft.editPath(value, projects: repository.projects, deviceOS: device?.deviceOs) }
 
-    private func save(reusing id: String? = nil) async {
+    private func save() async {
         guard valid, !saving else { return }
         saving = true; error = nil
         defer { saving = false }
@@ -129,10 +121,9 @@ struct ProjectEditorSheet: View {
                 try await repository.updateProject(project.id, name: draft.name)
                 value = repository.projects.first { $0.id == project.id } ?? project
             } else {
-                value = try await repository.createProject(name: draft.name, connectorID: draft.connectorID, path: draft.path, reusing: id)
+                value = try await repository.createProject(name: draft.name, connectorID: draft.connectorID, path: draft.path)
             }
             onSaved(value); dismiss()
-        } catch let needsReuse as ProjectReuseRequired { reuse = needsReuse.project }
-        catch { self.error = error.localizedDescription }
+        } catch { self.error = error.localizedDescription }
     }
 }

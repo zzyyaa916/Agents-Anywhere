@@ -55,18 +55,11 @@ def create_device(client, headers, name="Device"):
 
 
 def create_project(client, headers, device, name, *, manual=True):
-    response = client.post(
-        "/projects",
-        headers=headers,
-        json={
-            "connectorId": device,
-            "name": name,
-            "workspacePath": f"/work/{name}",
-            "manuallyCreated": manual,
-        },
-    )
-    assert response.status_code == 200, response.text
-    return response.json()["project"]["id"]
+    async def seed_project():
+        owner = (await client.app.state.store.get_connector(device)).userId
+        return await client.app.state.store.create_project(user_id=owner, connector_id=device,
+            name=name, workspace_path=f"/work/{name}", manually_created=manual)
+    return asyncio.run(seed_project()).id
 
 
 def add_session(client, device, project, name, *, archived=False):

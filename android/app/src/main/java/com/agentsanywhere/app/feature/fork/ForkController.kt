@@ -26,7 +26,7 @@ class ForkController(private val api: ForkApi, private val auth: AuthSessionRead
     suspend fun quota(id: String, recheck: Boolean = false) = request { s, t -> api.quota(s, t, id, recheck)?.let(QuotaWait::parse) }
 }
 
-data class UsageWindow(val kind: String, val remaining: Double, val resetsAt: String, val model: String?, val source: String? = null, val ageSeconds: Double? = null) {
+data class UsageWindow(val kind: String, val remaining: Double, val resetsAt: String, val model: String?, val source: String? = null, val ageSeconds: Double? = null, val receivedAt: String? = null) {
     fun expired(now: Instant = Instant.now()): Boolean = runCatching { !Instant.parse(resetsAt).isAfter(now) }.getOrDefault(true)
 }
 data class UsageAccount(val runtime: String, val label: String, val stale: Boolean, val fetchedAt: String?, val windows: List<UsageWindow>, val errorCode: String? = null)
@@ -51,7 +51,8 @@ data class UsageCache(val accounts: List<UsageAccount>, val unavailable: List<St
                         val reset = w.optString("resetsAt")
                         if (!percent.isFinite() || percent !in 0.0..100.0 || runCatching { Instant.parse(reset) }.isFailure) null
                         else UsageWindow(w.optString("kind"), percent, reset, w.optString("modelScope").takeUnless { it.isBlank() || it == "null" },
-                            w.optString("source").takeIf { it == "event" || it == "probe" }, w.optDouble("ageSeconds", Double.NaN).takeIf { it.isFinite() && it >= 0 })
+                            w.optString("source").takeIf { it == "event" || it == "probe" }, w.optDouble("ageSeconds", Double.NaN).takeIf { it.isFinite() && it >= 0 },
+                            w.optString("receivedAt").takeUnless { it.isBlank() || it == "null" })
                     }, account.optString("errorCode").takeUnless { it.isBlank() || it == "null" })
             }
             val unavailable = listOf("codex", "claude_code").filter { runtime -> accounts.none { it.runtime == runtime } }

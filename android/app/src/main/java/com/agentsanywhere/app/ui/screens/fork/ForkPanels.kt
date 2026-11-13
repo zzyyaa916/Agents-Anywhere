@@ -25,12 +25,9 @@ internal fun localUsageTime(value: String?): String = value?.let {
     runCatching { DateTimeFormatter.ofPattern("MM/dd HH:mm").withZone(ZoneId.systemDefault()).format(Instant.parse(it)) }.getOrNull()
 } ?: "—"
 
-internal fun usageAge(seconds: Double?): String = when {
-    seconds == null -> "接收时间未知"
-    seconds < 60 -> "刚刚"
-    seconds < 3600 -> "${(seconds / 60).toInt()} 分钟前"
-    seconds < 86400 -> "${(seconds / 3600).toInt()} 小时前"
-    else -> "${(seconds / 86400).toInt()} 天前"
+internal fun claudeUpdate(windows: List<UsageWindow>): String {
+    val latest = windows.maxByOrNull { window -> runCatching { Instant.parse(window.receivedAt).toEpochMilli() }.getOrDefault(Long.MIN_VALUE) }
+    return "${if (latest?.receivedAt != null) localUsageTime(latest.receivedAt) + " 更新" else "更新时间未知"} · ${if (latest?.source == "probe") "探针" else "缓存"}"
 }
 
 @Composable
@@ -71,15 +68,12 @@ fun ForkUsageButton(controller: ForkController, modifier: Modifier = Modifier) {
     val deadline = usage?.refresh?.nextAllowedAt?.let { runCatching { Instant.parse(it).toEpochMilli() / 1000.0 }.getOrNull() } ?: 0.0
     val blocked = status in setOf("retry", "offline", "circuit") && deadline > serverNow
     val pending = busy || (status == "running" && (deadline == 0.0 || deadline > serverNow))
-    val latestAge = usage?.accounts?.filter { it.runtime == "claude_code" }?.flatMap { it.windows }?.mapNotNull { it.ageSeconds?.plus(elapsed) }?.minOrNull()
-    val completed = usage?.refresh?.completedAt?.let { runCatching { Instant.parse(it).toEpochMilli() / 1000.0 }.getOrNull() }
-    val recentSuccess = status == "success" && completed != null && serverNow - completed < 60
     val label = when {
         pending -> "请求中…"
         status == "circuit" && blocked -> "今日探针已熔断，明日恢复"
         failed || status in setOf("retry", "offline") || (status == "running" && !pending) -> "稍后重试"
         status == "disabled" -> "未配置探针"
-        else -> "${if (recentSuccess) "成功" else "刷新"} · 数据 · ${usageAge(latestAge)}"
+        else -> "刷新"
     }
     if (open) AlertDialog(onDismissRequest = { open = false }, title = { Text(stringResource(R.string.fork_usage)) }, text = {
         Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -90,14 +84,13 @@ fun ForkUsageButton(controller: ForkController, modifier: Modifier = Modifier) {
                 Text("${if (account.runtime == "codex") "Codex" else "Claude Code"} · ${account.label}")
                 account.windows.forEach { window ->
                     Text(stringResource(when (window.kind) { "five_hour" -> R.string.fork_five_hour; "weekly", "seven_day", "weekly_scoped" -> R.string.fork_weekly; else -> R.string.fork_other_window }))
-                    Text("已用 ${(100 - window.remaining).roundToInt()}% · 剩余 ${window.remaining.roundToInt()}%")
-                    if (account.runtime == "claude_code") Text("${when(window.source) { "probe" -> "探针"; "event" -> "事件"; else -> "旧缓存" }} · ${usageAge(window.ageSeconds?.plus(elapsed))}")
-                    Text("报告重置时间：${localUsageTime(window.resetsAt)}")
+                    Text("剩余 ${window.remaining.roundToInt()}%")
+                    Text("重置时间：${localUsageTime(window.resetsAt)}")
                 }
+                if (account.runtime == "claude_code" && account.windows.isNotEmpty()) Text(claudeUpdate(account.windows), style = MaterialTheme.typography.bodySmall)
                 if (account.runtime == "codex") Text(stringResource(if (account.stale) R.string.fork_stale else R.string.fork_updated, localUsageTime(account.fetchedAt)), style = MaterialTheme.typography.bodySmall)
             }
             if (usage?.accounts.isNullOrEmpty()) Text("暂无数据")
-            Text("只有点击刷新才执行甲骨文探针；历史数据长期保留，年龄以服务器接收时间为准。", style = MaterialTheme.typography.bodySmall)
         }
     }, confirmButton = { TextButton(onClick = { load(true) }, enabled = !pending && !blocked && status != "disabled") { Text(label) } },
         dismissButton = { TextButton(onClick = { open = false }) { Text(stringResource(R.string.fork_close)) } })

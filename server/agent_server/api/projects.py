@@ -44,6 +44,7 @@ from agent_server.services.history_deletion import (
     abandon_device_cleanup,
     delete_history_data,
 )
+from agent_server.services.project_directories import create_project_directory
 from agent_server.services.session_meta_projection import (
     project_session_meta_for_dashboard,
 )
@@ -69,16 +70,20 @@ async def create_project(
     payload: ProjectCreateRequest,
     user_id: str = Depends(current_user_id),
     store: Store = Depends(get_store),
+    manager: ConnectorRpcManager = Depends(get_rpc),
     broker: TimelineBroker = Depends(get_timeline_broker),
 ) -> ProjectCreateResponse:
     try:
-        project = await store.create_project(
-            user_id=user_id,
-            connector_id=payload.connectorId,
-            name=payload.name,
-            workspace_path=payload.workspacePath,
-            manually_created=payload.manuallyCreated,
-        )
+        if payload.manuallyCreated:
+            project = await create_project_directory(payload, user_id=user_id, store=store, manager=manager)
+        else:
+            project = await store.create_project(
+                user_id=user_id,
+                connector_id=payload.connectorId,
+                name=payload.name,
+                workspace_path=payload.workspacePath,
+                manually_created=payload.manuallyCreated,
+            )
     except KeyError:
         raise HTTPException(status_code=404, detail="connector not found") from None
     except ProjectNameConflictError as exc:
@@ -91,6 +96,11 @@ async def create_project(
         ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except ConnectorRpcError as exc:
+        message = "同名文件夹已存在，请选择其他项目名称" if exc.code == "FileExistsError" else "无法创建项目文件夹，请检查目录权限并确认 Connector 已更新"
+        raise HTTPException(status_code=409, detail={"code": "project_directory_failed", "message": message}) from None
+    except (ConnectorOfflineError, TimeoutError):
+        raise HTTPException(status_code=503, detail={"code": "project_device_offline", "message": "请连接工作设备后创建项目目录"}) from None
     await publish_dashboard_changed(
         store,
         broker,

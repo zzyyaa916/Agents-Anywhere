@@ -72,7 +72,7 @@ export async function resolveWorkspaceProject({
         name: availableProjectName(workspaceName(path), currentProjects),
         connectorId,
         workspacePath: path.trim(),
-        manuallyCreated: false,
+        manuallyCreated: true,
       })
     } catch (error) {
       if (attempt >= 2 || !isApiError(error) || error.status !== 409 || error.code !== "project_name_conflict") throw error

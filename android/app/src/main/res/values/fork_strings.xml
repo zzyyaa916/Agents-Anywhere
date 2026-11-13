@@ -59,4 +59,5 @@
     <string name="fork_abandon">Abandon remaining device cleanup</string>
     <string name="fork_abandon_confirm">Keep remaining files and abandon cleanup</string>
     <string name="fork_abandon_warning">Deleted data cannot be restored. Remaining files and native history will be kept and the project path unlocked. Abandon cleanup?</string>
+    <string name="fork_project_parent_hint">A folder matching the project name will be created inside the selected parent directory.</string>
 </resources>

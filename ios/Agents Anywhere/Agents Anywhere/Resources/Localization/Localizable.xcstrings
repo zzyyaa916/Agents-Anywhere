@@ -1,6 +1,22 @@
 {
   "sourceLanguage": "en",
   "strings": {
+  "将在所选父目录下创建与项目同名的文件夹。": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Create a folder matching the project name inside the selected parent directory."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "将在所选父目录下创建与项目同名的文件夹。"
+        }
+      }
+    }
+  },
   "Abandon remaining device cleanup": {
     "localizations": {
       "en": {

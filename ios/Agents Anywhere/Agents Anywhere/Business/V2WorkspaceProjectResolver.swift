@@ -24,7 +24,7 @@ struct V2WorkspaceProjectResolver {
                 return try await api.create(.init(
                     name: ProjectWorkspacePath.availableName(ProjectWorkspacePath.name(path), projects: current),
                     connectorId: connectorID, workspacePath: path.trimmingCharacters(in: .whitespacesAndNewlines),
-                    manuallyCreated: false
+                    manuallyCreated: true
                 )).project
             } catch {
                 guard attempt < 2, let response = error as? HTTPError,

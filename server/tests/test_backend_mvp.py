@@ -7,6 +7,7 @@ import json
 import time
 from collections.abc import Callable
 from typing import Any
+from unittest.mock import AsyncMock
 
 import anyio
 import pytest
@@ -184,6 +185,7 @@ def _create_test_project(client, headers, connector_id, cwd="/repo") -> str:
             "name": f"Project {connector_id} {cwd}",
             "connectorId": connector_id,
             "workspacePath": cwd,
+            "manuallyCreated": False,
         },
     )
     assert response.status_code == 200, response.text
@@ -12017,11 +12019,16 @@ class FakeWebSocket:
         await self.sent.put(message)
 
 
-def test_project_crud_adopts_the_workspace_project_and_enforces_ownership(
-    tmp_path,
+def test_project_crud_creates_named_child_and_enforces_ownership(
+    tmp_path, monkeypatch,
 ):
     client = make_client(tmp_path)
     connector_id, _, session_id, headers = create_connector_and_session(client)
+    original_id = client.get(f"/sessions/{session_id}/meta", headers=headers).json()["session"]["projectId"]
+    async def directory_request(connector, method, body, **kw):
+        if method == "project.directory.prepare": return {"path": body["parentPath"].rstrip("/") + "/" + body["name"], "receipt": "test-receipt"}
+        return {"released": True}
+    monkeypatch.setattr(client.app.state.rpc, "request", AsyncMock(side_effect=directory_request))
 
     created = client.post(
         "/projects",
@@ -12037,36 +12044,35 @@ def test_project_crud_adopts_the_workspace_project_and_enforces_ownership(
     body = created.json()
     project = body["project"]
     project_id = project["id"]
-    # The session already at /repo resolves into this project, so the count is 1
-    # even though project creation never binds sessions (attachedSessions stays 0).
+    # A native session in the selected parent stays with its original project.
     me = client.get("/auth/me", headers=headers).json()
     assert {key: value for key, value in project.items() if key != "lastActivityAt"} == {
         "id": project_id,
         "userId": me["userId"],
         "connectorId": connector_id,
         "name": "Agents Anywhere",
-        "workspacePath": "/repo",
+        "workspacePath": "/repo/Agents Anywhere",
         "pinned": False,
         "pinnedAt": None,
         "manuallyCreated": True,
-        "activeSessionCount": 1,
-        "sidebarSessionCounts": {"active": 1, "archived": 0},
+        "activeSessionCount": 0,
+        "sidebarSessionCounts": {"active": 0, "archived": 0},
         "createdAt": project["createdAt"],
         "updatedAt": project["updatedAt"],
     }
-    assert project["lastActivityAt"] is not None
+    assert project["lastActivityAt"] is None
     assert body["attachedSessions"] == 0
 
-    # The session already resolves to this workspace's project.
+    # Creating a child never moves existing sessions from the parent.
     session = client.get(
         f"/sessions/{session_id}/meta",
         headers=headers,
     ).json()["session"]
-    assert session["projectId"] == project_id
+    assert session["projectId"] == original_id
 
     listed = client.get("/projects", headers=headers)
     assert listed.status_code == 200, listed.text
-    assert [item["id"] for item in listed.json()["projects"]] == [project_id]
+    assert {item["id"] for item in listed.json()["projects"]} == {original_id, project_id}
 
     patched = client.patch(
         f"/projects/{project_id}",
@@ -12096,18 +12102,18 @@ def test_project_crud_adopts_the_workspace_project_and_enforces_ownership(
     )
     assert same_workspace.status_code == 200, same_workspace.text
     second_project = same_workspace.json()["project"]
-    # One project per workspace: a second create adopts the existing project.
-    assert second_project["id"] == project_id
-    assert second_project["workspacePath"] == project["workspacePath"]
+    # A shared parent does not make two distinct project directories the same project.
+    assert second_project["id"] != project_id
+    assert second_project["workspacePath"] == "/repo/Second project"
     assert same_workspace.json()["attachedSessions"] == 0
 
     session = client.get(
         f"/sessions/{session_id}/meta",
         headers=headers,
     ).json()["session"]
-    assert session["projectId"] == project_id
+    assert session["projectId"] == original_id
     projects = client.get("/projects", headers=headers).json()["projects"]
-    assert [item["id"] for item in projects] == [project_id]
+    assert {item["id"] for item in projects} == {original_id, project_id, second_project["id"]}
 
     other_headers = auth_headers(client, user_id="user2")
     assert client.get("/projects", headers=other_headers).json()["projects"] == []
@@ -12131,7 +12137,7 @@ def test_project_delete_cascades_bound_sessions(tmp_path):
         json={
             "name": "Project",
             "connectorId": connector_id,
-            "workspacePath": "/repo",
+            "workspacePath": "/repo", "manuallyCreated": False,
         },
     )
     project_id = created.json()["project"]["id"]
@@ -12162,7 +12168,7 @@ def test_project_sessions_list_and_archive_all_are_scoped_to_project(tmp_path):
         json={
             "name": "Project",
             "connectorId": connector_id,
-            "workspacePath": "/project-repo",
+            "workspacePath": "/project-repo", "manuallyCreated": False,
         },
     )
     project_id = created.json()["project"]["id"]
@@ -12240,7 +12246,7 @@ def test_session_create_validates_and_persists_project_binding(tmp_path):
         json={
             "name": "Other Workspace",
             "connectorId": connector_id,
-            "workspacePath": "/project",
+            "workspacePath": "/project", "manuallyCreated": False,
         },
     )
     project_id = created.json()["project"]["id"]
@@ -12311,7 +12317,7 @@ def test_dashboard_snapshot_includes_projects_and_refreshes_after_create(tmp_pat
             json={
                 "name": "Live Project",
                 "connectorId": connector_id,
-                "workspacePath": "/live-project",
+                "workspacePath": "/live-project", "manuallyCreated": False,
             },
         )
         assert created.status_code == 200, created.text
