@@ -1,0 +1,146 @@
+{
+  "$defs": {
+    "UsageWindow": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "five_hour",
+            "weekly",
+            "seven_day",
+            "weekly_scoped",
+            "other"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "modelScope": {
+          "anyOf": [
+            {
+              "enum": [
+                "opus",
+                "sonnet",
+                "haiku",
+                "unknown"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Modelscope"
+        },
+        "usedPercent": {
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Usedpercent",
+          "type": "number"
+        },
+        "remainingPercent": {
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Remainingpercent",
+          "type": "number"
+        },
+        "resetsAt": {
+          "format": "date-time",
+          "title": "Resetsat",
+          "type": "string"
+        },
+        "windowDurationMins": {
+          "exclusiveMinimum": 0,
+          "maximum": 525600,
+          "title": "Windowdurationmins",
+          "type": "integer"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "enum": [
+                "event",
+                "probe"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source"
+        },
+        "receivedAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Receivedat"
+        },
+        "ageSeconds": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ageseconds"
+        }
+      },
+      "required": [
+        "kind",
+        "usedPercent",
+        "remainingPercent",
+        "resetsAt",
+        "windowDurationMins"
+      ],
+      "title": "UsageWindow",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "runtimeId": {
+      "title": "Runtimeid",
+      "type": "string"
+    },
+    "accountKey": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Accountkey",
+      "type": "string"
+    },
+    "eventId": {
+      "pattern": "^[a-f0-9]{32}$",
+      "title": "Eventid",
+      "type": "string"
+    },
+    "windows": {
+      "items": {
+        "$ref": "#/$defs/UsageWindow"
+      },
+      "maxItems": 2,
+      "minItems": 1,
+      "title": "Windows",
+      "type": "array"
+    }
+  },
+  "required": [
+    "runtimeId",
+    "accountKey",
+    "eventId",
+    "windows"
+  ],
+  "title": "ClaudeUsageEvent",
+  "type": "object"
+}

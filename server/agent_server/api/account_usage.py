@@ -1,3 +1,5 @@
+import asyncio
+
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
@@ -27,5 +29,5 @@ async def refresh_usage(
     user_id: Annotated[str, Depends(current_user_id)],
     service: Annotated[AccountUsageService, Depends(usage_service)],
 ):
-    await service.refresh(user_id)
+    await asyncio.gather(service.manual_refresh(user_id), service.refresh(user_id))
     return await service.snapshot(user_id)

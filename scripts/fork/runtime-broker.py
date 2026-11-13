@@ -41,6 +41,16 @@ def child(job):
  try:os.chdir(cwd)
  except OSError:os.chdir(account.pw_dir)
  args=value['args']
+ if args[:1]==['--aa-usage-probe']:
+  import hashlib
+  pin=cfg.get('claudeUsageProbe',{})
+  node=hashlib.sha256(Path('/etc/machine-id').read_bytes().strip()).hexdigest()
+  if role!='claude' or len(args)!=2 or not pin.get('enabled') or args[1]!=pin.get('connectorId') or node!=pin.get('machineId'):
+   raise PermissionError('Usage probe not enabled on this node')
+  helper=Path('/opt/agents-anywhere-fork-connector/bin/claude-usage-probe.py')
+  meta=helper.stat()
+  if meta.st_uid!=0 or meta.st_mode & 0o022 or helper.is_symlink():raise PermissionError('Untrusted usage helper')
+  os.execve('/usr/bin/python3',['python3','-I',str(helper),settings['binary'],*settings.get('prefix_args',[])],env)
  if args[:1]==['--aa-history-delete']:
   if role!='claude' or len(args)!=3 or args[1] not in ('prepare','commit'):raise ValueError('Invalid native history cleanup')
   from uuid import UUID

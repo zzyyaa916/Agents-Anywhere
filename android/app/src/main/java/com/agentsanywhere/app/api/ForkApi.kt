@@ -5,7 +5,7 @@ import org.json.JSONObject
 class ForkApi(private val client: ApiClient) {
     val taskGroups = TaskGroupsApi(client)
     fun usage(server: String, token: String, refresh: Boolean): JSONObject =
-        if (refresh) client.postJson(server, "/account-usage/refresh", JSONObject(), token)
+        if (refresh) client.postJson(server, "/account-usage/refresh", JSONObject(), token, readTimeoutSeconds = 90)
         else client.getJson(server, "/account-usage", token)
 
     fun deletionCount(server: String, token: String, project: String): Int =

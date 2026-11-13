@@ -14,7 +14,7 @@ import urllib.error
 import urllib.request
 
 
-VERSION = '2.6.3'
+VERSION = '2.6.4'
 
 
 def digest(path):
@@ -80,7 +80,7 @@ def update_server(root, manifest):
         return {row['Name']: (row['Id'], row['State']['StartedAt']) for row in json.loads(run(['docker', 'inspect', *ids])) if row['Name'] != '/agents-anywhere-fork-server-1'}
     health = get('http://127.0.0.1:18500/api/v2/health')
     previous_revision = query('SELECT version_num FROM alembic_version')
-    if health.get('version') not in ('2.6.0', '2.6.1', '2.6.2', VERSION) or previous_revision not in ('v2_57', 'v2_58'):
+    if health.get('version') not in ('2.6.0', '2.6.1', '2.6.2', '2.6.3', VERSION) or previous_revision not in ('v2_57', 'v2_58', 'v2_59'):
         raise RuntimeError('当前版本或数据库版本不匹配；未修改服务，不执行数据库迁移。')
     idle()
     old_containers = inventory()
@@ -125,7 +125,7 @@ def update_server(root, manifest):
         with urllib.request.urlopen(public + '/', timeout=15) as response:
             if hashlib.sha256(response.read()).hexdigest() != manifest['files']['web-static/index.html']:
                 raise RuntimeError('公网 Web 页面与更新包不一致。')
-        if query('SELECT version_num FROM alembic_version') != 'v2_58' or inventory() != old_containers:
+        if query('SELECT version_num FROM alembic_version') != 'v2_59' or inventory() != old_containers:
             raise RuntimeError('数据库版本或其他容器发生变化。')
         auth = get('http://127.0.0.1:18500/api/v2/auth/config')
         if auth['registrationOpen'] or auth['oauthRegistrationOpen']:
@@ -138,7 +138,7 @@ def update_server(root, manifest):
         run(compose + ['up', '-d', '--no-deps', 'server'], log=backup / 'rollback.log')
         print('验证失败，数据库版本未变；已恢复原 Fork 镜像配置并请求恢复原服务。', flush=True)
         raise
-    result = {'status': 'ok', 'source': manifest['source'], 'image': image, 'backup': str(backup), 'schema': 'v2_58', 'webUpdated': True, 'forwardEndpointVerified': True}
+    result = {'status': 'ok', 'source': manifest['source'], 'image': image, 'backup': str(backup), 'schema': 'v2_59', 'webUpdated': True, 'forwardEndpointVerified': True}
     (backup / 'result.json').write_text(json.dumps(result, indent=2))
     print(json.dumps(result, ensure_ascii=False), flush=True)
 

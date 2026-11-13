@@ -1,5 +1,80 @@
 {
   "$defs": {
+    "ProbeRefresh": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "default": "idle",
+          "enum": [
+            "idle",
+            "running",
+            "success",
+            "retry",
+            "offline",
+            "circuit",
+            "disabled"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "nextAllowedAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Nextallowedat"
+        },
+        "completedAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Completedat"
+        },
+        "errorCode": {
+          "anyOf": [
+            {
+              "enum": [
+                "unavailable",
+                "rate_limited",
+                "invalid_response",
+                "account_changed",
+                "account_unavailable",
+                "unsupported_auth"
+              ],
+              "type": "string"
+            },
+            {
+              "enum": [
+                "timeout",
+                "node_offline",
+                "probe_not_configured"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Errorcode"
+        }
+      },
+      "title": "ProbeRefresh",
+      "type": "object"
+    },
     "UsageBinding": {
       "additionalProperties": false,
       "properties": {
@@ -183,6 +258,48 @@
           "maximum": 525600,
           "title": "Windowdurationmins",
           "type": "integer"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "enum": [
+                "event",
+                "probe"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source"
+        },
+        "receivedAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Receivedat"
+        },
+        "ageSeconds": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ageseconds"
         }
       },
       "required": [
@@ -220,6 +337,9 @@
     "serverTime": {
       "title": "Servertime",
       "type": "string"
+    },
+    "refresh": {
+      "$ref": "#/$defs/ProbeRefresh"
     }
   },
   "required": [

@@ -32,4 +32,16 @@ class ForkUsageTest {
     @Test fun emptyCacheDoesNotInventUsage() {
         assertEquals(listOf("codex", "claude_code"), UsageCache.parse(JSONObject()).unavailable)
     }
+    @Test fun manualUsageKeepsPerWindowSourceAgeAndServerCircuitState() {
+        val cache = UsageCache.parse(JSONObject("""{"serverTime":"2033-05-18T03:33:20Z","refresh":{"status":"circuit","nextAllowedAt":"2033-05-19T00:00:00Z","completedAt":"2033-05-17T00:00:00Z","errorCode":"rate_limited"},"snapshots":[{"runtime":"claude_code","accountLabel":"abc","stale":false,"windows":[{"kind":"five_hour","remainingPercent":29,"resetsAt":"2026-11-09T00:00:00Z","source":"event","ageSeconds":720},{"kind":"seven_day","remainingPercent":72,"resetsAt":"2026-11-09T00:00:00Z","source":"probe","ageSeconds":3000}]}]}"""))
+        assertEquals("2033-05-18T03:33:20Z", cache.serverTime)
+        assertEquals("circuit", cache.refresh.status)
+        assertEquals("2033-05-19T00:00:00Z", cache.refresh.nextAllowedAt)
+        assertEquals("2033-05-17T00:00:00Z", cache.refresh.completedAt)
+        assertEquals("rate_limited", cache.refresh.errorCode)
+        val windows = cache.accounts.single().windows
+        assertEquals(listOf("event", "probe"), windows.map { it.source })
+        assertEquals(listOf(720.0, 3000.0), windows.map { it.ageSeconds })
+        assertEquals(listOf(29.0, 72.0), windows.map { it.remaining })
+    }
 }

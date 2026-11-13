@@ -36,6 +36,7 @@ def build(destination):
     files['deploy.py'] = ROOT / 'scripts/fork/update-preview.py'
     files['upgrade-legacy-connector.py'] = ROOT / 'scripts/fork/upgrade-legacy-connector.py'
     files['runtime-broker.py'] = ROOT / 'scripts/fork/runtime-broker.py'
+    files['claude-usage-probe.py'] = ROOT / 'connector/connector/runtimes/claude/usage_probe.py'
     files['native-history-cleanup.py'] = ROOT / 'connector/connector/runtimes/claude/history/deletion.py'
     payload = {}
     for name, path in files.items():

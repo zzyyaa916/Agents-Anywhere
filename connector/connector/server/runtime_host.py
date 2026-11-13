@@ -5,6 +5,7 @@ import copy
 import time
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from typing import Any
+from uuid import uuid4
 
 import httpx
 from websockets.exceptions import ConnectionClosed
@@ -69,16 +70,20 @@ class ConnectorRuntimeHost(RuntimeHostClient):
         self._defer_payload_projection = defer_payload_projection
         self._runtime_storage = RuntimeStorageManager(sync_state_store) if isinstance(sync_state_store, JsonSyncStateStore) else None
         self._runtime_kv = None
+        self._bound_runtime_id = "claude"
         self._account_usage_kv = None
         self._claude_identity_cache = {}
         self._claude_identity_lock = asyncio.Lock()
 
     async def prepare_runtime_host(self, runtime_id: str) -> ConnectorRuntimeHost:
         if self._runtime_storage is None:
-            return self
+            bound = copy.copy(self)
+            bound._bound_runtime_id = runtime_id
+            return bound
         state, kv = await asyncio.to_thread(self._runtime_storage.prepare, self.connector_id, runtime_id)
         _ = self.account_usage_kv
         bound = copy.copy(self)
+        bound._bound_runtime_id = runtime_id
         bound._sync_state_store = state
         bound._runtime_kv = kv
         return bound
@@ -110,7 +115,7 @@ class ConnectorRuntimeHost(RuntimeHostClient):
             return value
 
     async def claude_usage_observer(self):
-        from connector.account_usage import LocalAccountUsage
+        from connector.account_usage import LocalAccountUsage, window
         try:
             collector = LocalAccountUsage(self.account_usage_kv)
             account_key = (await self._claude_identity(collector))["account_key"]
@@ -122,6 +127,18 @@ class ConnectorRuntimeHost(RuntimeHostClient):
             except Exception:  # noqa: BLE001 -- a failed identity check discards metadata
                 return
             collector.observe_claude_window(account_key, kind, utilization, resets_at, current_identity=info)
+            if info.get("account_key") != account_key or kind not in {"five_hour", "seven_day"}:
+                return
+            try:
+                if isinstance(utilization, bool) or not isinstance(utilization, (int, float)) or not 0 <= utilization <= 1:
+                    return
+                value = window(kind, utilization * 100, resets_at, 300 if kind == "five_hour" else 10080)
+                wire = {"kind": value["kind"], "usedPercent": value["used_percent"], "remainingPercent": value["remaining_percent"],
+                        "resetsAt": value["resets_at"], "windowDurationMins": value["window_duration_mins"]}
+                await self._notify_server("accountUsage.event", {"runtimeId": self._bound_runtime_id, "accountKey": account_key,
+                    "eventId": uuid4().hex, "windows": [wire]})
+            except Exception:  # noqa: BLE001, S110 -- metadata failures must not fail tasks or log upstream details.
+                pass
         return observe
 
     def flush_runtime_storage(self) -> bool:

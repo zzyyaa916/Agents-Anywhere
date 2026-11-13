@@ -98,6 +98,9 @@ def test_three_devices_dedupe_concurrent_refresh_cache_and_backoff(
 
     async def check():
         await asyncio.gather(service.refresh(), service.refresh(), service.refresh())
+        if runtime == "claude":
+            assert calls == []  # Pure event push; no background identity or usage polling.
+            return
         assert calls.count("accountUsage.collect") == 1
         owner = (await store.get_connector(devices[0])).userId
         result = await service.snapshot(owner)

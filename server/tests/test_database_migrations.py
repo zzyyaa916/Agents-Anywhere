@@ -1020,9 +1020,9 @@ def test_unversioned_runtime_schema_is_classified_by_actual_columns(tmp_path,
     )
 
 
-def test_current_schema_version_is_v2_57() -> None:
-    assert CURRENT_SCHEMA_REVISION == "v2_57"
-    assert CURRENT_SCHEMA_VERSION == "2.57"
+def test_current_schema_version_is_v2_59() -> None:
+    assert CURRENT_SCHEMA_REVISION == "v2_59"
+    assert CURRENT_SCHEMA_VERSION == "2.59"
 
 
 def test_v2_49_tracks_inventory_scans_without_rewriting_sessions(
@@ -2591,5 +2591,23 @@ def test_v2_56_quota_column_roundtrip(fresh_database_url):
     engine = create_engine(_sync_url(url))
     try:
         assert "quota_json" not in {c["name"] for c in inspect(engine).get_columns("sessions")}
+    finally:
+        engine.dispose()
+
+
+def test_v2_59_keeps_legacy_usage_while_adding_server_receipts(fresh_database_url):
+    url = fresh_database_url
+    upgrade_database(db_url=url, revision="v2_58")
+    engine = create_engine(_sync_url(url))
+    payload = '{"windows": [{"kind": "five_hour", "usedPercent": 71}]}'
+    try:
+        with engine.begin() as connection:
+            connection.execute(text("INSERT INTO users (id,password_hash,role,disabled,created_at,updated_at) VALUES ('usage_migration','hash','member',0,'now','now')"))
+            connection.execute(text("INSERT INTO account_usage_snapshots (user_id,runtime,account_key,snapshot_json) VALUES ('usage_migration','claude_code',:key,:payload)"), {"key": "a" * 64, "payload": payload})
+        upgrade_database(db_url=url)
+        with engine.connect() as connection:
+            row = connection.execute(text("SELECT snapshot_json,claude_windows_json FROM account_usage_snapshots WHERE user_id='usage_migration'")).one()
+            assert row[0] == payload and row[1] is None
+            assert connection.execute(text("SELECT count(*) FROM claude_usage_probe")).scalar_one() == 0
     finally:
         engine.dispose()

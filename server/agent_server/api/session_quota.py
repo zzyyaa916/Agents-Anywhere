@@ -45,7 +45,8 @@ async def recheck_quota(
     if quota and quota.get("state") == "limited":
         service = conn.app.state.account_usage_service
         await service.refresh(user_id)
-        snapshots = (await service.snapshot(user_id)).snapshots
+        usage = await service.snapshot(user_id)
+        snapshots = usage.snapshots
         snapshot = next(
             (
                 s
@@ -66,6 +67,12 @@ async def recheck_quota(
             and snapshot.fetched_at > datetime.fromisoformat(quota["interruptedAt"])
             and snapshot.windows
             and all(w.remaining_percent > 0 for w in snapshot.windows)
+            and (snapshot.runtime != "claude_code" or all(
+                w.received_at is not None
+                and w.received_at > datetime.fromisoformat(quota["interruptedAt"])
+                and w.resets_at > datetime.fromisoformat(usage.server_time)
+                for w in snapshot.windows
+            ))
         ):
             quota = await run_service.finish_quota(
                 session_id, expected=quota

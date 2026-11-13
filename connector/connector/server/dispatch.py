@@ -25,7 +25,7 @@ class ConnectorRequestSession:
         self.local_rpc = local_rpc
 
     async def dispatch(self, method: str, params: dict[str, Any]) -> Any:
-        if method in {"accountUsage.identify", "accountUsage.collect"}:
+        if method in {"accountUsage.identify", "accountUsage.collect", "accountUsage.probe"}:
             return await self.account_usage_rpc.dispatch(method, params)
         if self.runtime_rpc.supports(method):
             return await self.runtime_rpc.dispatch(method, params)

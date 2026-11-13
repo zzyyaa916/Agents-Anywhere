@@ -25,48 +25,82 @@ internal fun localUsageTime(value: String?): String = value?.let {
     runCatching { DateTimeFormatter.ofPattern("MM/dd HH:mm").withZone(ZoneId.systemDefault()).format(Instant.parse(it)) }.getOrNull()
 } ?: "—"
 
+internal fun usageAge(seconds: Double?): String = when {
+    seconds == null -> "接收时间未知"
+    seconds < 60 -> "刚刚"
+    seconds < 3600 -> "${(seconds / 60).toInt()} 分钟前"
+    seconds < 86400 -> "${(seconds / 3600).toInt()} 小时前"
+    else -> "${(seconds / 86400).toInt()} 天前"
+}
+
 @Composable
 fun ForkUsageButton(controller: ForkController, modifier: Modifier = Modifier) {
     var open by remember(controller.scopeKey) { mutableStateOf(false) }
     var usage by remember(controller.scopeKey) { mutableStateOf<UsageCache?>(null) }
     var busy by remember { mutableStateOf(false) }
     var failed by remember { mutableStateOf(false) }
+    var loadedAt by remember { mutableStateOf(android.os.SystemClock.elapsedRealtime()) }
+    var elapsed by remember { mutableStateOf(0.0) }
     val scope = rememberCoroutineScope()
+    LaunchedEffect(open) {
+        while (open) {
+            elapsed = (android.os.SystemClock.elapsedRealtime() - loadedAt).coerceAtLeast(0) / 1000.0
+            kotlinx.coroutines.delay(1000)
+        }
+    }
     fun load(refresh: Boolean) {
         if (busy) return
         busy = true
         scope.launch {
-            controller.usage(refresh).onSuccess { usage = it; failed = false }.onFailure { failed = true }
+            controller.usage(refresh).onSuccess {
+                usage = it; failed = false; loadedAt = android.os.SystemClock.elapsedRealtime(); elapsed = 0.0
+            }.onFailure { failed = true }
             busy = false
         }
     }
     val usageDescription = stringResource(R.string.fork_usage)
-    val remaining = usage?.accounts?.flatMap { account -> if (account.stale) emptyList() else account.windows.filterNot { it.expired() } }?.minOfOrNull { it.remaining }
+    val remaining = usage?.accounts?.flatMap { it.windows }?.minOfOrNull { it.remaining }
     FilledTonalIconButton(onClick = { open = true; load(false) }, modifier = modifier.size(46.dp).semantics { contentDescription = usageDescription }) {
         Box {
             CircularProgressIndicator(progress = { ((remaining ?: 0.0) / 100).toFloat() }, modifier = Modifier.size(28.dp), strokeWidth = 3.dp)
             Text("◉", modifier = Modifier.padding(6.dp), style = MaterialTheme.typography.labelSmall)
         }
     }
+    val status = usage?.refresh?.status ?: "idle"
+    val serverNow = usage?.serverTime?.let { runCatching { Instant.parse(it).toEpochMilli() / 1000.0 + elapsed }.getOrNull() } ?: 0.0
+    val deadline = usage?.refresh?.nextAllowedAt?.let { runCatching { Instant.parse(it).toEpochMilli() / 1000.0 }.getOrNull() } ?: 0.0
+    val blocked = status in setOf("retry", "offline", "circuit") && deadline > serverNow
+    val pending = busy || (status == "running" && (deadline == 0.0 || deadline > serverNow))
+    val latestAge = usage?.accounts?.filter { it.runtime == "claude_code" }?.flatMap { it.windows }?.mapNotNull { it.ageSeconds?.plus(elapsed) }?.minOrNull()
+    val completed = usage?.refresh?.completedAt?.let { runCatching { Instant.parse(it).toEpochMilli() / 1000.0 }.getOrNull() }
+    val recentSuccess = status == "success" && completed != null && serverNow - completed < 60
+    val label = when {
+        pending -> "请求中…"
+        status == "circuit" && blocked -> "今日探针已熔断，明日恢复"
+        failed || status in setOf("retry", "offline") || (status == "running" && !pending) -> "稍后重试"
+        status == "disabled" -> "未配置探针"
+        else -> "${if (recentSuccess) "成功" else "刷新"} · 数据 · ${usageAge(latestAge)}"
+    }
     if (open) AlertDialog(onDismissRequest = { open = false }, title = { Text(stringResource(R.string.fork_usage)) }, text = {
         Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (status == "offline") Text("探针节点离线")
+            if (status in setOf("retry", "offline", "circuit") && deadline > 0) Text("可重试时间：${localUsageTime(usage?.refresh?.nextAllowedAt)}")
+            if (failed) Text("刷新失败，原有数据保留", color = MaterialTheme.colorScheme.error)
             usage?.accounts?.forEach { account ->
                 Text("${if (account.runtime == "codex") "Codex" else "Claude Code"} · ${account.label}")
-                account.windows.forEach { w ->
-                    Text(stringResource(when (w.kind) { "five_hour" -> R.string.fork_five_hour; "weekly", "seven_day", "weekly_scoped" -> R.string.fork_weekly; else -> R.string.fork_other_window }) + (w.model?.let { " · $it" } ?: ""))
-                    Text(if (w.expired()) stringResource(R.string.fork_expired) else stringResource(R.string.fork_remaining, w.remaining.roundToInt(), localUsageTime(w.resetsAt)))
+                account.windows.forEach { window ->
+                    Text(stringResource(when (window.kind) { "five_hour" -> R.string.fork_five_hour; "weekly", "seven_day", "weekly_scoped" -> R.string.fork_weekly; else -> R.string.fork_other_window }))
+                    Text("已用 ${(100 - window.remaining).roundToInt()}% · 剩余 ${window.remaining.roundToInt()}%")
+                    if (account.runtime == "claude_code") Text("${when(window.source) { "probe" -> "探针"; "event" -> "事件"; else -> "旧缓存" }} · ${usageAge(window.ageSeconds?.plus(elapsed))}")
+                    Text("报告重置时间：${localUsageTime(window.resetsAt)}")
                 }
-                if (account.windows.isEmpty()) Text(stringResource(R.string.fork_wait_native))
-                Text(stringResource(if (account.stale) R.string.fork_stale else R.string.fork_updated, localUsageTime(account.fetchedAt)), style = MaterialTheme.typography.bodySmall)
+                if (account.runtime == "codex") Text(stringResource(if (account.stale) R.string.fork_stale else R.string.fork_updated, localUsageTime(account.fetchedAt)), style = MaterialTheme.typography.bodySmall)
             }
-            (usage?.unavailable ?: listOf("codex", "claude_code")).forEach { runtime ->
-                Text("${if (runtime == "codex") "Codex" else "Claude Code"} · " + stringResource(if (runtime == "claude_code") R.string.fork_wait_native else R.string.fork_unavailable))
-            }
-            if (failed) Text(stringResource(R.string.fork_failed), color = MaterialTheme.colorScheme.error)
-            if (busy) Text(stringResource(R.string.fork_loading))
-            Text(stringResource(R.string.fork_no_probe), style = MaterialTheme.typography.bodySmall)
+            if (usage?.accounts.isNullOrEmpty()) Text("暂无数据")
+            Text("只有点击刷新才执行甲骨文探针；历史数据长期保留，年龄以服务器接收时间为准。", style = MaterialTheme.typography.bodySmall)
         }
-    }, confirmButton = { TextButton(onClick = { load(true) }, enabled = !busy) { Text(stringResource(R.string.fork_refresh)) } }, dismissButton = { TextButton(onClick = { open = false }) { Text(stringResource(R.string.fork_close)) } })
+    }, confirmButton = { TextButton(onClick = { load(true) }, enabled = !pending && !blocked && status != "disabled") { Text(label) } },
+        dismissButton = { TextButton(onClick = { open = false }) { Text(stringResource(R.string.fork_close)) } })
 }
 
 @Composable

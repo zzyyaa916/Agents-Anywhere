@@ -356,6 +356,50 @@ class AccountUsageRpc:
     def __init__(self, supervisor, host):
         self.supervisor, self.host, self.collector = supervisor, host, None
 
+    async def _manual_probe(self):
+        from connector.runtimes.claude.usage_probe import (
+            fetch_usage,
+            node_enabled,
+            normalized_usage,
+        )
+        if not node_enabled(getattr(self.host, "connector_id", "")):
+            return {"runtime": "claude_code", "errorCode": "unsupported_auth"}
+        try:
+            before = await self.collector.identify("claude_code")
+            if not before.get("account_key"):
+                return {"runtime": "claude_code", "errorCode": "account_unavailable"}
+            if broker_executable("claude"):
+                process = await asyncio.create_subprocess_exec(*claude_command(["--aa-usage-probe", self.host.connector_id]),
+                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL, limit=65536)
+                try:
+                    stdout, _ = await asyncio.wait_for(process.communicate(), 35)
+                    if process.returncode or len(stdout) > 65536:
+                        raise ValueError("probe unavailable")
+                    payload = json.loads(stdout)
+                finally:
+                    if process.returncode is None:
+                        process.kill()
+                        await process.wait()
+            else:
+                payload = await asyncio.to_thread(fetch_usage, claude_command([]))
+            after = await self.collector.identify("claude_code")
+            if before["account_key"] != after.get("account_key"):
+                return {"runtime": "claude_code", "errorCode": "account_changed"}
+            result = {"runtime": "claude_code", "accountKey": after["account_key"], "planType": after.get("plan_type")}
+            if payload.get("error_code"):
+                result["errorCode"] = "rate_limited" if payload["error_code"] == "rate_limited" else "unavailable"
+                if "retry_after_seconds" in payload:
+                    result["retryAfterSeconds"] = payload["retry_after_seconds"]
+                if "retry_after_at" in payload:
+                    result["retryAfterAt"] = payload["retry_after_at"]
+                return result
+            normalized = normalized_usage({w["kind"]: {"utilization": w["used_percent"], "resets_at": w["resets_at"]} for w in payload["windows"]})
+            result["windows"] = [{"kind": w["kind"], "usedPercent": w["used_percent"], "remainingPercent": 100 - w["used_percent"],
+                "resetsAt": w["resets_at"], "windowDurationMins": 300 if w["kind"] == "five_hour" else 10080} for w in normalized["windows"]]
+            return result
+        except Exception:  # noqa: BLE001 -- never propagate credential, CLI or HTTP details.
+            return {"runtime": "claude_code", "errorCode": "unavailable"}
+
     async def dispatch(self, method, params):
         runtime_id = params.get("runtimeId")
         entry = self.supervisor.entry_or_none(runtime_id)
@@ -384,6 +428,10 @@ class AccountUsageRpc:
         executable = values.get(
             "codexExecutablePath" if runtime == "codex" else "executablePath"
         )
+        if method == "accountUsage.probe":
+            if runtime != "claude_code":
+                return {"runtime": runtime, "errorCode": "unsupported_auth"}
+            return await self._manual_probe()
         if method == "accountUsage.identify":
             value = await self.collector.identify(runtime, executable)
         else:

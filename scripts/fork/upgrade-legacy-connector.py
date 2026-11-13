@@ -11,7 +11,7 @@ import time
 
 SERVICE = 'agents-anywhere-fork.service'
 VENV = Path('/home/aa-fork/.venv')
-VERSION = '2.6.3'
+VERSION = '2.6.4'
 
 
 def run(args):
@@ -57,7 +57,7 @@ def prepare_environment(root, manifest, uv, venv, new):
         subprocess.run(['cp', '-a', '--reflink=auto', str(venv) + '/.', str(new)], check=True)
         install_package(root, manifest, uv, new / 'bin/python')
         subprocess.run([uv, 'pip', 'check', '--python', str(new / 'bin/python')], check=True)
-        run([new / 'bin/python', '-c', 'import connector.cli; from connector.local import worktrees; from connector.server import local_rpc; from importlib.metadata import version; assert version("anywhere-cli") == "2.6.3"; print("import check OK")'])
+        run([new / 'bin/python', '-c', 'import connector.cli; from connector.local import worktrees; from connector.server import local_rpc; from importlib.metadata import version; assert version("anywhere-cli") == "2.6.4"; print("import check OK")'])
         owner = venv.stat()
         subprocess.run(['chown', '-R', f'{owner.st_uid}:{owner.st_gid}', str(new)], check=True)
     except BaseException:
@@ -80,8 +80,14 @@ def install_native_cleanup(root, manifest, unit, command=run, *, broker=Path('/u
     saved.write_bytes(previous)
     saved.chmod(0o600)
     old_helper = helper.read_bytes() if helper.exists() else None
+    probe_helper = helper.with_name('claude-usage-probe.py')
+    include_probe = 'claude-usage-probe.py' in manifest['files']
+    old_probe = probe_helper.read_bytes() if include_probe and probe_helper.exists() else None
+    targets = [(root / 'native-history-cleanup.py', helper), (root / 'runtime-broker.py', broker)]
+    if include_probe:
+        targets.append((root / 'claude-usage-probe.py', probe_helper))
     try:
-        for source, target in [(root / 'native-history-cleanup.py', helper), (root / 'runtime-broker.py', broker)]:
+        for source, target in targets:
             temporary = target.with_suffix('.update.tmp')
             temporary.write_bytes(source.read_bytes())
             os.chown(temporary, 0, 0)
@@ -96,6 +102,11 @@ def install_native_cleanup(root, manifest, unit, command=run, *, broker=Path('/u
             helper.unlink(missing_ok=True)
         else:
             helper.write_bytes(old_helper)
+        if include_probe:
+            if old_probe is None:
+                probe_helper.unlink(missing_ok=True)
+            else:
+                probe_helper.write_bytes(old_probe)
         command(['systemctl', 'restart', 'aa-fork-runtime.service'])
         raise
 
@@ -126,7 +137,7 @@ def upgrade(root):
         raise RuntimeError('请先确认没有运行任务并在维护连接中停止 Fork Connector；本脚本不停止在线任务。')
     python = VENV / 'bin/python'
     current = run([python, '-c', 'from importlib.metadata import version; print(version("anywhere-cli"))'])
-    if current not in ('2.5.4', '2.5.5', '2.6.0', '2.6.1', '2.6.2', VERSION):
+    if current not in ('2.5.4', '2.5.5', '2.6.0', '2.6.1', '2.6.2', '2.6.3', VERSION):
         raise RuntimeError('Connector 来源版本未经验证；未修改服务。')
     if VENV.is_symlink() and (not VENV.resolve().is_relative_to(VENV.parent) or not VENV.resolve().name.startswith('.venv')):
         raise RuntimeError('Connector 环境链接目标未经验证；未修改服务。')

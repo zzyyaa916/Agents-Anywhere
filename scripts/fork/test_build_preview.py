@@ -15,12 +15,13 @@ class PreviewBuildTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / 'source'
             root.mkdir()
-            files = {'connector/pyproject.toml': '[project]\nversion="2.6.3"\n',
-                     'server/pyproject.toml': '[project]\nversion="2.6.3"\n',
+            files = {'connector/pyproject.toml': '[project]\nversion="2.6.4"\n',
+                     'server/pyproject.toml': '[project]\nversion="2.6.4"\n',
                      'scripts/fork/update-preview.py': '# deploy',
                      'scripts/fork/upgrade-legacy-connector.py': '# upgrade',
                      'scripts/fork/runtime-broker.py': '# broker',
-                     'connector/connector/runtimes/claude/history/deletion.py': '# scoped helper'}
+                     'connector/connector/runtimes/claude/history/deletion.py': '# scoped helper',
+                     'connector/connector/runtimes/claude/usage_probe.py': '# local usage helper'}
             for name, value in files.items():
                 p = root / name; p.parent.mkdir(parents=True, exist_ok=True); p.write_text(value)
             for args in [['init', '-q'], ['add', '.'], ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'fixture']]:
@@ -36,7 +37,7 @@ class PreviewBuildTests(unittest.TestCase):
                 function(output)
                 with tarfile.open(output) as archive:
                     manifest = json.load(archive.extractfile('manifest.json'))
-                    self.assertEqual(manifest['version'], '2.6.3')
+                    self.assertEqual(manifest['version'], '2.6.4')
                     self.assertIn('upgrade-legacy-connector.py', manifest['files'])
                     self.assertIn('runtime-broker.py', manifest['files'])
                     self.assertIn('native-history-cleanup.py', manifest['files'])

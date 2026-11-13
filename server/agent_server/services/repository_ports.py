@@ -272,6 +272,8 @@ class ConnectorNotificationRepository(
     TimelineEffectRepository,
     Protocol,
 ):
+    async def record_claude_usage_event(self, connector_id: str, event: Any) -> None: ...
+
     async def refresh_unchanged_session_source(
         self, session_id: str, *, connector_id: str, runtime: str, runtime_id: str,
         availability: str, reason: str | None, observed_at: str | None,

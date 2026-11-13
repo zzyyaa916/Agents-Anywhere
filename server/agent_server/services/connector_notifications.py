@@ -7,6 +7,7 @@ from typing import Any, ClassVar
 from loguru import logger
 from pydantic import ValidationError
 
+from agent_server.core.account_usage import ClaudeUsageEvent
 from agent_server.core.catalogs import (
     CatalogType,
     validate_model_catalog,
@@ -93,6 +94,7 @@ class ConnectorNotificationService:
         self._handlers = (
             ConnectorProtocolNotificationHandler(store),
             RuntimeCatalogNotificationHandler(store),
+            AccountUsageEventNotificationHandler(store),
             SessionStateNotificationHandler(store),
             PlanningNotificationHandler(store),
             GoalNotificationHandler(store),
@@ -1764,4 +1766,19 @@ class GoalNotificationHandler:
         await self._store.save_goal(
             state.sessionId, state.model_dump(mode="json"), connector_id=connector_id
         )
+        return IngestEffect()
+
+
+class AccountUsageEventNotificationHandler:
+    def __init__(self, store):
+        self.store = store
+
+    async def apply(self, *, connector_id, method, params):
+        if method != "accountUsage.event":
+            return None
+        try:
+            event = ClaudeUsageEvent.model_validate(params)
+        except ValidationError:
+            raise NotificationValidationError("invalid_usage_event", "invalid usage metadata") from None
+        await self.store.record_claude_usage_event(connector_id, event)
         return IngestEffect()

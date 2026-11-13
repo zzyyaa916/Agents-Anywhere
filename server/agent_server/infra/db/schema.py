@@ -878,5 +878,8 @@ account_usage_sources = Table("account_usage_sources", metadata,
 account_usage_snapshots = Table("account_usage_snapshots", metadata,
     Column("user_id", Text, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
     Column("runtime", Text, primary_key=True), Column("account_key", Text, primary_key=True),
-    Column("snapshot_json", Text), Column("failures", Integer, nullable=False, server_default="0"),
+    Column("snapshot_json", Text), Column("claude_windows_json", Text), Column("failures", Integer, nullable=False, server_default="0"),
     Column("next_attempt_at", Float, nullable=False, server_default="0"), Column("attempt_id", Text))
+
+claude_usage_probe = Table("claude_usage_probe", metadata,
+    Column("key", Text, primary_key=True), Column("state_json", Text, nullable=False))

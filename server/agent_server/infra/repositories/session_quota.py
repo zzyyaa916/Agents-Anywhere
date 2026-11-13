@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy import case, select, update
 
+from agent_server.core.account_usage import UsageWindow, merged_claude_windows
 from agent_server.core.session_quota import effective_quota
 from agent_server.infra.db import schema as db
 from agent_server.infra.db.engine import read_connection
@@ -44,15 +45,11 @@ class SessionQuotaRepositoryMixin:
             None,
         )
         now = datetime.now(UTC)
-        windows = []
-        if row and row["snapshot_json"]:
-            snapshot = json.loads(row["snapshot_json"])
-            windows = [
-                w
-                for w in snapshot.get("windows", [])
-                if w["remainingPercent"] == 0
-                and datetime.fromisoformat(w["resetsAt"]) > now
-            ]
+        values = json.loads(row["snapshot_json"]).get("windows", []) if row and row["snapshot_json"] else []
+        if row and runtime == "claude_code":
+            values = [w.model_dump(mode="json", by_alias=True) for w in merged_claude_windows(
+                json.loads(row.get("claude_windows_json") or "{}"), [UsageWindow.model_validate(w) for w in values], now.timestamp())]
+        windows = [w for w in values if w["remainingPercent"] == 0 and datetime.fromisoformat(w["resetsAt"]) > now]
         previous = await self.session_quota(session.id)
         quota = {
             "state": "limited",

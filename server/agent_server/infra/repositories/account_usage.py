@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 import json
+import time
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from sqlalchemy import and_, func, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 
-from agent_server.core.account_usage import MINIMUM
+from agent_server.core.account_usage import (
+    MINIMUM,
+    normalize_probe_state,
+    probe_failure,
+)
 from agent_server.infra.db import schema as db
 from agent_server.infra.db.engine import read_connection
 
@@ -201,3 +207,81 @@ class AccountUsageRepositoryMixin:
                 )
                 .values(**values)
             )
+
+    async def _merge_claude_windows(self, conn, user_id, account_key, source, windows, received_at, observation_id=None):
+        await conn.execute(insert(db.account_usage_snapshots).values(user_id=user_id, runtime="claude_code", account_key=account_key).on_conflict_do_nothing())
+        current = (await conn.execute(select(db.account_usage_snapshots.c.claude_windows_json).where(
+            db.account_usage_snapshots.c.user_id == user_id, db.account_usage_snapshots.c.runtime == "claude_code",
+            db.account_usage_snapshots.c.account_key == account_key).with_for_update())).scalar_one()
+        data = json.loads(current) if current else {}
+        for window in windows:
+            previous = data.get(window.kind, {}).get(source)
+            if previous and datetime.fromisoformat(previous["received_at"]).timestamp() > received_at:
+                continue
+            if observation_id and previous and previous.get("observation_id") == observation_id:
+                continue
+            clean = {key: value for key, value in window.model_dump(mode="json", by_alias=True).items()
+                     if key in {"kind", "modelScope", "usedPercent", "remainingPercent", "resetsAt", "windowDurationMins"}}
+            data.setdefault(window.kind, {})[source] = {"source": source, "window": clean,
+                "received_at": datetime.fromtimestamp(received_at, UTC).isoformat(), "observation_id": observation_id}
+        await conn.execute(update(db.account_usage_snapshots).where(db.account_usage_snapshots.c.user_id == user_id,
+            db.account_usage_snapshots.c.runtime == "claude_code", db.account_usage_snapshots.c.account_key == account_key).values(claude_windows_json=json.dumps(data)))
+
+    async def record_claude_usage_event(self, connector_id, event, *, received_at=None):
+        now = time.time() if received_at is None else received_at
+        async with self._engine.begin() as conn:
+            owner = (await conn.execute(select(db.connectors.c.user_id).join(db.device_runtimes,
+                db.connectors.c.id == db.device_runtimes.c.connector_id).where(db.connectors.c.id == connector_id,
+                db.connectors.c.revoked == 0, db.device_runtimes.c.runtime_id == event.runtime_id,
+                db.device_runtimes.c.runtime_type == "claude", db.device_runtimes.c.config_json.is_not(None)))).scalar_one_or_none()
+            if owner is None:
+                raise KeyError(connector_id)
+            await conn.execute(insert(db.account_usage_sources).values(connector_id=connector_id, runtime_id=event.runtime_id,
+                account_key=event.account_key).on_conflict_do_update(index_elements=["connector_id", "runtime_id"], set_={"account_key": event.account_key}))
+            await self._merge_claude_windows(conn, owner, event.account_key, "event", event.windows, now, event.event_id)
+
+    async def _locked_claude_probe(self, conn, now):
+        await conn.execute(insert(db.claude_usage_probe).values(key="claude", state_json="{}").on_conflict_do_nothing())
+        raw = (await conn.execute(select(db.claude_usage_probe.c.state_json).where(db.claude_usage_probe.c.key == "claude").with_for_update())).scalar_one()
+        previous = json.loads(raw)
+        state = normalize_probe_state(previous, now)
+        if state != previous:
+            await self._save_claude_probe(conn, state)
+        return state
+
+    async def _save_claude_probe(self, conn, state):
+        await conn.execute(update(db.claude_usage_probe).where(db.claude_usage_probe.c.key == "claude").values(state_json=json.dumps(state)))
+
+    async def claude_probe_state(self, now):
+        async with self._engine.begin() as conn:
+            return await self._locked_claude_probe(conn, now)
+
+    async def claim_claude_probe(self, now):
+        async with self._engine.begin() as conn:
+            state = await self._locked_claude_probe(conn, now)
+            if state.get("status") == "running" or state.get("next_allowed_at", 0) > now:
+                return None, state
+            token = uuid4().hex
+            state.update(status="running", attempt_id=token, lease_until=now + 90, error_code=None)
+            await self._save_claude_probe(conn, state)
+            return token, state
+
+    async def finish_claude_probe(self, token, *, user_id, connector_id, runtime_id, result, error_code, now):
+        async with self._engine.begin() as conn:
+            state = await self._locked_claude_probe(conn, now)
+            if state.get("attempt_id") != token:
+                return state
+            owned = (await conn.execute(select(db.connectors.c.id).where(db.connectors.c.id == connector_id,
+                db.connectors.c.user_id == user_id, db.connectors.c.revoked == 0))).scalar_one_or_none()
+            if result is not None and not result.error_code and result.account_key and result.windows and owned:
+                await self._merge_claude_windows(conn, user_id, result.account_key, "probe", result.windows, now)
+                await conn.execute(insert(db.account_usage_sources).values(connector_id=connector_id, runtime_id=runtime_id,
+                    account_key=result.account_key).on_conflict_do_update(index_elements=["connector_id", "runtime_id"], set_={"account_key": result.account_key}))
+                state.update(status="success", last_success_at=now, next_allowed_at=now + 300, interval=300,
+                             consecutive_429=0, circuit_until=0, error_code=None, attempt_id=None, lease_until=0)
+            else:
+                state = probe_failure(state, now, error_code or "unavailable",
+                    retry_after_seconds=result.retry_after_seconds if result else None,
+                    retry_after_at=result.retry_after_at if result else None)
+            await self._save_claude_probe(conn, state)
+            return state

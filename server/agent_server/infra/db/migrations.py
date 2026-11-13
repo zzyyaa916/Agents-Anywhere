@@ -21,8 +21,8 @@ from sqlalchemy.pool import NullPool
 from agent_server.infra.db.engine import resolve_db_url
 
 BASELINE_V2_REVISION = "v2_0"
-CURRENT_SCHEMA_REVISION = "v2_58"
-CURRENT_SCHEMA_VERSION = "2.58"
+CURRENT_SCHEMA_REVISION = "v2_59"
+CURRENT_SCHEMA_VERSION = "2.59"
 POSTGRES_MIGRATION_LOCK_ID = 0x414147454E545332
 DEFAULT_MIGRATION_LOCK_TIMEOUT_SECONDS = 120.0
 
@@ -599,6 +599,10 @@ def _classify_sync(connection) -> UnversionedDatabase:
                 if revision != "v2_57":
                     return UnversionedDatabase("unknown")
                 revision = "v2_58"
+            if "claude_usage_probe" in tables or "claude_windows_json" in _column_names(inspector, "account_usage_snapshots"):
+                if revision != "v2_58" or "claude_usage_probe" not in tables or "claude_windows_json" not in _column_names(inspector, "account_usage_snapshots"):
+                    return UnversionedDatabase("unknown")
+                revision = "v2_59"
             return UnversionedDatabase("v2", revision)
         if "approvals" in tables:
             if {"presence_instance_id", "presence_connection_id"}.issubset(

@@ -54,6 +54,48 @@
           "maximum": 525600,
           "title": "Windowdurationmins",
           "type": "integer"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "enum": [
+                "event",
+                "probe"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source"
+        },
+        "receivedAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Receivedat"
+        },
+        "ageSeconds": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ageseconds"
         }
       },
       "required": [
