@@ -246,7 +246,7 @@ internal fun AgentsAnywhereNavHost(
         project = collaborationProject,
         initialGroupId = collaborationGroupId,
         controller = forkController.taskGroups,
-        onClose = { collaborationProjectId = null },
+        onClose = { collaborationProjectId = null; collaborationGroupId = null; openedCollaborationProject = null },
     ) { session, queueReady ->
         val realtime = remember(session, sessionRealtimeController) { sessionRealtimeController.independent(session) }
         SessionDetailScreen(
@@ -264,14 +264,12 @@ internal fun AgentsAnywhereNavHost(
     if (jointOpen) com.agentsanywhere.app.ui.screens.fork.JointConversations(
         scopeKey = forkController.scopeKey, projects = sessionsState.projects,
         sessions = projectSessionsById.values.flatten() + sessionsState.sessions + sessionsState.archivedSessions,
-        controller = forkController.taskGroups,
         onLoadSessions = { onLoadProjectSessions(it, ProjectSessionStatusFilter.All) },
-        onClose = { jointOpen = false },
-        onRestoreGroup = { project, group -> jointOpen = false; openedCollaborationProject = project; collaborationGroupId = group; collaborationProjectId = project.id },
+        onClose = { com.agentsanywhere.app.feature.taskgroups.JointConversationStore(context, forkController.scopeKey).clear(); jointOpen = false },
     ) { session, queueReady ->
         val realtime = remember(session, sessionRealtimeController) { sessionRealtimeController.independent(session) }
         SessionDetailScreen(
-            forkController = forkController, navigate = { target -> jointOpen = false; navigate(target) },
+            forkController = forkController, navigate = { target -> com.agentsanywhere.app.feature.taskgroups.JointConversationStore(context, forkController.scopeKey).clear(); jointOpen = false; navigate(target) },
             sessionId = session, initialSession = null, devices = sessionsState.devices,
             controller = sessionDetailController, realtimeController = realtime, filesController = filesController,
             terminalPool = remoteTerminalPool, composerDraftStore = sessionComposerDraftStore,

@@ -17,7 +17,7 @@ import { conversationServer, conversationScope, readConversationState, writeConv
 import { useConversationBroadcast } from "@/features/task-groups/use-conversation-broadcast"
 
 type PaneMode = "open" | "minimized" | "closed"
-type View = { projectId: string; groupId: string; sessionIds: string[]; joined: boolean; panes: Record<string, PaneMode> }
+type View = { projectId: string; groupId: string; sessionIds: string[]; joined: boolean; closedGroupIds: string[]; panes: Record<string, PaneMode> }
 const identity = (session: SessionView) => session.runtimeId || session.runtimeType || session.runtime
 const agentName = (session: SessionView) => session.runtimeName || session.runtimeTypeDisplayName || session.runtimeType || session.runtime
 
@@ -32,17 +32,18 @@ function JointWorkspace({ scope, token }: { scope: string; token: string }) {
   const storageKey = `${scope}:workspace`
   const [view, setView] = React.useState<View>(() => {
     const saved = readConversationState(storageKey)
+    const closedGroupIds = Array.isArray(saved.closedGroupIds) ? saved.closedGroupIds.filter((id): id is string => typeof id === "string") : []
     const panes = saved.panes && typeof saved.panes === "object" ? Object.fromEntries(Object.entries(saved.panes).filter(([, value]) => ["open", "minimized", "closed"].includes(String(value)))) : {}
     return {
       projectId: projects.some(row => row.id === saved.projectId) ? String(saved.projectId) : projects[0]?.id ?? "",
-      groupId: jointGroupId || (typeof saved.groupId === "string" ? saved.groupId : ""),
+      groupId: jointGroupId && !closedGroupIds.includes(jointGroupId) ? jointGroupId : "",
+      closedGroupIds,
       sessionIds: Array.isArray(saved.sessionIds) ? saved.sessionIds.filter((id): id is string => typeof id === "string").slice(0, 2) : [],
       joined: saved.joined === true,
       panes,
     }
   })
   const [projectSessions, setProjectSessions] = React.useState<SessionView[]>([])
-  const [groups, setGroups] = React.useState<TaskGroup[]>([])
   const [group, setGroup] = React.useState<TaskGroup | null>(null)
   const [error, setError] = React.useState("")
   const [loading, setLoading] = React.useState(false)
@@ -50,7 +51,10 @@ function JointWorkspace({ scope, token }: { scope: string; token: string }) {
     if (!writeConversationState(storageKey, view)) setError("无法保存联立选择，请保持当前页面打开。")
   }, [storageKey, view])
   React.useEffect(() => {
-    if (jointGroupId) setView(current => current.groupId === jointGroupId ? current : { ...current, groupId: jointGroupId, joined: false })
+    if (jointGroupId) setView(current => {
+      const groupId = current.closedGroupIds.includes(jointGroupId) ? "" : jointGroupId
+      return current.groupId === groupId ? current : { ...current, groupId, joined: false }
+    })
   }, [jointGroupId])
   React.useEffect(() => {
     if (!token || !view.projectId) return
@@ -68,8 +72,8 @@ function JointWorkspace({ scope, token }: { scope: string; token: string }) {
         cursor = page.nextCursor; seen.add(cursor)
       }
     }
-    void Promise.all([loadSessions(), taskGroupsApi.list(token, view.projectId)]).then(([rows, history]) => {
-      if (!cancelled) { setProjectSessions(rows); setGroups(history.groups) }
+    void loadSessions().then(rows => {
+      if (!cancelled) setProjectSessions(rows)
     }).catch(e => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)) })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
@@ -99,16 +103,27 @@ function JointWorkspace({ scope, token }: { scope: string; token: string }) {
       return { ...current, sessionIds: ids, joined: false }
     })
   }
-  function closeGroup() {
-    setView(current => ({ ...current, groupId: "", joined: false })); navigate("joint")
+  function closeGroup(message = "") {
+    if (view.groupId) writeConversationState(`${scope}:group:${view.groupId}`, {})
+    if (view.sessionIds.length) writeConversationState(`${scope}:pair:${view.sessionIds.join(",")}`, {})
+    setView(current => ({ ...current, groupId: "", sessionIds: [], joined: false, panes: {},
+      closedGroupIds: current.groupId ? [...new Set([...current.closedGroupIds, current.groupId])] : current.closedGroupIds }))
+    setGroup(null); setError(message); navigate("joint")
   }
+  React.useEffect(() => {
+    if (!group || loading || group.projectId !== view.projectId || group.phase !== "ready") return
+    const ids = group.candidates.flatMap(row => row.sessionId ? [row.sessionId] : [])
+    if (ids.some(id => !projectSessions.some(row => row.id === id && !row.archived && row.sourceAvailability !== "deleted"))) {
+      closeGroup("原多 AI 任务中的会话已不可用，请重新选择现有会话组建联立视图。")
+    }
+  }, [group, loading, projectSessions, view.projectId])
   return <div className="flex h-full min-h-0 min-w-0 flex-col overflow-auto p-4">
     <div className="shrink-0 space-y-3 pb-3">
-      <h1 className="text-lg font-medium">联立会话</h1>
-      <p className="text-sm text-muted-foreground">选择同项目中两个不同 AI 的已有会话，分别聊天或统一发布；切换页面后可从侧栏恢复。</p>
+      <div className="flex items-center justify-between"><h1 className="text-lg font-medium">联立会话</h1>{(view.groupId || view.joined) && <Button aria-label="关闭联立视图" variant="outline" onClick={() => closeGroup()}>关闭联立视图</Button>}</div>
+      <p className="text-sm text-muted-foreground">选择同项目中两个不同 AI 的已有会话，分别聊天或统一发布；切换页面后可从侧栏继续，关闭后请重新选择会话。</p>
       <label className="grid gap-1 text-sm">项目<NativeSelect aria-label="联立项目" value={view.projectId} onChange={e => {
         const projectId = e.target.value
-        setView({ projectId, groupId: "", sessionIds: [], joined: false, panes: {} }); navigate("joint")
+        setView({ projectId, groupId: "", sessionIds: [], joined: false, panes: {}, closedGroupIds: view.closedGroupIds }); navigate("joint")
       }}>{!projects.length && <NativeSelectOption value="">暂无项目</NativeSelectOption>}{projects.map(row => <NativeSelectOption key={row.id} value={row.id}>{row.name}</NativeSelectOption>)}</NativeSelect></label>
       <div className="flex flex-wrap items-end gap-3">
         {[0, 1].map(index => <label key={index} className="grid min-w-56 flex-1 gap-1 text-sm">会话 {index + 1}<NativeSelect aria-label={`联立会话 ${index + 1}`} value={view.sessionIds[index] ?? ""} disabled={loading} onChange={e => chooseSession(index, e.target.value)}>
@@ -117,15 +132,11 @@ function JointWorkspace({ scope, token }: { scope: string; token: string }) {
         </NativeSelect></label>)}
         <Button disabled={loading || !validPair} onClick={() => { setView(current => ({ ...current, groupId: "", joined: true })); navigate("joint") }}>联立显示</Button>
       </div>
-      {groups.length > 0 && <label className="grid gap-1 text-sm">恢复多 AI 任务<NativeSelect aria-label="恢复多 AI 任务" value={view.groupId} onChange={e => {
-        const groupId = e.target.value
-        setView(current => ({ ...current, groupId, joined: false })); navigate("joint", groupId || undefined)
-      }}><NativeSelectOption value="">选择已有多 AI 任务</NativeSelectOption>{groups.filter(row => row.phase === "ready").map(row => <NativeSelectOption key={row.id} value={row.id}>{row.request.content.slice(0, 60) || row.id}</NativeSelectOption>)}</NativeSelect></label>}
       {loading && <p role="status">正在加载项目会话…</p>}
       {error && <p role="alert" className="whitespace-pre-wrap text-sm text-destructive">{error}</p>}
       {view.joined && !loading && !validPair && <p role="alert">已选会话不可用或属于同一个 AI，请重新选择。</p>}
     </div>
-    {view.groupId ? (group?.id === view.groupId ? <TaskGroupConversation key={group.id} initialGroup={group} onBack={closeGroup} /> : !error && <p role="status">正在恢复多 AI 会话…</p>) : null}
+    {view.groupId ? (group?.id === view.groupId ? <TaskGroupConversation key={group.id} initialGroup={group} onBack={closeGroup} /> : !error && <p role="status">正在打开多 AI 会话…</p>) : null}
     {!view.groupId && view.joined && validPair && <PairedConversations key={view.sessionIds.join(",")} scope={scope} token={token} sessions={selected} modes={view.panes}
       onModeChange={(id, mode) => setView(current => ({ ...current, panes: { ...current.panes, [id]: mode } }))} onSessionUpdated={updateSession} />}
   </div>

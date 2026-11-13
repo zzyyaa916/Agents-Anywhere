@@ -37,7 +37,7 @@ class CollaborationWorkbenchTest {
             var secondReady = false
             compose.setContent {
                 MaterialTheme {
-                    CollaborationWorkbench(project = project, controller = TaskGroupsController(TaskGroupsApi(ApiClient()), auth), onClose = {}) { session, ready ->
+                    CollaborationWorkbench(project = project, initialGroupId = "group-1", controller = TaskGroupsController(TaskGroupsApi(ApiClient()), auth), onClose = {}) { session, ready ->
                         DisposableEffect(session) {
                             ready { text ->
                                 if (session == "session-2" && !secondReady) false else { delivered.add(session to text); true }
@@ -48,8 +48,6 @@ class CollaborationWorkbenchTest {
                     }
                 }
             }
-            compose.waitUntil(10000) { compose.onAllNodesWithText("恢复原生任务").fetchSemanticsNodes().isNotEmpty() }
-            compose.onNodeWithText("恢复原生任务").performScrollTo().performClick()
             compose.waitUntil(10000) { compose.onAllNodesWithText("原生会话 session-1").fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithTag("task-unified-input").performTextInput("统一任务")
             compose.onNodeWithText("发送", useUnmergedTree = true).performClick()

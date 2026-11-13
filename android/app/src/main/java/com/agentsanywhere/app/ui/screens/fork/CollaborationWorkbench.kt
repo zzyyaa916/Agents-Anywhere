@@ -38,7 +38,7 @@ fun CollaborationWorkbench(
     val queues = remember { mutableStateMapOf<String, (String) -> Boolean>() }
     var excluded by rememberSaveable(project.id) { mutableStateOf(emptyList<String>()) }
     fun update(group: TaskGroup) { groups = groups.filterNot { it.id == group.id } + group }
-    suspend fun refresh() { controller.restore(project.id, rootId).onSuccess { groups = it }.onFailure { error = it.message } }
+    suspend fun refresh() { if (rootId == null) { groups = emptyList(); return }; controller.restore(project.id, rootId).onSuccess { groups = it }.onFailure { error = it.message } }
     LaunchedEffect(project.id, rootId, retry) { refresh() }
     val visibleIds = remember(groups, rootId) { taskGroupChain(groups, rootId) }
     val panes = visibleIds.mapNotNull { id -> groups.firstOrNull { it.id == id } }.flatMap { group -> group.candidates.map { group to it } }
@@ -52,10 +52,9 @@ fun CollaborationWorkbench(
                 }
                 error?.let { message -> Row { Text(message, color = MaterialTheme.colorScheme.error, modifier = Modifier.weight(1f).padding(8.dp)); TextButton(onClick = { error = null }) { Text("关闭") } } }
                 if (rootId == null) Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("历史任务组（点击恢复）")
-                    groups.take(30).forEach { group -> TextButton(onClick = { rootId = group.id }) { Text(group.content.take(60)) } }
+                    Text("请返回联立会话，重新选择现有会话组建视图。")
                 } else {
-                    Row { TextButton(onClick = { rootId = null }) { Text("历史任务") }; Text("横向滑动查看各 AI", modifier = Modifier.padding(top = 12.dp)) }
+                    Row { Text("横向滑动查看各 AI", modifier = Modifier.padding(top = 12.dp)) }
                     BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
                         val paneWidth = if (maxWidth > 800.dp) maxWidth / 2 else maxWidth
                         Row(Modifier.fillMaxSize().horizontalScroll(rememberScrollState())) {

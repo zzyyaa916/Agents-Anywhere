@@ -585,24 +585,70 @@ test('a partially accepted joint broadcast can be retried after a page switch wi
   } finally { delete globalThis.testQueueFailure; await act(async () => root.unmount()); container.remove() }
 })
 
-test('the persistent joint workspace restores a task group without restarting its paid turns', async () => {
+test('closing a multi AI view clears its state and blocks old recovery links without restarting turns', async () => {
   calls.length = 0; groups.clear(); window.localStorage.clear()
   const row = await globalThis.testTaskGroups.create('', { content: 'History task', candidates: ['codex', 'claude'].map(runtime => ({ runtime, runtimeId: runtime, selections: {} })) })
+  await globalThis.testTaskGroups.start('', row.id, 0); await globalThis.testTaskGroups.start('', row.id, 1)
+  groups.get(row.id).candidates[0].sessionId = 'existing-codex'
+  groups.get(row.id).candidates[1].sessionId = 'existing-claude'
+  globalThis.testWorkspace.jointGroupId = row.id
+  const container = document.createElement('div'); document.body.append(container); let root = createRoot(container)
+  try {
+    await act(async () => root.render(h(JointConversations)))
+    assert.equal(container.querySelectorAll('[data-chat]').length, 2)
+    assert.equal(container.querySelector('[aria-label="恢复多 AI 任务"]'), null)
+    await clickText(container, '关闭联立视图')
+    assert.equal(container.querySelectorAll('[data-chat]').length, 0)
+    await act(async () => root.unmount()); root = createRoot(container)
+    await act(async () => root.render(h(JointConversations)))
+    assert.equal(container.querySelectorAll('[data-chat]').length, 0)
+    assert.equal(container.querySelector('[aria-label="联立会话 1"]').value, '')
+    assert.equal(calls.filter(row => row[0] === 'start').length, 2)
+    assert.equal(groups.get(row.id).candidates.length, 2)
+  } finally { globalThis.testWorkspace.jointGroupId = null; await act(async () => root.unmount()); container.remove() }
+})
+
+test('closing an existing-session pair requires a fresh selection while preserving its sessions', async () => {
+  calls.length = 0; groups.clear(); window.localStorage.clear()
+  const container = document.createElement('div'); document.body.append(container); let root = createRoot(container)
+  try {
+    await act(async () => root.render(h(JointConversations))); await selectPair(container)
+    await input(container.querySelector('[aria-label="联立发布"]'), 'Only this view draft')
+    await clickText(container, '关闭联立视图')
+    await act(async () => root.unmount()); root = createRoot(container)
+    await act(async () => root.render(h(JointConversations)))
+    assert.equal(container.querySelector('[aria-label="联立会话 1"]').value, '')
+    assert.equal(container.querySelector('[aria-label="联立会话 2"]').value, '')
+    await selectPair(container)
+    assert.equal(container.querySelectorAll('[data-joint-session]').length, 2)
+    assert.equal(container.querySelector('[aria-label="联立发布"]').value, '')
+    assert.equal(calls.some(row => ['prepare', 'start', 'resolveProject', 'single'].includes(row[0])), false)
+  } finally { await act(async () => root.unmount()); container.remove() }
+})
+
+
+test('legacy saved task groups and groups with deleted members do not become recovery entries', async () => {
+  calls.length = 0; groups.clear(); window.localStorage.clear()
+  const row = await globalThis.testTaskGroups.create('', { content: 'Deleted members', candidates: ['codex', 'claude'].map(runtime => ({ runtime, runtimeId: runtime, selections: {} })) })
   await globalThis.testTaskGroups.start('', row.id, 0); await globalThis.testTaskGroups.start('', row.id, 1)
   globalThis.testWorkspace.jointGroupId = row.id
   const container = document.createElement('div'); document.body.append(container); let root = createRoot(container)
   try {
     await act(async () => root.render(h(JointConversations)))
-    await input(container.querySelector('[aria-label^="broadcastLabel"]'), 'Restore group draft')
-    await act(async () => container.querySelector('[aria-label="minimize"]').click())
+    assert.equal(container.querySelectorAll('[data-chat]').length, 0)
+    assert.match(container.textContent, /会话已不可用/)
+    assert.equal(container.querySelector('[aria-label="恢复多 AI 任务"]'), null)
+    const key = Array.from({ length: window.localStorage.length }, (_, i) => window.localStorage.key(i)).find(key => key.endsWith(':workspace'))
+    const saved = JSON.parse(window.localStorage.getItem(key))
+    saved.groupId = row.id; saved.closedGroupIds = []
+    window.localStorage.setItem(key, JSON.stringify(saved))
     await act(async () => root.unmount()); globalThis.testWorkspace.jointGroupId = null; root = createRoot(container)
     await act(async () => root.render(h(JointConversations)))
-    assert.equal(container.querySelectorAll('[data-chat]').length, 2)
-    assert.equal(container.querySelector('[aria-label^="broadcastLabel"]').value, 'Restore group draft')
-    assert.ok(container.querySelector('[aria-label="restore"]'))
+    assert.equal(container.querySelectorAll('[data-chat]').length, 0)
     assert.equal(calls.filter(row => row[0] === 'start').length, 2)
   } finally { globalThis.testWorkspace.jointGroupId = null; await act(async () => root.unmount()); container.remove() }
 })
+
 
 
 for (const sourceRuntime of ['codex', 'claude', 'dsh']) test(`${sourceRuntime} small forward button offers both other AIs instead of the source`, async () => {

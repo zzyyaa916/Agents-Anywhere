@@ -11,7 +11,9 @@ data class JointConversationState(
 
 class JointConversationStore(context: Context, scope: String) {
     private val preferences = context.applicationContext.getSharedPreferences("fork-joint-conversations", Context.MODE_PRIVATE)
-    private val key = "v1:$scope"
+    private val key = "v2:$scope"
+    init { preferences.edit().remove("v1:$scope").apply() }
+    fun clear() { preferences.edit().remove(key).apply() }
     fun read(): JointConversationState = decodeJointState(preferences.getString(key, null))
     fun save(state: JointConversationState) { preferences.edit().putString(key, encodeJointState(state)).apply() }
 }

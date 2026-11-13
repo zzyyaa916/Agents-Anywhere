@@ -48,10 +48,9 @@
     <string name="fork_low_usage">%1$s · %2$s: 5-hour quota %3$d%% remaining · resets %4$s</string>
     <string name="fork_forward">Forward</string>
     <string name="fork_forward_title">Forward to other AIs</string>
-    <string name="fork_joint_entry">Joint conversations / restore AI tasks</string>
+    <string name="fork_joint_entry">Joint conversations</string>
     <string name="fork_joint_show">Show together</string>
     <string name="fork_multi_send">Send to selected AIs</string>
-    <string name="fork_multi_history">Restore AI tasks</string>
     <string name="fork_ai_reload">Reload AI settings</string>
     <string name="fork_forward_instructions">Additional instructions</string>
     <string name="fork_joint_publish">Publish</string>

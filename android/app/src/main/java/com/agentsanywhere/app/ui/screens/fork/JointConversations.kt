@@ -13,7 +13,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.agentsanywhere.app.api.TaskGroup
 import com.agentsanywhere.app.feature.taskgroups.*
 import com.agentsanywhere.app.model.AgentProject
 import com.agentsanywhere.app.model.AgentSession
@@ -21,8 +20,8 @@ import com.agentsanywhere.app.model.AgentSession
 @Composable
 internal fun JointConversations(
     scopeKey: String, projects: List<AgentProject>, sessions: List<AgentSession>,
-    controller: TaskGroupsController, onLoadSessions: (String) -> Unit,
-    onRestoreGroup: (AgentProject, String) -> Unit, onClose: () -> Unit,
+    onLoadSessions: (String) -> Unit,
+    onClose: () -> Unit,
     pane: @Composable (String, (((String) -> Boolean)?) -> Unit) -> Unit,
 ) {
     val context = LocalContext.current
@@ -30,7 +29,6 @@ internal fun JointConversations(
     var state by remember(store) { mutableStateOf(store.read()) }
     fun update(next: JointConversationState) { store.save(next); state = next }
     val queues = remember(scopeKey) { mutableStateMapOf<String, (String) -> Boolean>() }
-    var groups by remember(state.projectId) { mutableStateOf(emptyList<TaskGroup>()) }
     var error by remember { mutableStateOf<String?>(null) }
     var displaying by remember { mutableStateOf(state.sessions.size == 2) }
     val project = projects.firstOrNull { it.id == state.projectId }
@@ -40,13 +38,12 @@ internal fun JointConversations(
     LaunchedEffect(state.projectId) {
         if (project != null) {
             onLoadSessions(project.id)
-            controller.list(project.id).onSuccess { groups = it }.onFailure { error = it.message }
         }
     }
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Surface(Modifier.fillMaxSize().systemBarsPadding().imePadding()) {
             Column(Modifier.fillMaxSize()) {
-                Row { TextButton(onClick = onClose) { Text("返回") }; TextButton(onClick = { displaying = !displaying }) { Text(if (displaying) "选择会话 / 恢复任务" else "联立显示") } }
+                Row { TextButton(onClick = onClose) { Text("返回") }; TextButton(onClick = { displaying = !displaying }) { Text(if (displaying) "选择会话" else "联立显示") } }
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 if (!displaying || !validSelection) Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(12.dp)) {
                     Text(stringResource(R.string.fork_joint_select))
@@ -62,8 +59,6 @@ internal fun JointConversations(
                         Text("${item.runtimeLabel} · ${item.title}")
                     } }
                     Button(enabled = validSelection, onClick = { displaying = true }) { Text(stringResource(R.string.fork_joint_show)) }
-                    Text(stringResource(R.string.fork_multi_history))
-                    groups.forEach { group -> TextButton(onClick = { project?.let { onRestoreGroup(it, group.id) } }) { Text(group.content.take(60)) } }
                 } else {
                     Row { selected.forEach { session ->
                         TextButton(onClick = { update(state.copy(hidden = if (session.id in state.hidden) state.hidden - session.id else state.hidden + session.id)) }) { Text(if (session.id in state.hidden) "显示 ${session.runtimeLabel}" else "收起 ${session.runtimeLabel}") }
