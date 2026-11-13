@@ -75,9 +75,9 @@ class SwitchTests(unittest.TestCase):
 class InstallPackageTests(unittest.TestCase):
     def test_verified_wheel_is_installed_without_network_or_build_dependencies(self):
         calls = []
-        module['install_package'](Path('/bundle'), {'files': {'anywhere_cli-2.6.4-py3-none-any.whl': 'verified'}}, '/uv', Path('/new/bin/python'), lambda args, **kw: calls.append((args, kw)))
+        module['install_package'](Path('/bundle'), {'files': {'anywhere_cli-2.6.5-py3-none-any.whl': 'verified'}}, '/uv', Path('/new/bin/python'), lambda args, **kw: calls.append((args, kw)))
         self.assertIn('--no-index', calls[0][0])
-        self.assertEqual('/bundle/anywhere_cli-2.6.4-py3-none-any.whl', calls[0][0][-1])
+        self.assertEqual('/bundle/anywhere_cli-2.6.5-py3-none-any.whl', calls[0][0][-1])
         self.assertTrue(calls[0][1]['check'])
 
     def test_unlisted_wheel_is_not_trusted(self):
@@ -114,6 +114,33 @@ class PrepareEnvironmentTests(unittest.TestCase):
 
 
 class NativeCleanupUpgradeTests(unittest.TestCase):
+    def test_identical_root_owned_helpers_do_not_restart_runtime(self):
+        import os
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); bundle = root / "bundle"; installed = root / "installed"
+            bundle.mkdir(); installed.mkdir()
+            broker, helper = installed / "broker", installed / "native-history-cleanup.py"
+            probe = installed / "claude-usage-probe.py"
+            for source, target in [("runtime-broker.py", broker), ("native-history-cleanup.py", helper), ("claude-usage-probe.py", probe)]:
+                (bundle / source).write_bytes(b"unchanged helper")
+                target.write_bytes(b"unchanged helper")
+            calls = []
+            def command(args):
+                calls.append(args)
+                return str(broker) if args[1] == "show" else ""
+            actual_stat = Path.stat
+            def root_owned(path, *args, **kwargs):
+                result = actual_stat(path, *args, **kwargs)
+                if path in (broker, helper, probe):
+                    values = list(result); values[4] = 0
+                    return os.stat_result(values)
+                return result
+            manifest = {"files": {name: "verified" for name in ("runtime-broker.py", "native-history-cleanup.py", "claude-usage-probe.py")}}
+            with patch.object(Path, "stat", root_owned):
+                module["install_native_cleanup"](bundle, manifest, "AA_FORK_RUNTIME_BROKER=1", command, broker=broker, helper=helper)
+            self.assertFalse(any("restart" in args for args in calls))
+            self.assertFalse((bundle / "runtime-broker.before.py").exists())
+
     def test_broker_install_and_restart_failure_restore_both_files(self):
         import os
         for fail in (False, True):

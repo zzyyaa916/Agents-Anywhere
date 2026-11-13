@@ -14,7 +14,7 @@ import urllib.error
 import urllib.request
 
 
-VERSION = '2.6.4'
+VERSION = '2.6.5'
 
 
 def digest(path):
@@ -80,7 +80,7 @@ def update_server(root, manifest):
         return {row['Name']: (row['Id'], row['State']['StartedAt']) for row in json.loads(run(['docker', 'inspect', *ids])) if row['Name'] != '/agents-anywhere-fork-server-1'}
     health = get('http://127.0.0.1:18500/api/v2/health')
     previous_revision = query('SELECT version_num FROM alembic_version')
-    if health.get('version') not in ('2.6.0', '2.6.1', '2.6.2', '2.6.3', VERSION) or previous_revision not in ('v2_57', 'v2_58', 'v2_59'):
+    if health.get('version') not in ('2.6.0', '2.6.1', '2.6.2', '2.6.3', '2.6.4', VERSION) or previous_revision not in ('v2_57', 'v2_58', 'v2_59'):
         raise RuntimeError('当前版本或数据库版本不匹配；未修改服务，不执行数据库迁移。')
     idle()
     old_containers = inventory()
