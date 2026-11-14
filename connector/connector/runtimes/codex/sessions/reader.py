@@ -471,7 +471,7 @@ class CodexSessionReader:
             status="idle",
             selections=selections,
             metadata={"source": "codex.thread/read.state"},
-            replace_selections=True,
+            replace_selections=False,
         )
 
     async def _read_native_activity(

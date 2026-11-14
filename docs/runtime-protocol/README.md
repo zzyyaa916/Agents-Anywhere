@@ -10,6 +10,7 @@
 | Connector 开发和运行 | [Connector README](../../connector/README.md) |
 | Provider、实例生命周期与 Runtime 调用 | [provider.py](../../connector/connector/runtime_protocol/provider.py)、[supervisor.py](../../connector/connector/runtime_protocol/supervisor.py)、[protocol.py](../../connector/connector/runtime_protocol/protocol.py) |
 | Runtime → Connector 回调 | [host.py](../../connector/connector/runtime_protocol/host.py) |
+| 会话模型、思考强度与权限的持久化及恢复 | [会话选择固定规则](session-selections.md) |
 | 会话、状态、能力与 Timeline 类型 | [models.py](../../connector/connector/runtime_protocol/models.py)、[timeline.py](../../connector/connector/runtime_protocol/timeline.py) |
 | 工作区准备与异步创建 | [工作流类型](../../connector/connector/runtime_protocol/workflows.py)、[公共契约](../../contracts/runtime-workflows/1.2/manifest.json) |
 | API、有效能力与实时同步 | [API 索引](../api/README.md)、[能力](../api/capabilities.md)、[实时 API](../api/realtime.md) |

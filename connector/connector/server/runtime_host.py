@@ -49,6 +49,10 @@ AttachmentDownloader = Callable[[str, str], Awaitable[tuple[bytes, str, str]]]
 class ConnectorRuntimeHost(RuntimeHostClient):
     """Map Agent Runtime Protocol host calls onto current connector notifications."""
 
+    @property
+    def supports_sync_state(self) -> bool:
+        return self._sync_state_store is not None
+
     def __init__(
         self,
         connector_id: str,

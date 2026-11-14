@@ -40,6 +40,7 @@ from agent_server.core.events import (
 from agent_server.core.history_deletion import (
     DeviceCleanupIncomplete,
     HistoryDeletionConflict,
+    cleanup_failure_message,
 )
 from agent_server.core.models import (
     BulkArchiveResponse,
@@ -2015,8 +2016,8 @@ async def delete_session_history(
         raise HTTPException(status_code=404, detail="session not found") from None
     except HistoryDeletionConflict as exc:
         raise HTTPException(status_code=409, detail=exc.detail) from exc
-    except (ConnectorOfflineError, ConnectorRpcError, TimeoutError, DeviceCleanupIncomplete):
-        raise HTTPException(status_code=503, detail={"code": "deletion_cleanup_failed", "message": "删除清理未完成，请重试"}) from None
+    except (ConnectorOfflineError, ConnectorRpcError, TimeoutError, DeviceCleanupIncomplete) as exc:
+        raise HTTPException(status_code=503, detail={"code": "deletion_cleanup_failed", "message": cleanup_failure_message(exc, "删除清理未完成，请重试")}) from None
     await publish_dashboard_changed(store, broker, user_id=user_id, reason="session.deleted")
 
 
@@ -2041,8 +2042,8 @@ async def delete_session_contents(
         raise HTTPException(status_code=404, detail="session not found") from None
     except HistoryDeletionConflict as exc:
         raise HTTPException(status_code=409, detail=exc.detail) from exc
-    except (ConnectorOfflineError, ConnectorRpcError, TimeoutError, DeviceCleanupIncomplete):
-        raise HTTPException(status_code=503, detail={"code": "device_cleanup_incomplete", "message": "设备文件未清理完成：请确认设备在线、Connector/原生代理已更新且会话已关闭，然后重试"}) from None
+    except (ConnectorOfflineError, ConnectorRpcError, TimeoutError, DeviceCleanupIncomplete) as exc:
+        raise HTTPException(status_code=503, detail={"code": "device_cleanup_incomplete", "message": cleanup_failure_message(exc, "设备文件未清理完成：请确认设备在线、Connector/原生代理已更新且会话已关闭，然后重试")}) from None
     await publish_dashboard_changed(store, broker, user_id=user_id, reason="session.deleted")
 
 

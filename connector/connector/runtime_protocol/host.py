@@ -23,6 +23,9 @@ UploadProgress = Callable[[int], Awaitable[None]]
 class RuntimeHostClient(ABC):
     """Runtime -> Connector."""
 
+    # Hosts that implement sync_state_* use this to opt into durable session pins.
+    supports_sync_state = False
+
     async def prepare_goal_creation(
         self, session_id, external_id, content, attachments, operation_id
     ):

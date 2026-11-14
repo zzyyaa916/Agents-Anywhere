@@ -45,6 +45,8 @@ def test_storage_is_prepared_before_provider_creation_and_failure_blocks_start(t
         async def create(config, bound):
             assert (tmp_path / "conn_test" / "rti_a" / "sync-state.json").exists()
             assert bound.runtime_kv.path == tmp_path / "conn_test" / "rti_a" / "kv.json"
+            assert bound.selection_store is not None
+            await bound.selection_store.remember("session", {"model": "chosen/low"})
             await bound.sync_state_write("fake/history/x", {"seq": 7})
             return await original(config, bound)
 
@@ -52,6 +54,7 @@ def test_storage_is_prepared_before_provider_creation_and_failure_blocks_start(t
         supervisor = RuntimeSupervisor((provider,), host)
         spec = RuntimeInstanceSpec(runtime_id="rti_a", runtime_type="fake", name="A")
         await supervisor.start(spec, {})
+        assert await supervisor.resolve_runtime("rti_a").selection_store.read("session") == {"model": "chosen/low"}
         await supervisor.stop("rti_a")
         assert host.flush_runtime_storage()
         state = JsonSyncStateStore(tmp_path / "conn_test" / "rti_a" / "sync-state.json")

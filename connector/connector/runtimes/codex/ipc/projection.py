@@ -201,7 +201,7 @@ class CodexIpcSessionProjector:
                     else {}
                 ),
             },
-            replace_selections=True,
+            replace_selections=False,
         )
 
     async def _selections(self, state: Mapping[str, Any]) -> dict[str, str]:

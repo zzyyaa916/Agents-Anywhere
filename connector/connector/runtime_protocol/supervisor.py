@@ -30,6 +30,7 @@ from connector.runtime_protocol.model_probe import ModelProbeResult
 from connector.runtime_protocol.models import RuntimeConfig, RuntimeInventoryItem
 from connector.runtime_protocol.protocol import AgentRuntime
 from connector.runtime_protocol.provider import RuntimeProvider
+from connector.runtime_protocol.session_selections import SessionSelectionStore
 from connector.runtime_protocol.supervisor_models import (
     MISSING,
     RuntimeLifecycleStatus,
@@ -430,10 +431,18 @@ class RuntimeSupervisor:
                 source_key=_provider_source_key(entry.provider, config),
                 status_reporter=report_health,
             )
+            selection_store = (
+                SessionSelectionStore(instance.runtime_type, scoped_host)
+                if scoped_host.supports_sync_state
+                else None
+            )
+            if selection_store is not None:
+                scoped_host = replace(scoped_host, selection_store=selection_store)
             native_runtime = await entry.provider.create_runtime(config, scoped_host)
             bound_runtime = RuntimeInstance(
                 instance=instance,
                 native_runtime=native_runtime,
+                selection_store=selection_store,
             )
             await bound_runtime.start()
         except Exception as exc:

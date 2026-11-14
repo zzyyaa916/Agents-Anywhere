@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Awaitable, Callable, Iterable, Mapping
+from contextlib import nullcontext
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -33,6 +34,7 @@ from connector.runtime_protocol.models import (
     SessionState,
 )
 from connector.runtime_protocol.protocol import AgentRuntime
+from connector.runtime_protocol.session_selections import SessionSelectionStore
 from connector.runtime_protocol.workflows import (
     RuntimeWorkflowRequest,
     RuntimeWorkflowResult,
@@ -206,6 +208,7 @@ class RuntimeInstanceHost(RuntimeHostClient):
         ]
         | None
     ) = None
+    selection_store: SessionSelectionStore | None = None
 
     async def claude_usage_observer(self):
         return await self.base.claude_usage_observer()
@@ -222,6 +225,10 @@ class RuntimeInstanceHost(RuntimeHostClient):
     async def publish_planning(self, snapshot: dict, durable: bool = False) -> None:
         await self.base.publish_planning({**snapshot, "runtimeId": self.instance.runtime_id,
                                           "runtime": self.instance.runtime_type}, durable)
+
+    @property
+    def supports_sync_state(self) -> bool:
+        return bool(getattr(self.base, "supports_sync_state", False))
 
     @property
     def connector_id(self) -> str:
@@ -256,6 +263,13 @@ class RuntimeInstanceHost(RuntimeHostClient):
     ) -> None:
         self._validate_native_runtime(runtime)
         kwargs = {"on_progress": on_progress} if on_progress is not None else {}
+        if self.selection_store is not None:
+            notifications = [dict(notice) for notice in notifications]
+            for notice in notifications:
+                if notice.get("method") == "session.state.updated":
+                    params = dict(notice["params"])
+                    params["selections"] = await self.selection_store.observed(params["sessionId"], params.get("selections"))
+                    notice["params"] = params
         await self.base.publish_runtime_notifications(runtime, notifications, runtime_id=self.instance.runtime_id, **kwargs)
 
     async def session_meta_upsert(
@@ -291,6 +305,8 @@ class RuntimeInstanceHost(RuntimeHostClient):
         metadata: Mapping[str, Any] | None = None,
     ) -> None:
         self._validate_native_runtime(runtime)
+        if self.selection_store is not None:
+            selections = await self.selection_store.observed(session_id, selections)
         await self.base.session_state_update(
             session_id=session_id,
             runtime=self.instance.runtime_type,
@@ -519,6 +535,61 @@ class RuntimeInstance(AgentRuntime):
 
     instance: RuntimeInstanceSpec
     native_runtime: AgentRuntime
+    selection_store: SessionSelectionStore | None = None
+
+    async def _model_choice_error(self, selections):
+        if self.selection_store is None:
+            return None
+        model = (selections or {}).get("model")
+        if isinstance(model, str) and model.strip():
+            try:
+                catalog = await self.native_runtime.list_model_catalog(limit=200)
+            except Exception:  # noqa: BLE001 - fail closed on catalog failure
+                return RuntimeOperationResult(
+                    ok=False, code="session_model_selection_required",
+                    message="模型目录暂时不可用，无法确认模型和思考强度；请重试或重新选择，不会使用默认模型。",
+                )
+            for item in catalog.models:
+                if not item.enabled:
+                    continue
+                if item.selection_id == model:
+                    if any(effort.enabled for effort in item.reasoning_items):
+                        return RuntimeOperationResult(
+                            ok=False, code="session_model_selection_required",
+                            message="请明确选择模型的思考强度后再发送；不会使用默认思考强度。",
+                        )
+                    return None
+                if any(effort.selection_id == model and effort.enabled for effort in item.reasoning_items):
+                    return None
+            return RuntimeOperationResult(
+                ok=False, code="session_model_selection_required",
+                message="所选模型或思考强度不在当前模型目录中，请重新选择；不会使用默认模型。",
+            )
+        try:
+            capabilities = await self.native_runtime.get_runtime_capabilities()
+        except Exception:  # noqa: BLE001 - fail closed on capability failure
+            return RuntimeOperationResult(
+                ok=False, code="session_model_selection_required",
+                message="无法确认此会话的模型和思考强度，请先明确选择后再发送；不会使用默认模型。",
+            )
+        if any(item.capability_id == "catalog.model" and item.supported for item in capabilities.capabilities):
+            return RuntimeOperationResult(
+                ok=False, code="session_model_selection_required",
+                message="无法确认此会话的模型和思考强度，请先明确选择后再发送；不会使用默认模型。",
+            )
+        return None
+
+    async def prepare_history_deletion(self, target):
+        prepare = getattr(self.native_runtime, "prepare_history_deletion", None)
+        if not callable(prepare):
+            raise ValueError("native_history_deletion_unsupported")  # noqa: TRY004 - stable protocol code
+        return await prepare(target)
+
+    async def delete_session_history(self, target):
+        delete = getattr(self.native_runtime, "delete_session_history", None)
+        if not callable(delete):
+            raise ValueError("native_history_deletion_unsupported")  # noqa: TRY004 - stable protocol code
+        return await delete(target)
 
     async def list_scoped_model_catalog(self, session_id: str, query: str | None = None, limit: int = 100) -> RuntimeModelCatalog:
         catalog = await self.native_runtime.list_scoped_model_catalog(session_id, query=query, limit=limit)
@@ -705,6 +776,13 @@ class RuntimeInstance(AgentRuntime):
             session_id,
             external_session_id,
         )
+        if state is not None and self.selection_store is not None:
+            metadata = dict(state.metadata)
+            if await self.selection_store.model_is_confirmed(session_id):
+                saved = await self.selection_store.read(session_id)
+                if state.selections.get("model") != saved.get("model") or metadata.get("selection_effect") not in {"applied", "next_turn"}:
+                    metadata["selection_effect"] = "next_turn"
+            state = replace(state, selections=await self.selection_store.observed(session_id, state.selections), metadata=metadata)
         return (
             None if state is None else session_state_for_instance(state, self.instance)
         )
@@ -751,16 +829,22 @@ class RuntimeInstance(AgentRuntime):
         client_message_id: str | None = None,
         *, runtime_options: Mapping[str, Any] | None = None,
     ) -> RuntimeOperationResult:
-        return await self.native_runtime.create_and_start_session(
+        effective = await self.selection_store.for_turn(session_id, selections) if self.selection_store is not None else selections
+        if error := await self._model_choice_error(effective):
+            return error
+        result = await self.native_runtime.create_and_start_session(
             session_id=session_id,
             content=content,
             title=title,
             cwd=cwd,
-            selections=selections,
+            selections=effective,
             attachments=attachments,
             client_message_id=client_message_id,
             **({"runtime_options": runtime_options} if runtime_options else {}),
         )
+        if result.ok and self.selection_store is not None:
+            await self.selection_store.remember(session_id, effective)
+        return result
 
     async def start_turn(
         self,
@@ -772,15 +856,26 @@ class RuntimeInstance(AgentRuntime):
         client_message_id: str | None = None,
         cwd: str | None = None,
     ) -> RuntimeOperationResult:
-        return await self.native_runtime.start_turn(
+        effective = await self.selection_store.for_turn(session_id, selections) if self.selection_store is not None else selections
+        if self.selection_store is not None:
+            saved = await self.selection_store.read(session_id)
+            if saved.get("model") and not await self.selection_store.model_is_confirmed(session_id):
+                return RuntimeOperationResult(
+                    ok=False, code="session_model_selection_required",
+                    message="模型选择尚未确认，请重新选择后再发送；不会使用默认模型。",
+                )
+        if error := await self._model_choice_error(effective):
+            return error
+        result = await self.native_runtime.start_turn(
             session_id=session_id,
             external_session_id=external_session_id,
             content=content,
-            selections=selections,
+            selections=effective,
             attachments=attachments,
             client_message_id=client_message_id,
             cwd=cwd,
         )
+        return result
 
     async def steer_turn(
         self,
@@ -811,11 +906,39 @@ class RuntimeInstance(AgentRuntime):
         external_session_id: str | None,
         selections: Mapping[str, str | None],
     ) -> RuntimeOperationResult:
-        return await self.native_runtime.update_session_selections(
-            session_id,
-            external_session_id,
-            selections,
-        )
+        async with (self.selection_store.change(session_id) if self.selection_store is not None else nullcontext()):
+            if self.selection_store is not None and "model" in selections:
+                await self.selection_store.require_reselection(session_id)
+                if error := await self._model_choice_error(selections):
+                    return error
+            effective = await self.selection_store.resolve(session_id, selections) if self.selection_store is not None else selections
+            try:
+                result = await self.native_runtime.update_session_selections(
+                    session_id,
+                    external_session_id,
+                    effective,
+                )
+            except Exception:
+                if self.selection_store is not None and "model" in selections:
+                    await self.selection_store.require_reselection(session_id)
+                raise
+            if result.ok and self.selection_store is not None:
+                reported = result.result.get("selections") if isinstance(result.result, Mapping) else None
+                canonical = dict(reported) if isinstance(reported, Mapping) else dict(effective)
+                await self.selection_store.remember(session_id, canonical)
+                raw_state = result.result.get("state")
+                raw_metadata = raw_state.get("metadata", {}) if isinstance(raw_state, Mapping) else {}
+                effect = raw_metadata.get("selection_effect") if isinstance(raw_metadata, Mapping) else None
+                if isinstance(result.result.get("applied"), bool):
+                    effect = "applied" if result.result["applied"] else "next_turn"
+                # Persisted choices are guaranteed for the next turn; this is not an applied-now claim.
+                if effect not in {"applied", "next_turn"}:
+                    effect = "next_turn"
+                result = replace(result, result={**result.result, "selectionEffect": effect,
+                    "selections": canonical})
+            elif self.selection_store is not None and "model" in selections:
+                await self.selection_store.require_reselection(session_id)
+            return result
 
     async def list_commands(
         self,

@@ -542,3 +542,25 @@ def test_runtime_routes_selection_updates_through_ipc() -> None:
         assert calls[-1][1]["threadSettings"]["model"] == "gpt-5.5"
 
     asyncio.run(run())
+
+
+def test_empty_and_partial_ipc_selection_mapping_does_not_clear_choices():
+    from unittest.mock import AsyncMock
+    async def run():
+        host = _Host()
+        cache = RuntimeSessionStateCache("codex", host)
+        projector = CodexIpcSessionProjector(host=host, session_states=cache, notices=CodexNoticeRegistry())
+        thread = FollowedThread(thread_id=THREAD, status="following", owner_client_id="owner-1", revision=1, state=_state())
+        sid = projector.session_id_for(THREAD)
+        await cache.update(sid, THREAD, "idle", selections={"model": "chosen/low", "permission": "ask"})
+        original = CodexIpcSessionProjector._selections
+        try:
+            CodexIpcSessionProjector._selections = AsyncMock(return_value={})
+            await projector._project_state(thread)
+            assert cache.get(sid).selections == {"model": "chosen/low", "permission": "ask"}
+            CodexIpcSessionProjector._selections = AsyncMock(return_value={"permission": "changed"})
+            await projector._project_state(thread)
+            assert cache.get(sid).selections == {"model": "chosen/low", "permission": "changed"}
+        finally:
+            CodexIpcSessionProjector._selections = original
+    asyncio.run(run())

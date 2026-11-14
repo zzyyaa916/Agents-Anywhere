@@ -234,3 +234,32 @@ async def test_session_private_cleanup_requires_an_absolute_project_path(fixture
     with pytest.raises(ValueError, match="invalid_cleanup_path"):
         await worker.prepare(request(sessions=[{"sessionId": "first", "projectPath": path}]))
     assert project.exists()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("runtime_type", ["codex", "claude", "dsh"])
+async def test_wrapped_runtime_forwards_native_cleanup(fixture, runtime_type):
+    from connector.runtime_protocol import RuntimeIdentity, RuntimeInstance, RuntimeInstanceSpec
+    worker, native, project = fixture
+    native.identity = RuntimeIdentity(runtime=runtime_type, runtime_version="test")
+    wrapped = RuntimeInstance(RuntimeInstanceSpec("rti_test", runtime_type, "Test"), native)
+    worker.resolve_runtime = lambda _: wrapped
+    target = {"sessionId": "s", "runtimeId": "rti_test", "runtime": runtime_type, "externalSessionId": "native"}
+    body = request(projectPath=str(project), sessions=[target])
+    receipt = await worker.prepare(body)
+    native.prepare_history_deletion.assert_awaited_once_with(target)
+    assert project.exists()
+    await worker.commit({"request": body, "receipt": receipt["receipt"]})
+    native.delete_session_history.assert_awaited_once_with(target)
+    assert not project.exists()
+
+
+@pytest.mark.anyio
+async def test_wrapped_unsupported_runtime_keeps_project(fixture):
+    from connector.runtime_protocol import RuntimeIdentity, RuntimeInstance, RuntimeInstanceSpec
+    worker, _, project = fixture
+    native = SimpleNamespace(identity=RuntimeIdentity(runtime="dsh", runtime_version="test"))
+    worker.resolve_runtime = lambda _: RuntimeInstance(RuntimeInstanceSpec("rti_test", "dsh", "Test"), native)
+    with pytest.raises(ValueError, match="native_history_deletion_unsupported"):
+        await worker.prepare(request(projectPath=str(project), sessions=[{"sessionId": "s", "externalSessionId": "native"}]))
+    assert project.exists()

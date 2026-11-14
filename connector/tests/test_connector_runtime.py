@@ -5,13 +5,19 @@ import base64
 import hashlib
 import json
 import sys
+import tempfile
 import threading
 from collections.abc import Mapping
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Literal, Self
 
 import httpx
 import pytest
+from pydantic import BaseModel, ValidationError
+from websockets.exceptions import ConnectionClosedError
+from websockets.frames import Close
+
 from connector.core.config import ConnectorConfig
 from connector.local.terminal import TerminalBackend
 from connector.runtime_protocol import (
@@ -83,9 +89,6 @@ from connector.server.runtime_sync import (
     _timeline_sync_notification,
     validation_error_summary,
 )
-from pydantic import BaseModel, ValidationError
-from websockets.exceptions import ConnectionClosedError
-from websockets.frames import Close
 
 
 def test_runtime_sync_validation_error_summary_is_bounded() -> None:
@@ -431,7 +434,7 @@ class FakeAgentRuntime(AgentRuntime):
             runtime=self.runtime_id,
             external_session_id=external_session_id,
             status="idle",
-            selections={"model": "sel_model_state"},
+            selections={"model": "sel_model_test"},
             metadata={"source": "fake"},
         )
 
@@ -936,6 +939,7 @@ def _client(
             connector_id="conn_1",
             connector_token="token",
             sync_existing_on_connect=False,
+            state_path=str(Path(tempfile.mkdtemp(prefix="aa-test-state-")) / "state.json"),
             **config_overrides,
         ),
         agent_runtime_providers=providers,
@@ -2118,7 +2122,7 @@ async def _exercise_runtime() -> None:
                 "sessionId": "sess_1",
                 "cwd": "/repo",
                 "content": "start",
-                "selections": {"model": "sel_model"},
+                "selections": {"model": "sel_model_test"},
                 "clientMessageId": "cm_1",
             },
         }
@@ -2131,7 +2135,7 @@ async def _exercise_runtime() -> None:
             "content": "start",
             "title": None,
             "cwd": "/repo",
-            "selections": {"model": "sel_model"},
+            "selections": {"model": "sel_model_test"},
             "attachments": (),
             "clientMessageId": "cm_1",
         },
@@ -2241,7 +2245,7 @@ async def _exercise_runtime() -> None:
         {"sessionId": "sess_1", "externalSessionId": "thr_1"},
     )
     assert ws.messages[-1]["result"]["state"]["selections"] == {
-        "model": "sel_model_state"
+        "model": "sel_model_test"
     }
 
     await client.handle_message(
@@ -2362,7 +2366,7 @@ async def _exercise_runtime() -> None:
                 "runtime": "codex",
                 "sessionId": "sess_1",
                 "externalSessionId": "thr_1",
-                "selections": {"permission": "sel_permission"},
+                "selections": {"model": "sel_model_test", "permission": "sel_permission"},
             },
         }
     )
@@ -2371,13 +2375,15 @@ async def _exercise_runtime() -> None:
         {
             "sessionId": "sess_1",
             "externalSessionId": "thr_1",
-            "selections": {"permission": "sel_permission"},
+            "selections": {"model": "sel_model_test", "permission": "sel_permission"},
         },
     )
     assert ws.messages[-1]["result"] == {
         "runtime": "codex",
         "runtimeId": "codex",
         "updated": True,
+        "selectionEffect": "next_turn",
+        "selections": {"model": "sel_model_test", "permission": "sel_permission"},
     }
 
     await client.handle_message(
@@ -3186,11 +3192,12 @@ async def _exercise_runtime_protocol_routing() -> None:
     )
 
     await client.dispatch(
-        "session.send_message", {"runtime": "codex", "sessionId": "s1", "content": "hi"}
+        "session.send_message",
+        {"runtime": "codex", "sessionId": "s1", "content": "hi", "selections": {"model": "sel_model_test"}},
     )
     await client.dispatch(
         "session.send_message",
-        {"runtime": "claude", "sessionId": "s2", "content": "hi"},
+        {"runtime": "claude", "sessionId": "s2", "content": "hi", "selections": {"model": "sel_model_test"}},
     )
     await client.dispatch(
         "session.steer",
@@ -3201,15 +3208,16 @@ async def _exercise_runtime_protocol_routing() -> None:
         {"runtime": "claude", "sessionId": "s2", "reason": "user"},
     )
 
-    assert [c[0] for c in codex.calls] == ["turn.start"]
+    assert [c[0] for c in codex.calls] == ["runtime.modelCatalog", "turn.start"]
     assert [c[0] for c in claude.calls] == [
+        "runtime.modelCatalog",
         "turn.start",
         "turn.steer",
         "session.interrupt",
     ]
-    assert codex.calls[0][1]["sessionId"] == "s1"
-    assert claude.calls[0][1]["sessionId"] == "s2"
-    assert claude.calls[2][1]["reason"] == "user"
+    assert codex.calls[1][1]["sessionId"] == "s1"
+    assert claude.calls[1][1]["sessionId"] == "s2"
+    assert claude.calls[3][1]["reason"] == "user"
 
 
 async def _exercise_agent_runtime_turn_rpc(tmp_path) -> None:
@@ -3236,6 +3244,7 @@ async def _exercise_agent_runtime_turn_rpc(tmp_path) -> None:
             "content": "hi",
             "cwd": "/Users/t4wefan",
             "clientMessageId": "cm_1",
+            "selections": {"model": "sel_model_test"},
             "attachments": [{"fileId": "file_1", "name": "a.txt"}],
         },
     )
@@ -3265,13 +3274,14 @@ async def _exercise_agent_runtime_turn_rpc(tmp_path) -> None:
     assert steered == {**scope, "steered": True}
     assert interrupted == {**scope, "interrupted": True, "alreadyStopped": False}
     assert [call[0] for call in agent_runtime.calls] == [
+        "runtime.modelCatalog",
         "turn.start",
         "turn.steer",
         "session.interrupt",
     ]
-    assert agent_runtime.calls[0][1]["attachments"][0].file_id == "file_1"
-    assert agent_runtime.calls[0][1]["clientMessageId"] == "cm_1"
-    assert agent_runtime.calls[0][1]["cwd"] == "/Users/t4wefan"
+    assert agent_runtime.calls[1][1]["attachments"][0].file_id == "file_1"
+    assert agent_runtime.calls[1][1]["clientMessageId"] == "cm_1"
+    assert agent_runtime.calls[1][1]["cwd"] == "/Users/t4wefan"
 
 
 async def _exercise_agent_runtime_discovery() -> None:

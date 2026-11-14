@@ -1312,6 +1312,13 @@ def _runtime_state_from_selection_result(
 ) -> SessionRuntimeState:
     now = utc_now()
     raw_state = result.get("state") if isinstance(result, dict) else None
+    reported = result.get("selections") if isinstance(result, dict) else None
+    reported = dict(reported) if isinstance(reported, dict) else {}
+    effect = result.get("selectionEffect") if isinstance(result, dict) else None
+    if isinstance(result, dict) and isinstance(result.get("applied"), bool):
+        effect = "applied" if result["applied"] else "next_turn"
+    effect_metadata = {"selection_effect": effect} if effect in {"applied", "next_turn"} else {}
+
     if isinstance(raw_state, dict):
         session_id, runtime, runtime_id = resolve_session_runtime_binding(
             raw_state,
@@ -1329,14 +1336,12 @@ def _runtime_state_from_selection_result(
                 "status": raw_state.get("status") or "idle",
                 "selections": raw_state.get("selections")
                 if isinstance(raw_state.get("selections"), dict)
-                else selections,
+                else reported,
                 "statusReason": raw_state.get("statusReason"),
                 "error": raw_state.get("error")
                 if isinstance(raw_state.get("error"), dict)
                 else None,
-                "metadata": raw_state.get("metadata")
-                if isinstance(raw_state.get("metadata"), dict)
-                else {},
+                "metadata": {**(raw_state.get("metadata") if isinstance(raw_state.get("metadata"), dict) else {}), **effect_metadata},
                 "updatedSeq": session.updatedSeq,
                 "createdAt": now,
                 "updatedAt": now,
@@ -1348,7 +1353,8 @@ def _runtime_state_from_selection_result(
         runtimeId=_session_runtime_id(session),
         externalSessionId=session.externalSessionId,
         status="idle",
-        selections=selections,
+        selections=reported,
+        metadata=effect_metadata,
         updatedSeq=session.updatedSeq,
         createdAt=now,
         updatedAt=now,

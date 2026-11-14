@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 import subprocess
 import tempfile
 from pathlib import Path
@@ -44,15 +45,50 @@ def identifier(value: Any) -> str:
 
 
 def managed(root: str, group_id: str) -> tuple[Path, Path]:
-    repo = Path(root).expanduser().resolve(strict=True)
+    requested = Path(root).expanduser()
+    try:
+        repo = requested.resolve(strict=True)
+    except FileNotFoundError:
+        raise ValueError("Select an existing workspace directory") from None
+    except OSError as exc:
+        raise ValueError(
+            f"Cannot access workspace at {requested}; check Connector identity and directory permissions"
+        ) from exc
     if not repo.is_dir():
         raise ValueError("Select a workspace directory")
     identifier(group_id)
     # Ordinary conversations never inspect or copy the selected directory's files.
-    if not any(
-        (parent / ".git").is_file() or (parent / ".git/HEAD").is_file()
-        for parent in (repo, *repo.parents)
-    ):
+    has_git = False
+    for parent in (repo, *repo.parents):
+        marker = parent / ".git"
+        try:
+            if marker.is_symlink():
+                raise ValueError(
+                    f"Invalid Git metadata at {marker}; symbolic links are not supported"
+                )
+            mode = marker.stat().st_mode
+            if stat.S_ISDIR(mode):
+                try:
+                    (marker / "HEAD").stat()
+                except FileNotFoundError:
+                    real_metadata = False
+                    for name in ("objects", "config"):
+                        try:
+                            (marker / name).stat()
+                            real_metadata = True
+                        except FileNotFoundError:
+                            pass
+                    if parent == repo or real_metadata:
+                        raise ValueError(f"Invalid Git metadata at {marker}; select an accessible Git repository")
+                    # An empty ancestor .git placeholder is not a Git repository.
+                    continue
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            raise ValueError(f"Cannot inspect Git metadata at {marker}; check Connector directory permissions") from exc
+        has_git = True
+        break
+    if not has_git:
         base = connector_data_dir() / "conversations"
         root_id = hashlib.sha256(str(repo).encode()).hexdigest()
         directory = base / root_id / group_id
@@ -61,16 +97,26 @@ def managed(root: str, group_id: str) -> tuple[Path, Path]:
                 raise ValueError("Managed workspaces cannot contain symbolic links")
             path.mkdir(parents=True, exist_ok=True, mode=0o700)
         return repo, directory
-    top = Path(git(repo, "rev-parse", "--show-toplevel").decode().strip()).resolve()
+    try:
+        top = Path(git(repo, "rev-parse", "--show-toplevel").decode().strip()).resolve()
+    except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
+        raise ValueError(
+            f"Cannot inspect Git workspace at {repo}; check Connector directory permissions: {exc}"
+        ) from exc
     if top != repo:
         raise ValueError("Select the Git repository root")
-    common = Path(git(repo, "rev-parse", "--git-common-dir").decode().strip())
-    common = (repo / common).resolve()
-    directory = common / "aa-fork-worktrees" / identifier(group_id)
-    for path in (directory.parent, directory):
-        if path.is_symlink():
-            raise ValueError("Managed workspaces cannot contain symbolic links")
-        path.mkdir(exist_ok=True, mode=0o700)
+    try:
+        common = Path(git(repo, "rev-parse", "--git-common-dir").decode().strip())
+        common = (repo / common).resolve()
+        directory = common / "aa-fork-worktrees" / identifier(group_id)
+        for path in (directory.parent, directory):
+            if path.is_symlink():
+                raise ValueError("Managed workspaces cannot contain symbolic links")
+            path.mkdir(exist_ok=True, mode=0o700)
+    except OSError as exc:
+        raise ValueError(
+            f"Cannot create worktree directory for {repo}; check Connector directory permissions"
+        ) from exc
     return repo, directory
 
 

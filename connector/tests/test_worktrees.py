@@ -2,6 +2,7 @@ import concurrent.futures
 from pathlib import Path
 
 import pytest
+
 from connector.local import worktrees as wt
 
 
@@ -178,6 +179,7 @@ def test_dsh_only_receives_managed_conversation_access(tmp_path, monkeypatch):
 def test_native_runtime_workspace_access_precedes_model_dispatch(monkeypatch, runtime):
     import asyncio
     from types import SimpleNamespace
+
     from connector.runtime_protocol import RuntimeOperationResult
     from connector.server.runtime_turn_rpc import dispatch_session_create
     calls = []
@@ -204,3 +206,85 @@ def test_adopt_dirty_repository_snapshots_without_changing_source(repo):
     assert wt.git(repo, "rev-parse", "HEAD") == original_head
     assert wt.git(repo, "diff", "--cached") == original_index
     assert (repo / "file.txt").read_text() == "dirty result"
+
+
+
+def test_protected_ancestor_git_is_not_silently_a_conversation(tmp_path, monkeypatch):
+    root = tmp_path / "ordinary"
+    root.mkdir()
+    monkeypatch.setenv("AGENT_CONNECTOR_DATA_DIR", str(tmp_path / "state"))
+    original = Path.stat
+    def guarded(path, *args, **kwargs):
+        if path == tmp_path / ".git":
+            raise PermissionError(13, "Permission denied", str(path))
+        return original(path, *args, **kwargs)
+    monkeypatch.setattr(Path, "stat", guarded)
+    with pytest.raises(ValueError, match="check Connector directory permissions"):
+        wt.prepare(params(root))
+    assert not (tmp_path / "state").exists()
+
+
+def test_git_command_permission_failure_is_actionable(repo, monkeypatch):
+    original = wt.git
+    def guarded(root, *args, **kwargs):
+        if args[:1] == ("rev-parse",):
+            raise ValueError("Permission denied: .git/HEAD")
+        return original(root, *args, **kwargs)
+    monkeypatch.setattr(wt, "git", guarded)
+    with pytest.raises(ValueError, match="Cannot inspect Git workspace"):
+        wt.prepare(params(repo))
+
+
+def test_git_marker_without_readable_metadata_is_not_an_empty_conversation(tmp_path, monkeypatch):
+    (tmp_path / ".git").mkdir()
+    monkeypatch.setenv("AGENT_CONNECTOR_DATA_DIR", str(tmp_path / "state"))
+    with pytest.raises(ValueError, match="Invalid Git metadata"):
+        wt.prepare(params(tmp_path))
+    assert not (tmp_path / "state").exists()
+
+
+def test_adopt_rejects_inaccessible_ancestor_git(tmp_path, monkeypatch):
+    root = tmp_path / "ordinary"
+    root.mkdir()
+    monkeypatch.setenv("AGENT_CONNECTOR_DATA_DIR", str(tmp_path / "state"))
+    original = Path.stat
+
+    def guarded(path, *args, **kwargs):
+        if path == tmp_path / ".git":
+            raise PermissionError(13, "Permission denied", str(path))
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", guarded)
+    with pytest.raises(ValueError, match="check Connector directory permissions"):
+        wt.adopt({"root": str(root), "groupId": "a" * 40})
+    assert not (tmp_path / "state").exists()
+
+
+def test_handoff_uses_managed_for_target_and_surfaces_permission_failure(
+    repo, monkeypatch
+):
+    prepared = wt.prepare(params(repo, count=1))
+    original = wt.managed
+
+    def guarded(root, group_id):
+        if group_id == "b" * 40:
+            raise ValueError("Cannot inspect Git metadata; check Connector directory permissions")
+        return original(root, group_id)
+
+    monkeypatch.setattr(wt, "managed", guarded)
+    request = {**params(repo, count=1), "slot": 0, "targetGroupId": "b" * 40}
+    with pytest.raises(ValueError, match="check Connector directory permissions"):
+        wt.handoff(request)
+    assert Path(prepared["paths"][0]).exists()
+
+
+def test_git_marker_symlink_is_rejected(tmp_path, monkeypatch):
+    root = tmp_path / "ordinary"
+    root.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (root / ".git").symlink_to(outside, target_is_directory=True)
+    monkeypatch.setenv("AGENT_CONNECTOR_DATA_DIR", str(tmp_path / "state"))
+    with pytest.raises(ValueError, match="symbolic links"):
+        wt.prepare(params(root))
+    assert not (tmp_path / "state").exists()
