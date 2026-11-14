@@ -75,9 +75,9 @@ class SwitchTests(unittest.TestCase):
 class InstallPackageTests(unittest.TestCase):
     def test_verified_wheel_is_installed_without_network_or_build_dependencies(self):
         calls = []
-        module['install_package'](Path('/bundle'), {'files': {'anywhere_cli-2.6.5-py3-none-any.whl': 'verified'}}, '/uv', Path('/new/bin/python'), lambda args, **kw: calls.append((args, kw)))
+        module['install_package'](Path('/bundle'), {'files': {'anywhere_cli-2.6.7-py3-none-any.whl': 'verified'}}, '/uv', Path('/new/bin/python'), lambda args, **kw: calls.append((args, kw)))
         self.assertIn('--no-index', calls[0][0])
-        self.assertEqual('/bundle/anywhere_cli-2.6.5-py3-none-any.whl', calls[0][0][-1])
+        self.assertEqual('/bundle/anywhere_cli-2.6.7-py3-none-any.whl', calls[0][0][-1])
         self.assertTrue(calls[0][1]['check'])
 
     def test_unlisted_wheel_is_not_trusted(self):
