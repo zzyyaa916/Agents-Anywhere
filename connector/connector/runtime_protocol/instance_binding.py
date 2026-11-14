@@ -583,6 +583,16 @@ class RuntimeInstance(AgentRuntime):
             )
         return None
 
+    async def _model_catalog_supported(self) -> bool:
+        try:
+            capabilities = await self.native_runtime.get_runtime_capabilities()
+        except Exception:  # noqa: BLE001 - unknown capability must fail closed
+            return True
+        return any(
+            item.capability_id == "catalog.model" and item.supported
+            for item in capabilities.capabilities
+        )
+
     async def _model_selection_matches(self, requested: str | None, reported: str | None) -> bool:
         if requested == reported:
             return True
@@ -889,12 +899,15 @@ class RuntimeInstance(AgentRuntime):
             effective = await self.selection_store.for_turn(session_id, selections) if self.selection_store is not None else selections
             if self.selection_store is not None:
                 saved = await self.selection_store.read(session_id)
-                if not saved.get("model"):
+                requires_model = bool(saved.get("model"))
+                if not requires_model:
+                    requires_model = await self._model_catalog_supported()
+                if requires_model and not saved.get("model"):
                     return RuntimeOperationResult(
                         ok=False, code="session_model_selection_required",
                         message="无法确认此会话的模型和思考强度，请先明确选择后再发送；不会使用默认模型。",
                     )
-                if not await self.selection_store.model_is_confirmed(session_id):
+                if requires_model and not await self.selection_store.model_is_confirmed(session_id):
                     return RuntimeOperationResult(
                         ok=False, code="session_model_selection_required",
                         message="模型选择尚未确认，请重新选择后再发送；不会使用默认模型。",
@@ -969,7 +982,16 @@ class RuntimeInstance(AgentRuntime):
                             ok=False, code="session_model_selection_unconfirmed",
                             message="运行回执的模型或思考强度与请求不一致，请重新选择；不会继续使用未确认的选择。",
                         )
-                await self.selection_store.remember(session_id, canonical)
+                # Only scopes explicitly submitted by this request may clear a
+                # pending reselection. A permission-only update must not clear
+                # the model pin/block merely because the merged receipt contains
+                # the old model.
+                remember_payload = {
+                    key: canonical[key]
+                    for key in selections
+                    if key in {"model", "permission"} and key in canonical
+                }
+                await self.selection_store.remember(session_id, remember_payload)
                 raw_state = result.result.get("state")
                 raw_metadata = raw_state.get("metadata", {}) if isinstance(raw_state, Mapping) else {}
                 effect = raw_metadata.get("selection_effect") if isinstance(raw_metadata, Mapping) else None

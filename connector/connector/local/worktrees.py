@@ -86,11 +86,9 @@ def managed(root: str, group_id: str) -> tuple[Path, Path]:
                     # empty ancestor .git left in a shared workspaces root.
                     continue
                 except PermissionError:
-                    # An empty placeholder can be inaccessible while still being
-                    # empty (st_nlink == 2 on Linux). A real .git has subdirectories
-                    # and must not be silently downgraded.
-                    if marker_stat.st_nlink <= 2:
-                        continue
+                    # Inaccessible metadata is not proof of a placeholder. Keep
+                    # the explicit error; an operator must verify and clean the
+                    # real empty .git instead of silently downgrading a repo.
                     raise ValueError(
                         f"Cannot access Git metadata at {marker}; check Connector identity and directory permissions"
                     ) from None
