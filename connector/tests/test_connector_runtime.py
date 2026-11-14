@@ -947,6 +947,11 @@ def _client(
     )
 
 
+
+async def pin_selection(client, runtime_id: str, session_id: str, model: str = "sel_model_test") -> None:
+    runtime = client.agent_runtime_supervisor.resolve_runtime(runtime_id)
+    await runtime.selection_store.remember(session_id, {"model": model})
+
 class FakeTerminalBackend(TerminalBackend):
     def _spawn(self, argv, *, cwd, env, rows, cols):
         return {"cwd": cwd}
@@ -2551,6 +2556,7 @@ async def _exercise_nonblocking_runtime_rpc() -> None:
             "configRevision": 1,
         },
     )
+    await pin_selection(client, "codex", "sess_1")
 
     client.start_message(
         {
@@ -3191,6 +3197,8 @@ async def _exercise_runtime_protocol_routing() -> None:
         },
     )
 
+    await pin_selection(client, "codex", "s1")
+    await pin_selection(client, "claude", "s2")
     await client.dispatch(
         "session.send_message",
         {"runtime": "codex", "sessionId": "s1", "content": "hi", "selections": {"model": "sel_model_test"}},
@@ -3235,6 +3243,7 @@ async def _exercise_agent_runtime_turn_rpc(tmp_path) -> None:
         },
     )
 
+    await pin_selection(client, "codex", "sess_1")
     started = await client.dispatch(
         "session.send_message",
         {

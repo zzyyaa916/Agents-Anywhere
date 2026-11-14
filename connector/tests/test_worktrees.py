@@ -235,10 +235,52 @@ def test_git_command_permission_failure_is_actionable(repo, monkeypatch):
         wt.prepare(params(repo))
 
 
-def test_git_marker_without_readable_metadata_is_not_an_empty_conversation(tmp_path, monkeypatch):
+def test_empty_git_placeholder_after_no_head_is_an_ordinary_conversation(tmp_path, monkeypatch):
     (tmp_path / ".git").mkdir()
     monkeypatch.setenv("AGENT_CONNECTOR_DATA_DIR", str(tmp_path / "state"))
-    with pytest.raises(ValueError, match="Invalid Git metadata"):
+    result = wt.prepare(params(tmp_path, count=1))
+    assert result["base"] == "conversation"
+    assert Path(result["paths"][0]).is_dir()
+
+
+def test_inaccessible_empty_git_placeholder_does_not_block_ordinary_conversation(tmp_path, monkeypatch):
+    import stat as stat_module
+    from types import SimpleNamespace
+
+    (tmp_path / ".git").mkdir()
+    monkeypatch.setenv("AGENT_CONNECTOR_DATA_DIR", str(tmp_path / "state"))
+    original = Path.stat
+
+    def guarded(path, *args, **kwargs):
+        if path == tmp_path / ".git":
+            return SimpleNamespace(st_mode=stat_module.S_IFDIR | 0o750, st_nlink=2)
+        if path == tmp_path / ".git" / "HEAD":
+            raise PermissionError(13, "Permission denied", str(path))
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", guarded)
+    result = wt.prepare(params(tmp_path, count=1))
+    assert result["base"] == "conversation"
+
+
+def test_inaccessible_real_git_metadata_is_not_downgraded(tmp_path, monkeypatch):
+    import stat as stat_module
+    from types import SimpleNamespace
+
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".git" / "objects").mkdir()
+    monkeypatch.setenv("AGENT_CONNECTOR_DATA_DIR", str(tmp_path / "state"))
+    original = Path.stat
+
+    def guarded(path, *args, **kwargs):
+        if path == tmp_path / ".git":
+            return SimpleNamespace(st_mode=stat_module.S_IFDIR | 0o750, st_nlink=5)
+        if path == tmp_path / ".git" / "HEAD":
+            raise PermissionError(13, "Permission denied", str(path))
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", guarded)
+    with pytest.raises(ValueError, match="check Connector identity"):
         wt.prepare(params(tmp_path))
     assert not (tmp_path / "state").exists()
 

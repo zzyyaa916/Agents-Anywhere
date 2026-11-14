@@ -297,3 +297,64 @@ def test_missing_or_unknown_catalog_blocks_model_call(tmp_path):
         assert not result.ok and result.code == 'session_model_selection_required'
         assert runtime.native_runtime.start_turn.await_count == before
     asyncio.run(check())
+
+
+def test_legacy_session_snapshot_is_not_a_user_confirmation(tmp_path):
+    async def check():
+        runtime, _, _ = bound(tmp_path, 'claude')
+        result = await runtime.start_turn(
+            'legacy', 'legacy-native', 'hello',
+            selections={'model': 'fable/low', 'permission': 'ask'},
+        )
+        assert not result.ok and result.code == 'session_model_selection_required'
+        runtime.native_runtime.start_turn.assert_not_awaited()
+    asyncio.run(check())
+
+
+def test_mismatched_runtime_receipt_keeps_old_pin_and_blocks_turn(tmp_path):
+    async def check():
+        runtime, _, _ = bound(tmp_path, 'claude')
+        await runtime.create_and_start_session('s', 'start', selections={'model': 'fable/low'})
+        runtime.native_runtime.update_session_selections.return_value = RuntimeOperationResult(
+            ok=True, result={'selections': {'model': 'fable/high'}, 'selectionEffect': 'next_turn'},
+        )
+        result = await runtime.update_session_selections('s', 'n', {'model': 'fable/low'})
+        assert not result.ok and result.code == 'session_model_selection_unconfirmed'
+        assert (await runtime.selection_store.read('s'))['model'] == 'fable/low'
+        before = runtime.native_runtime.start_turn.await_count
+        blocked = await runtime.start_turn('s', 'n', 'after mismatch')
+        assert not blocked.ok
+        assert runtime.native_runtime.start_turn.await_count == before
+    asyncio.run(check())
+
+
+def test_start_turn_and_switch_use_the_same_session_lock(tmp_path):
+    async def check():
+        runtime, _, _ = bound(tmp_path, 'claude')
+        await runtime.create_and_start_session('s', 'start', selections={'model': 'fable/low'})
+        entered, release = asyncio.Event(), asyncio.Event()
+        calls = []
+
+        async def start(session_id, external_session_id, content, selections, attachments=(), client_message_id=None, cwd=None):
+            calls.append('start')
+            entered.set()
+            await release.wait()
+            return RuntimeOperationResult(ok=True)
+
+        async def update(session_id, external_session_id, selections):
+            calls.append('update')
+            return RuntimeOperationResult(ok=True, result={'selections': dict(selections)})
+
+        runtime.native_runtime.start_turn.side_effect = start
+        runtime.native_runtime.update_session_selections.side_effect = update
+        starting = asyncio.create_task(runtime.start_turn('s', 'n', 'hello'))
+        await entered.wait()
+        switching = asyncio.create_task(runtime.update_session_selections('s', 'n', {'model': 'fable/high'}))
+        await asyncio.sleep(0.05)
+        assert calls == ['start']
+        release.set()
+        await starting
+        await switching
+        assert calls == ['start', 'update']
+
+    asyncio.run(check())

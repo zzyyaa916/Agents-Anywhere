@@ -66,7 +66,8 @@ def managed(root: str, group_id: str) -> tuple[Path, Path]:
                 raise ValueError(
                     f"Invalid Git metadata at {marker}; symbolic links are not supported"
                 )
-            mode = marker.stat().st_mode
+            marker_stat = marker.stat()
+            mode = marker_stat.st_mode
             if stat.S_ISDIR(mode):
                 try:
                     (marker / "HEAD").stat()
@@ -78,10 +79,21 @@ def managed(root: str, group_id: str) -> tuple[Path, Path]:
                             real_metadata = True
                         except FileNotFoundError:
                             pass
-                    if parent == repo or real_metadata:
+                    if real_metadata:
                         raise ValueError(f"Invalid Git metadata at {marker}; select an accessible Git repository")
-                    # An empty ancestor .git placeholder is not a Git repository.
+                    # A directory with no HEAD and no objects/config is an empty
+                    # placeholder, not a usable repository. This includes the
+                    # empty ancestor .git left in a shared workspaces root.
                     continue
+                except PermissionError:
+                    # An empty placeholder can be inaccessible while still being
+                    # empty (st_nlink == 2 on Linux). A real .git has subdirectories
+                    # and must not be silently downgraded.
+                    if marker_stat.st_nlink <= 2:
+                        continue
+                    raise ValueError(
+                        f"Cannot access Git metadata at {marker}; check Connector identity and directory permissions"
+                    ) from None
         except FileNotFoundError:
             continue
         except OSError as exc:

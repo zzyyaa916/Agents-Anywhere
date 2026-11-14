@@ -39,11 +39,10 @@ class SessionSelectionStore:
         return {**saved, **dict(incoming or {})}
 
     async def for_turn(self, session_id: str, reported: Mapping[str, str | None] | None):
-        saved = await self.read(session_id)
-        if not saved:
-            return reported
-        # Existing-turn payloads may contain stale Server observations, not user edits.
-        return {**dict(reported or {}), **saved}
+        # A Server snapshot is not a user confirmation. Without a durable pin the
+        # caller must stop and ask the user to choose explicitly.
+        _ = reported
+        return await self.read(session_id)
 
     async def observed(self, session_id: str, reported: Mapping[str, str | None] | None):
         saved = await self.read(session_id)

@@ -583,6 +583,29 @@ class RuntimeInstance(AgentRuntime):
             )
         return None
 
+    async def _model_selection_matches(self, requested: str | None, reported: str | None) -> bool:
+        if requested == reported:
+            return True
+        if not isinstance(requested, str) or not isinstance(reported, str):
+            return False
+        try:
+            catalog = await self.native_runtime.list_model_catalog(limit=200)
+        except Exception:  # noqa: BLE001 - cannot prove equivalence, so fail closed
+            return False
+
+        def identity(selection: str):
+            for model in catalog.models:
+                if model.selection_id == selection:
+                    return model.id, None
+                for effort in model.reasoning_items:
+                    if effort.selection_id == selection:
+                        return model.id, effort.id
+            return None
+
+        left = identity(requested)
+        right = identity(reported)
+        return left is not None and left == right
+
     async def prepare_history_deletion(self, target):
         prepare = getattr(self.native_runtime, "prepare_history_deletion", None)
         if not callable(prepare):
@@ -833,22 +856,24 @@ class RuntimeInstance(AgentRuntime):
         client_message_id: str | None = None,
         *, runtime_options: Mapping[str, Any] | None = None,
     ) -> RuntimeOperationResult:
-        effective = await self.selection_store.for_turn(session_id, selections) if self.selection_store is not None else selections
-        if error := await self._model_choice_error(effective):
-            return error
-        result = await self.native_runtime.create_and_start_session(
-            session_id=session_id,
-            content=content,
-            title=title,
-            cwd=cwd,
-            selections=effective,
-            attachments=attachments,
-            client_message_id=client_message_id,
-            **({"runtime_options": runtime_options} if runtime_options else {}),
-        )
-        if result.ok and self.selection_store is not None:
-            await self.selection_store.remember(session_id, effective)
-        return result
+        async with (self.selection_store.change(session_id) if self.selection_store is not None else nullcontext()):
+            saved = await self.selection_store.read(session_id) if self.selection_store is not None else {}
+            effective = {**saved, **dict(selections or {})} if saved else dict(selections or {})
+            if error := await self._model_choice_error(effective):
+                return error
+            result = await self.native_runtime.create_and_start_session(
+                session_id=session_id,
+                content=content,
+                title=title,
+                cwd=cwd,
+                selections=effective,
+                attachments=attachments,
+                client_message_id=client_message_id,
+                **({"runtime_options": runtime_options} if runtime_options else {}),
+            )
+            if result.ok and self.selection_store is not None:
+                await self.selection_store.remember(session_id, effective)
+            return result
 
     async def start_turn(
         self,
@@ -860,26 +885,32 @@ class RuntimeInstance(AgentRuntime):
         client_message_id: str | None = None,
         cwd: str | None = None,
     ) -> RuntimeOperationResult:
-        effective = await self.selection_store.for_turn(session_id, selections) if self.selection_store is not None else selections
-        if self.selection_store is not None:
-            saved = await self.selection_store.read(session_id)
-            if saved.get("model") and not await self.selection_store.model_is_confirmed(session_id):
-                return RuntimeOperationResult(
-                    ok=False, code="session_model_selection_required",
-                    message="模型选择尚未确认，请重新选择后再发送；不会使用默认模型。",
-                )
-        if error := await self._model_choice_error(effective):
-            return error
-        result = await self.native_runtime.start_turn(
-            session_id=session_id,
-            external_session_id=external_session_id,
-            content=content,
-            selections=effective,
-            attachments=attachments,
-            client_message_id=client_message_id,
-            cwd=cwd,
-        )
-        return result
+        async with (self.selection_store.change(session_id) if self.selection_store is not None else nullcontext()):
+            effective = await self.selection_store.for_turn(session_id, selections) if self.selection_store is not None else selections
+            if self.selection_store is not None:
+                saved = await self.selection_store.read(session_id)
+                if not saved.get("model"):
+                    return RuntimeOperationResult(
+                        ok=False, code="session_model_selection_required",
+                        message="无法确认此会话的模型和思考强度，请先明确选择后再发送；不会使用默认模型。",
+                    )
+                if not await self.selection_store.model_is_confirmed(session_id):
+                    return RuntimeOperationResult(
+                        ok=False, code="session_model_selection_required",
+                        message="模型选择尚未确认，请重新选择后再发送；不会使用默认模型。",
+                    )
+            if error := await self._model_choice_error(effective):
+                return error
+            result = await self.native_runtime.start_turn(
+                session_id=session_id,
+                external_session_id=external_session_id,
+                content=content,
+                selections=effective,
+                attachments=attachments,
+                client_message_id=client_message_id,
+                cwd=cwd,
+            )
+            return result
 
     async def steer_turn(
         self,
@@ -929,6 +960,15 @@ class RuntimeInstance(AgentRuntime):
             if result.ok and self.selection_store is not None:
                 reported = result.result.get("selections") if isinstance(result.result, Mapping) else None
                 canonical = dict(reported) if isinstance(reported, Mapping) else dict(effective)
+                if "model" in selections:
+                    requested_model = selections.get("model")
+                    reported_model = canonical.get("model")
+                    if not await self._model_selection_matches(requested_model, reported_model):
+                        await self.selection_store.require_reselection(session_id)
+                        return RuntimeOperationResult(
+                            ok=False, code="session_model_selection_unconfirmed",
+                            message="运行回执的模型或思考强度与请求不一致，请重新选择；不会继续使用未确认的选择。",
+                        )
                 await self.selection_store.remember(session_id, canonical)
                 raw_state = result.result.get("state")
                 raw_metadata = raw_state.get("metadata", {}) if isinstance(raw_state, Mapping) else {}
