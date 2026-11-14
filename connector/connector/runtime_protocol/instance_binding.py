@@ -266,10 +266,14 @@ class RuntimeInstanceHost(RuntimeHostClient):
         if self.selection_store is not None:
             notifications = [dict(notice) for notice in notifications]
             for notice in notifications:
-                if notice.get("method") == "session.state.updated":
-                    params = dict(notice["params"])
-                    params["selections"] = await self.selection_store.observed(params["sessionId"], params.get("selections"))
-                    notice["params"] = params
+                if notice.get("method") != "session.state.updated":
+                    continue
+                params = notice.get("params")
+                if not isinstance(params, dict) or not isinstance(params.get("sessionId"), str):
+                    continue
+                params = dict(params)
+                params["selections"] = await self.selection_store.observed(params["sessionId"], params.get("selections"))
+                notice["params"] = params
         await self.base.publish_runtime_notifications(runtime, notifications, runtime_id=self.instance.runtime_id, **kwargs)
 
     async def session_meta_upsert(
