@@ -232,3 +232,46 @@ function metadataString(metadata: Record<string, unknown> | null | undefined, ke
   const value = metadata?.[key]
   return typeof value === "string" && value.length > 0 ? value : null
 }
+
+export function selectionConfirmation(
+  sessionId: string,
+  requested: Record<string, string | null>,
+  state: { sessionId?: string; selections: Record<string, string | null>; metadata?: Record<string, unknown> } | null | undefined,
+  modelCatalog: ProtocolModelCatalog | null,
+  permissionCatalog: ProtocolPermissionCatalog | null,
+  translate: (key: string) => string,
+): { label: string; pending: boolean } | null {
+  if (!state || state.sessionId !== sessionId) return null
+  const effect = state.metadata?.selection_effect
+  if (effect !== "applied" && effect !== "next_turn") return null
+  const pendingScopes = Array.isArray(state.metadata?.pendingSelectionScopes) ? state.metadata.pendingSelectionScopes : []
+  const entries = Object.entries(requested)
+  if (entries.some(([scope, value]) => scope === "model" && !value)) return null
+  const same = (scope: string, left: string | null, right: string | null | undefined) => {
+    if (left === right) return true
+    if (scope === "model") {
+      const a = modelIdsForSelectionId(modelCatalog, left, true)
+      const b = modelIdsForSelectionId(modelCatalog, right, true)
+      return Boolean(a && b && a.modelId === b.modelId && a.reasoningId === b.reasoningId)
+    }
+    const leftPermission = left ? permissionIdForSelectionId(permissionCatalog, left, true) : ""
+    const rightPermission = right ? permissionIdForSelectionId(permissionCatalog, right, true) : ""
+    return Boolean(leftPermission && rightPermission && leftPermission === rightPermission)
+  }
+  if (!entries.length || entries.some(([scope, value]) => !same(scope, value, state.selections[scope]))) return null
+  const labels = entries.map(([scope, selectionId]) => {
+    if (scope === "model") {
+      for (const model of modelCatalog?.models ?? []) {
+        const effort = model.reasoningItems.find(item => item.selectionId === selectionId)
+        if (model.selectionId === selectionId || effort) {
+          const name = catalogI18nText(translate, model.metadata, "labelKey", model.group?.itemDisplayName ?? model.displayName)
+          return effort ? `${name} · ${catalogI18nText(translate, effort.metadata, "labelKey", effort.displayName, effort.id)}` : name
+        }
+      }
+      return translate("modelAndReasoning")
+    }
+    const permission = permissionCatalog?.permissions.find(item => item.selectionId === selectionId)
+    return permission ? permissionCatalogI18nText(translate, permissionCatalog, permission, "labelKey") : translate("permissionMode")
+  })
+  return { label: labels.join(" · "), pending: effect === "next_turn" || entries.some(([scope]) => pendingScopes.includes(scope)) }
+}

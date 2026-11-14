@@ -674,3 +674,38 @@ internal fun RuntimeNoticeAction.coerceInput(rawValues: Map<String, String>): Re
         }
     }
 }
+
+internal fun runtimeSelectionMatches(
+    scope: String,
+    expected: String?,
+    actual: String?,
+    models: RemoteRuntimeModelCatalog?,
+    permissions: RemoteRuntimePermissionCatalog?,
+): Boolean {
+    if (expected == actual) return true
+    if (expected == null || actual == null) return false
+    if (scope == "model") {
+        fun identity(selection: String): Pair<String, String?>? {
+            for (model in models?.models.orEmpty()) {
+                if (model.selectionId == selection) return model.id to null
+                model.reasoningItems.firstOrNull { it.selectionId == selection }?.let { return model.id to it.id }
+            }
+            return null
+        }
+        return identity(expected)?.let { it == identity(actual) } == true
+    }
+    val desired = permissions?.permissions?.firstOrNull { it.selectionId == expected }?.id
+    return desired != null && desired == permissions?.permissions?.firstOrNull { it.selectionId == actual }?.id
+}
+
+internal fun selectionIsConfirmed(
+    sessionId: String,
+    requested: Map<String, String?>,
+    observed: SessionRuntimeState?,
+    models: RemoteRuntimeModelCatalog?,
+    permissions: RemoteRuntimePermissionCatalog?,
+): Boolean = observed != null && observed.sessionId == sessionId &&
+    observed.metadata["selection_effect"] in setOf("applied", "next_turn") &&
+    requested.isNotEmpty() && requested.all { (scope, value) ->
+        runtimeSelectionMatches(scope, value, observed.selections[scope], models, permissions)
+    }

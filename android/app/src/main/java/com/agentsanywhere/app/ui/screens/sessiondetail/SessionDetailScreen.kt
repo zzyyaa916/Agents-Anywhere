@@ -1097,27 +1097,46 @@ fun SessionDetailScreen(
             takeoverConfirm = true
             return
         }
-        val selections = state.runtime.selections.toMutableMap().apply { put(scopeName, selectionId) }
+        val selections = mapOf(scopeName to selectionId)
         optimisticSelections = optimisticSelections + (scopeName to selectionId)
         state = state.copy(selectionUpdating = true, actionError = null)
         scope.launch {
-            controller.updateSelections(id, selections)
+            controller.updateSelections(id, selections, state.catalogs.model, state.catalogs.permission)
                 .onSuccess { observed ->
                     if (sessionId != id) return@onSuccess
+                    val pendingScopes = (observed?.metadata?.get("pendingSelectionScopes") as? List<*>)?.filterIsInstance<String>().orEmpty()
+                    if (!com.agentsanywhere.app.feature.sessiondetail.selectionIsConfirmed(id, selections, observed, state.catalogs.model, state.catalogs.permission)) {
+                        val message = context.getString(R.string.session_selection_update_unconfirmed)
+                        optimisticSelections = optimisticSelections - scopeName
+                        state = state.copy(selectionUpdating = false, actionError = message)
+                        showError(message)
+                        return@onSuccess
+                    }
+                    val confirmed = observed ?: return@onSuccess
                     val confirmedSelections = state.runtime.selections.toMutableMap().apply {
                         put(scopeName, selectionId)
                     }
                     val confirmedRuntime = if (
-                        observed != null &&
-                        observed.updatedSeq >= state.runtime.updatedSeq &&
-                        observed.selections[scopeName] == selectionId
+                        confirmed.updatedSeq >= state.runtime.updatedSeq &&
+                        com.agentsanywhere.app.feature.sessiondetail.runtimeSelectionMatches(scopeName, selectionId, confirmed.selections[scopeName], state.catalogs.model, state.catalogs.permission)
                     ) {
-                        observed
+                        confirmed
                     } else {
-                        state.runtime.copy(selections = confirmedSelections)
+                        state.runtime.copy(selections = confirmedSelections, metadata = state.runtime.metadata + confirmed.metadata)
                     }
                     state = state.copy(runtime = confirmedRuntime, selectionUpdating = false)
                     optimisticSelections = optimisticSelections - scopeName
+                    val selectedLabel = if (scopeName == "model") {
+                        state.catalogs.model?.selectionOptions()?.firstOrNull { it.selectionId == selectionId }?.label
+                            ?: context.getString(R.string.session_runtime_select_model)
+                    } else {
+                        state.catalogs.permission?.selectionOptions()?.firstOrNull { it.selectionId == selectionId }?.label
+                            ?: context.getString(R.string.session_runtime_permission_mode)
+                    }
+                    showToast(context.getString(
+                        if (confirmed.metadata["selection_effect"] == "next_turn" || scopeName in pendingScopes) R.string.session_selection_updated_next_turn else R.string.session_selection_updated,
+                        selectedLabel,
+                    ))
                 }
                 .onFailure { error ->
                     if (sessionId != id) return@onFailure

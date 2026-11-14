@@ -519,6 +519,9 @@
     <string name="session_runtime_permission_mode">权限模式</string>
     <string name="session_runtime_permission_unsynced">权限未同步</string>
     <string name="session_runtime_model_unsynced">模型未同步</string>
+    <string name="session_selection_updated">已切换：%1$s</string>
+    <string name="session_selection_updated_next_turn">已保存：%1$s，下一轮生效</string>
+    <string name="session_selection_update_unconfirmed">运行时尚未确认本次设置，请重新选择。</string>
     <string name="session_runtime_next_turn">下一轮生效</string>
     <string name="session_runtime_effort_for">%1$s 的推理强度</string>
     <string name="runtime_permission_accept_edits">允许编辑</string>

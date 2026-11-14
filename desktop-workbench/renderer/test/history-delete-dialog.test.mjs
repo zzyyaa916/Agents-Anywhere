@@ -145,3 +145,12 @@ test('unexpected server errors never offer device cleanup abandonment', async t 
   await click('删除')
   assert.equal(button('放弃剩余设备清理'), undefined)
 })
+
+
+test('known cleanup failures show the server reason and preserve confirmation', async t => {
+  const reason = '项目目录与其他项目或会话的工作目录重叠，已阻止删除以保护其他数据。'
+  const ui = await render(t, {}, { deleteSession: async () => { throw new ApiError({ status: 503, kind: 'http', detail: reason, code: 'deletion_cleanup_failed' }) } })
+  await click('删除')
+  assert.equal(ui.closed(), 0)
+  assert.match(document.querySelector('[role="alert"]').textContent, /工作目录重叠/)
+})

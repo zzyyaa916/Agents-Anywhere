@@ -661,18 +661,28 @@ class SessionDetailController(
     suspend fun updateSelections(
         sessionId: String,
         selections: Map<String, String?>,
+        models: RemoteRuntimeModelCatalog? = null,
+        permissions: RemoteRuntimePermissionCatalog? = null,
     ): Result<SessionRuntimeState?> {
         return withContext(Dispatchers.IO) {
             runCatching {
                 val auth = authSession()
-                val response = sessionsApi.patchSessionRuntimeSelections(
-                    auth.serverUrl,
-                    auth.accessToken,
-                    sessionId,
-                    selections,
-                )
-                if (!response.ok) throw IllegalStateException("Runtime rejected the selection update.")
-                response.state?.toSessionRuntimeState(response.serverTime)
+                fun confirmed(value: SessionRuntimeState?) = selectionIsConfirmed(sessionId, selections, value, models, permissions)
+                val attempt = runCatching {
+                    sessionsApi.patchSessionRuntimeSelections(auth.serverUrl, auth.accessToken, sessionId, selections)
+                }
+                val response = attempt.getOrNull()
+                val observed = response?.takeIf { it.ok }?.let { it.state?.toSessionRuntimeState(it.serverTime) }
+                if (confirmed(observed)) return@runCatching observed
+                // A lost acknowledgement may still have applied; verify once without a manual refresh.
+                val actual = runCatching {
+                    val snapshot = sessionsApi.getSessionRuntimeState(auth.serverUrl, auth.accessToken, sessionId)
+                    snapshot.state.toSessionRuntimeState(snapshot.serverTime)
+                }.getOrNull()
+                if (confirmed(actual)) return@runCatching actual
+                attempt.getOrThrow()
+                if (response?.ok == false) throw IllegalStateException("Runtime rejected the selection update.")
+                observed
             }
         }
     }

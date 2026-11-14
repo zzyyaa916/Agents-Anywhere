@@ -1,6 +1,8 @@
 package com.agentsanywhere.app.ui.screens.home
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -8,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
@@ -892,6 +895,7 @@ fun NewSessionScreen(
         return
     }
 
+    val multiAgentComposer = selectedAgents.size > 1 && !projectOnly && taskGroups != null
     ScreenScaffold {
         Column(
             modifier = Modifier.fillMaxSize().imePadding(),
@@ -913,6 +917,7 @@ fun NewSessionScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
+                    .verticalScroll(rememberScrollState())
                     .padding(start = 18.dp, top = 12.dp, end = 18.dp),
                 verticalArrangement = Arrangement.spacedBy(18.dp),
             ) {
@@ -974,7 +979,7 @@ fun NewSessionScreen(
                         darkMode = darkMode,
                         canUseCurrent = canUseCurrentPath,
                         directoryBorderColor = Color(0xFFE7E6E2).takeUnless { darkMode },
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.heightIn(min = 120.dp, max = 240.dp),
                         onBack = { choosePath = false },
                         onParent = {
                             if (parent != null) {
@@ -1013,7 +1018,7 @@ fun NewSessionScreen(
                         sessions = workspaceSessions,
                         listState = workspaceListState,
                         canCreateProject = onlineDevices.isNotEmpty(),
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.heightIn(min = 120.dp, max = 240.dp),
                         onCreate = ::beginProjectCreation,
                         onBrowse = {
                             val home = homePath?.takeIf(String::isNotBlank) ?: "~"
@@ -1031,6 +1036,13 @@ fun NewSessionScreen(
                             currentPath = choice.path
                         },
                     )
+                }
+                if (multiAgentComposer) {
+                    TextButton(onClick = { runtimeTargetsRetry++ }) { Text(stringResource(R.string.fork_ai_reload)) }
+                    selectedAgents.forEach { id -> multiConfigs[id]?.let { config ->
+                        Text(config.selectedRuntime?.labels?.primary ?: id)
+                        com.agentsanywhere.app.ui.screens.fork.RuntimeConfiguration(config, true) { multiConfigs[id] = it }
+                    } }
                 }
             }
 
@@ -1108,11 +1120,6 @@ fun NewSessionScreen(
                     }
                 }
                 if (selectedAgents.size > 1 && !projectOnly && taskGroups != null) {
-                    TextButton(onClick = { runtimeTargetsRetry++ }) { Text(stringResource(R.string.fork_ai_reload)) }
-                    selectedAgents.forEach { id -> multiConfigs[id]?.let { config ->
-                        Text(config.selectedRuntime?.labels?.primary ?: id)
-                        com.agentsanywhere.app.ui.screens.fork.RuntimeConfiguration(config, true) { multiConfigs[id] = it }
-                    } }
                     val groupProject = selectedProject ?: selectedDevice?.let { workspaceProject(projects, it.id, effectiveWorkspacePath, it.deviceOs) }
                     if (groupProject == null) Text("请先选择项目") else if (!selectedAgents.all { it in multiConfigs }) Text("正在加载所选 AI 配置…") else com.agentsanywhere.app.ui.screens.fork.TaskGroupComposer(
                         projectId = groupProject.id,

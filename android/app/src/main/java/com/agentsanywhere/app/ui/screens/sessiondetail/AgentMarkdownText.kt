@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.InlineTextContent
@@ -705,21 +706,7 @@ private fun isBashLabel(label: String): Boolean {
 private fun MarkdownCodePanel(label: String, code: String, darkMode: Boolean, styles: MarkdownStyles) {
     val normalizedLabel = label.ifBlank { "code" }
     if (isBashLabel(label)) {
-        val commands = code.lineSequence()
-            .map { it.trimEnd() }
-            .filter { it.isNotBlank() }
-            .toList()
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            commands.ifEmpty { listOf(code) }.forEach { command ->
-                SelectableMarkdownCodeBlock(
-                    label = "Bash",
-                    code = command,
-                    height = 112.dp,
-                ) {
-                    BashCommandCard(label = "Bash", code = command, darkMode = darkMode, styles = styles)
-                }
-            }
-        }
+        MarkdownBashPanel(code = code, darkMode = darkMode)
         return
     }
 
@@ -859,20 +846,20 @@ private fun MarkdownCodePanelContent(label: String, code: String, darkMode: Bool
 }
 
 @Composable
-private fun BashCommandCard(label: String, code: String, darkMode: Boolean, styles: MarkdownStyles) {
+private fun MarkdownBashPanel(code: String, darkMode: Boolean) {
     val clipboard = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
     var copied by remember(code) { mutableStateOf(false) }
     val shape = RoundedCornerShape(20.dp)
     val cardBackground = if (darkMode) LocalAAColors.current.raisedSurface else Color(0xFFECECEA)
     val labelColor = if (darkMode) Color(0xFFFAFAFA) else Color(0xFF191A18)
+    val textColor = if (darkMode) Color(0xFFFAFAFA) else Color(0xFF181916)
     val copyIcon = if (darkMode) R.drawable.ic_copy_bash_command_light else R.drawable.ic_copy_bash_command_dark
     val shadow = if (darkMode) Color(0x66000000) else Color(0x0A000000)
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 112.dp)
             .shadow(20.dp, shape, ambientColor = shadow, spotColor = shadow)
             .clip(shape)
             .background(cardBackground)
@@ -885,7 +872,7 @@ private fun BashCommandCard(label: String, code: String, darkMode: Boolean, styl
             verticalAlignment = Alignment.Top,
         ) {
             Text(
-                text = label,
+                text = "Bash",
                 color = labelColor,
                 fontSize = 14.sp,
                 lineHeight = 18.sp,
@@ -912,47 +899,26 @@ private fun BashCommandCard(label: String, code: String, darkMode: Boolean, styl
                 )
             }
         }
-        Spacer(Modifier.height(31.dp))
-        Column(
-            modifier = Modifier.horizontalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+        Spacer(Modifier.height(14.dp))
+        // One fenced block is one card. Render the whole script as a single Text so
+        // blank lines, indentation, continuations and heredocs are preserved.
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 360.dp)
+                .verticalScroll(rememberScrollState()),
         ) {
-            code.lineSequence().filter { it.isNotBlank() }.forEach { line ->
-                BashCommandLine(line = line, darkMode = darkMode)
-            }
-        }
-    }
-}
-
-@Composable
-private fun BashCommandLine(line: String, darkMode: Boolean) {
-    val command = line.trim()
-    val first = command.substringBefore(' ')
-    val rest = command.removePrefix(first).trimStart()
-    val promptColor = if (darkMode) Color(0xFFE8798F) else Color(0xFFC45D74)
-    val textColor = if (darkMode) Color(0xFFFAFAFA) else Color(0xFF181916)
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(7.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = first,
-            color = promptColor,
-            fontSize = 16.sp,
-            lineHeight = 22.sp,
-            fontFamily = FontFamily.Monospace,
-            fontWeight = FontWeight.Medium,
-            maxLines = 1,
-        )
-        if (rest.isNotBlank()) {
             Text(
-                text = rest,
+                text = code,
                 color = textColor,
                 fontSize = 16.sp,
                 lineHeight = 22.sp,
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Medium,
-                maxLines = 1,
+                softWrap = false,
+                modifier = Modifier
+                    .horizontalScroll(rememberScrollState())
+                    .padding(end = 8.dp),
             )
         }
     }

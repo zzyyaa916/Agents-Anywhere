@@ -62,6 +62,7 @@ import { createSessionEventBuffer } from "@/components/session/session-event-buf
 import { RuntimeCreationStatus } from "@/components/session/runtime-creation-status"
 import { NativeSessionHandoff } from "@/components/session/native-session-handoff"
 import { CAPABILITY, capabilityIsUsable, findCapability } from "@/components/session/capabilities"
+import { selectionConfirmation } from "@/components/session/catalog-selection"
 import { SessionComposer, type AttachedFile } from "@/components/session/session-composer"
 import { commandResult, commandTransportFailure, type CommandOutcome } from "@/components/session/runtime-command-model"
 import { createRecoveredSubscriptionTracker, useRuntimeCommands } from "@/components/session/use-runtime-commands"
@@ -415,6 +416,9 @@ export function SessionDetail({
   const streamConnectedRef = React.useRef(false)
   const catalogFetchKeyRef = React.useRef<string | null>(null)
   const selectionUpdateSeqRef = React.useRef(0)
+  const selectionVisitRef = React.useRef({ sessionId })
+  if (selectionVisitRef.current.sessionId !== sessionId) selectionVisitRef.current = { sessionId }
+  React.useEffect(() => { selectionUpdateSeqRef.current += 1 }, [sessionId])
   const selectionWritesRef = React.useRef(new Map<string, Promise<unknown>>())
   const commandVisitRef = React.useRef({ sessionId, sequence: 0 })
   if (commandVisitRef.current.sessionId !== sessionId) {
@@ -543,9 +547,17 @@ export function SessionDetail({
     const selectionPatch = selectionPatchFromComposerSelections(state?.state?.selections ?? {}, selections)
     if (Object.keys(selectionPatch).length === 0) return true
 
+    const notifyConfirmation = (confirmed: SessionRuntimeState | null | undefined) => {
+      const confirmation = selectionConfirmation(session.id, selectionPatch, confirmed, state?.catalogs.model ?? null, state?.catalogs.permission ?? null, tNew)
+      if (!confirmation) return false
+      toast.success(tSession(confirmation.pending ? "selectionUpdatedNextTurn" : "selectionUpdated", { selection: confirmation.label }))
+      return true
+    }
+    const visit = selectionVisitRef.current
     const previousRuntimeState = state?.state ?? null
     const selectionUpdateSeq = selectionUpdateSeqRef.current + 1
     selectionUpdateSeqRef.current = selectionUpdateSeq
+    const isCurrent = () => selectionUpdateSeqRef.current === selectionUpdateSeq && selectionVisitRef.current === visit
     setState((current) =>
       current
         ? {
@@ -561,7 +573,7 @@ export function SessionDetail({
       const result = await write.finally(() => {
         if (selectionWritesRef.current.get(session.id) === write) selectionWritesRef.current.delete(session.id)
       })
-      if (selectionUpdateSeqRef.current !== selectionUpdateSeq) return true
+      if (!isCurrent()) return true
       setState((current) =>
         current
           ? {
@@ -575,11 +587,13 @@ export function SessionDetail({
             }
           : current,
       )
+      if (!notifyConfirmation(result.state)) throw new Error(tSession("selectionUpdateUnconfirmed"))
       return true
     } catch (err) {
+      if (!isCurrent()) return true
       // An official operation can partially succeed. Read the actual selection before rolling back.
       const actual = await dashboardApi.getSessionRuntimeState(token, session.id).catch(() => null)
-      if (selectionUpdateSeqRef.current === selectionUpdateSeq) {
+      if (isCurrent()) {
         setState((current) =>
           current
             ? {
@@ -594,10 +608,11 @@ export function SessionDetail({
             : current,
         )
       }
-      if (selectionUpdateSeqRef.current === selectionUpdateSeq) {
+      if (isCurrent() && notifyConfirmation(actual?.state)) return true
+      if (isCurrent()) {
         toast.error(err instanceof Error ? err.message : tSession("updateSelectionsFailed"))
       }
-      return selectionUpdateSeqRef.current !== selectionUpdateSeq
+      return !isCurrent()
     }
   }
 

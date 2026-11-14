@@ -66,10 +66,13 @@ fun ForkUsageButton(controller: ForkController, modifier: Modifier = Modifier) {
     val status = usage?.refresh?.status ?: "idle"
     val serverNow = usage?.serverTime?.let { runCatching { Instant.parse(it).toEpochMilli() / 1000.0 + elapsed }.getOrNull() } ?: 0.0
     val deadline = usage?.refresh?.nextAllowedAt?.let { runCatching { Instant.parse(it).toEpochMilli() / 1000.0 }.getOrNull() } ?: 0.0
-    val blocked = status in setOf("retry", "offline", "circuit") && deadline > serverNow
+    val cooling = status == "success" && deadline > serverNow
+    val cooldownSeconds = kotlin.math.ceil((deadline - serverNow).coerceAtLeast(0.0)).toInt()
+    val blocked = (status in setOf("retry", "offline", "circuit") || cooling) && deadline > serverNow
     val pending = busy || (status == "running" && (deadline == 0.0 || deadline > serverNow))
     val label = when {
         pending -> "请求中…"
+        cooling -> "${cooldownSeconds} 秒后可刷新"
         status == "circuit" && blocked -> "今日探针已熔断，明日恢复"
         failed || status in setOf("retry", "offline") || (status == "running" && !pending) -> "稍后重试"
         status == "disabled" -> "未配置探针"
@@ -77,6 +80,7 @@ fun ForkUsageButton(controller: ForkController, modifier: Modifier = Modifier) {
     }
     if (open) AlertDialog(onDismissRequest = { open = false }, title = { Text(stringResource(R.string.fork_usage)) }, text = {
         Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (cooling) Text("上次探针已成功，${cooldownSeconds} 秒后可再次刷新。")
             if (status == "offline") Text("探针节点离线")
             if (status in setOf("retry", "offline", "circuit") && deadline > 0) Text("可重试时间：${localUsageTime(usage?.refresh?.nextAllowedAt)}")
             if (failed) Text("刷新失败，原有数据保留", color = MaterialTheme.colorScheme.error)
@@ -120,6 +124,7 @@ fun ForkDeleteDialog(controller: ForkController, id: String, title: String, proj
                     api?.errorCode == "deletion_count_changed" -> stringResource(R.string.fork_count_changed)
                     api?.statusCode == 403 -> stringResource(R.string.fork_forbidden)
                     api?.statusCode == 409 -> stringResource(R.string.fork_busy, api.blockingSessionIds.joinToString(", "))
+                    api?.errorCode in setOf("device_cleanup_incomplete", "deletion_cleanup_failed") -> api?.message ?: stringResource(R.string.fork_failed)
                     else -> stringResource(R.string.fork_failed)
                 }, color = MaterialTheme.colorScheme.error)
                 if (api?.errorCode in setOf("device_cleanup_incomplete", "deletion_cleanup_failed")) {

@@ -9,6 +9,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
 import com.agentsanywhere.app.feature.sessions.NewSessionRuntimeSelectionState
 import com.agentsanywhere.app.feature.taskgroups.*
@@ -33,7 +34,7 @@ internal fun TaskGroupComposer(projectId: String, configs: List<NewSessionRuntim
         catch (failure: Exception) { error = failure.message }
     }
     Column {
-        OutlinedTextField(text, { text = it; operation = UUID.randomUUID().toString() }, enabled = !busy && accepted == null, label = { Text(stringResource(R.string.fork_multi_send)) }, modifier = Modifier.fillMaxWidth(), minLines = 3)
+        OutlinedTextField(text, { text = it; operation = UUID.randomUUID().toString() }, enabled = !busy && accepted == null, label = { Text(stringResource(R.string.fork_multi_send)) }, modifier = Modifier.fillMaxWidth().heightIn(max = 120.dp), minLines = 1, maxLines = 4)
         Row {
             TextButton(enabled = !busy && accepted == null && configs.all { it.canUseAttachments }, onClick = { picker.launch(arrayOf("*/*")) }) { Text("附件（${files.size}/10）") }
             if (files.isNotEmpty()) TextButton(enabled = !busy && accepted == null, onClick = { files = emptyList(); operation = UUID.randomUUID().toString() }) { Text("移除附件") }

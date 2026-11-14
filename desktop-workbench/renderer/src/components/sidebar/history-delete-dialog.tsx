@@ -73,6 +73,8 @@ export function HistoryDeleteDialog({ open, onOpenChange, id, name, project = fa
         setCount(null)
         setConfirmation("")
         setError(t("countChanged"))
+      } else if (isApiError(cause) && ["device_cleanup_incomplete", "deletion_cleanup_failed"].includes(cause.code ?? "")) {
+        setError(cause.detail || t("failed"))
       } else {
         setError(t("failed"))
       }
