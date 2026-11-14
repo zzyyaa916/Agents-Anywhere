@@ -358,3 +358,38 @@ def test_start_turn_and_switch_use_the_same_session_lock(tmp_path):
         assert calls == ['start', 'update']
 
     asyncio.run(check())
+
+
+def test_permission_only_update_does_not_clear_a_pending_model_reselection(tmp_path):
+    async def check():
+        runtime, _, _ = bound(tmp_path, 'claude')
+        await runtime.create_and_start_session('s', 'start', selections={'model': 'fable/low'})
+        runtime.native_runtime.update_session_selections.return_value = RuntimeOperationResult(
+            ok=True, result={'selections': {'model': 'fable/high'}},
+        )
+        failed = await runtime.update_session_selections('s', 'n', {'model': 'fable/low'})
+        assert not failed.ok
+        runtime.native_runtime.update_session_selections.return_value = RuntimeOperationResult(
+            ok=True, result={'selections': {'model': 'fable/low', 'permission': 'accept-edits'}},
+        )
+        allowed = await runtime.update_session_selections('s', 'n', {'permission': 'accept-edits'})
+        assert allowed.ok
+        before = runtime.native_runtime.start_turn.await_count
+        blocked = await runtime.start_turn('s', 'n', 'still blocked')
+        assert not blocked.ok
+        assert runtime.native_runtime.start_turn.await_count == before
+    asyncio.run(check())
+
+
+def test_runtime_without_model_catalog_can_start_without_a_pin(tmp_path):
+    async def check():
+        runtime, _, _ = bound(tmp_path, 'claude')
+        runtime.native_runtime.get_runtime_capabilities.return_value = RuntimeCapabilitySet(
+            runtime='claude', revision=1, capabilities=(),
+        )
+        created = await runtime.create_and_start_session('s', 'start')
+        assert created.ok
+        sent = await runtime.start_turn('s', 'n', 'next')
+        assert sent.ok
+        runtime.native_runtime.start_turn.assert_awaited_once()
+    asyncio.run(check())

@@ -243,7 +243,7 @@ def test_empty_git_placeholder_after_no_head_is_an_ordinary_conversation(tmp_pat
     assert Path(result["paths"][0]).is_dir()
 
 
-def test_inaccessible_empty_git_placeholder_does_not_block_ordinary_conversation(tmp_path, monkeypatch):
+def test_inaccessible_git_metadata_is_never_inferred_from_link_count(tmp_path, monkeypatch):
     import stat as stat_module
     from types import SimpleNamespace
 
@@ -259,8 +259,9 @@ def test_inaccessible_empty_git_placeholder_does_not_block_ordinary_conversation
         return original(path, *args, **kwargs)
 
     monkeypatch.setattr(Path, "stat", guarded)
-    result = wt.prepare(params(tmp_path, count=1))
-    assert result["base"] == "conversation"
+    with pytest.raises(ValueError, match="check Connector identity"):
+        wt.prepare(params(tmp_path, count=1))
+    assert not (tmp_path / "state").exists()
 
 
 def test_inaccessible_real_git_metadata_is_not_downgraded(tmp_path, monkeypatch):
