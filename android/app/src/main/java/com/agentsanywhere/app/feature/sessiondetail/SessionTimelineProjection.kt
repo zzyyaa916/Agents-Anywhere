@@ -685,6 +685,8 @@ internal fun sortTimelineMessages(
         val rightOrder = orderingById[right.sourceItemId]?.orderSeq ?: right.orderSeq
         compareValues(leftOrder, rightOrder).takeIf { it != 0 }
             ?: compareValues(left.updatedSeq, right.updatedSeq).takeIf { it != 0 }
+            // A local send may predict exactly the next server update sequence.
+            ?: compareValues(right.optimistic, left.optimistic).takeIf { it != 0 }
             ?: left.id.compareTo(right.id)
     }
 }
