@@ -17,6 +17,7 @@ from agent_server.core.models import SessionView, TimelineItem, TimelineItemIn
 from agent_server.core.timeline import (
     TimelineBatchWriteResult,
     TimelineItemWriteResult,
+    allocate_timeline_order_seq,
     next_timeline_item_revision,
     timeline_item_from_runtime_input,
     timeline_item_state_is_unchanged,
@@ -404,12 +405,17 @@ class TimelineWriteBuffer:
                 # A pending item buffered before the range check keeps its
                 # value here; the flush moves it to a storable position.
                 order_seq = existing.orderSeq
-            elif item.orderSeq > max_order_seq and timeline_order_seq_in_range(
-                item.orderSeq
-            ):
-                order_seq = item.orderSeq
             else:
-                order_seq = max_order_seq + 1
+                # The lane cache can evict items. Inspect the complete shared
+                # pending projection and durable indexed position under the fence.
+                pending = await self._pending_snapshot(session_id)
+                occupied = any(value.id != item.id and value.orderSeq == item.orderSeq
+                               for value in pending.items.values())
+                if timeline_order_seq_in_range(item.orderSeq) and not occupied:
+                    occupied = await self._store.timeline_order_seq_occupied(session_id, item.orderSeq, item.id)
+                max_order_seq = _order_head(max_order_seq, await self._store.get_max_timeline_order_seq(session_id),
+                    *(value.orderSeq for value in pending.items.values()))
+                order_seq = allocate_timeline_order_seq(item.orderSeq, max_order_seq, occupied=occupied)
             if existing is None and not timeline_order_seq_in_range(order_seq):
                 # Refuse before reserving a revision: a buffered item the table
                 # cannot store would block every later flush of the session.
@@ -585,6 +591,10 @@ class TimelineWriteBuffer:
             envelope["session"] = session.model_dump(mode="json")
         await self._broker.publish(session_id, envelope)
         await self._sequences.mark_published(session_id, durable_sequence)
+        lane = await self._lane(session_id)
+        lane.latest.clear()
+        lane.max_order_seq = None
+        lane.seeded = False
 
     async def live_sequence(self, session_id: str) -> int:
         """Return the highest live or durable revision for an envelope."""
@@ -628,7 +638,7 @@ class TimelineWriteBuffer:
                 {"sessionId": session_id, "nextSeq": next_seq, "refetch": True},
             )
             await self._sequences.mark_published(session_id, next_seq)
-        elif result.items:
+        elif result.items:  # noqa: SIM102 -- existing publication branch
             if published_through is None or published_through < next_seq:
                 await self._broker.publish(
                     session_id,

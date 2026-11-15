@@ -11,7 +11,15 @@ TIMELINE_ORDER_SEQ_MAX = 2**31 - 1
 
 
 def timeline_order_seq_in_range(order_seq: int) -> bool:
-    return TIMELINE_ORDER_SEQ_MIN <= order_seq <= TIMELINE_ORDER_SEQ_MAX
+    return isinstance(order_seq, int) and not isinstance(order_seq, bool) and TIMELINE_ORDER_SEQ_MIN <= order_seq <= TIMELINE_ORDER_SEQ_MAX
+
+
+def allocate_timeline_order_seq(requested: int, maximum: int, *, occupied: bool) -> int:
+    """Caller holds the session fence/transaction across occupancy and write."""
+    result = requested if timeline_order_seq_in_range(requested) and not occupied else maximum + 1
+    if not timeline_order_seq_in_range(result):
+        raise OverflowError("timeline orderSeq exceeds the column range")
+    return result
 
 
 @dataclass(frozen=True, slots=True)

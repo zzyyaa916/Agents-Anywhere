@@ -5,7 +5,6 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
-from loguru import logger
 from sqlalchemy import case, func, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -13,9 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from agent_server.core.models import SessionView, TimelineItem, TimelineItemIn
 from agent_server.core.protocol import PROTOCOL_MAX_REVISION
 from agent_server.core.timeline import (
-    TIMELINE_ORDER_SEQ_MAX,
     TimelineBatchWriteResult,
     TimelineItemWriteResult,
+    allocate_timeline_order_seq,
     latest_timeline_items_by_id,
     next_timeline_item_revision,
     timeline_item_from_runtime_input,
@@ -233,48 +232,25 @@ class TimelineRepositoryMixin:
         failing the whole flush forever. Caller must hold the timeline lock.
         """
 
-        unstorable = [
-            item for item in items if not timeline_order_seq_in_range(item.orderSeq)
-        ]
-        if not unstorable:
-            return items, False
-        next_order_seq = max(
-            [await self._max_timeline_order_seq(conn, session_id)]
-            + [
-                item.orderSeq
-                for item in items
-                if timeline_order_seq_in_range(item.orderSeq)
-            ]
-        )
-        replacements: dict[str, int] = {}
-        for item in sorted(
-            unstorable,
-            key=lambda value: (value.orderSeq, value.updatedSeq, value.id),
-        ):
+        # Buffered assignments may have been made by an older server or before
+        # another durable writer. Recheck under the DB advisory transaction lock.
+        requested = {item.orderSeq for item in items if timeline_order_seq_in_range(item.orderSeq)}
+        occupants = await self._timeline_order_occupants(conn, session_id, requested)
+        maximum = max([await self._max_timeline_order_seq(conn, session_id)] + list(requested))
+        replacements = {}
+        for item in sorted(items, key=lambda value: (
+            not timeline_order_seq_in_range(value.orderSeq),
+            value.orderSeq if not timeline_order_seq_in_range(value.orderSeq) else 0,
+        )):
             existing = current_by_id.get(item.id)
-            if existing is not None:
-                replacements[item.id] = existing.orderSeq
-            else:
-                next_order_seq += 1
-                replacements[item.id] = next_order_seq
-        if next_order_seq > TIMELINE_ORDER_SEQ_MAX:
-            raise OverflowError("timeline orderSeq exceeds the column range")
-        logger.warning(
-            "timeline buffer moved items with unstorable orderSeq session_id={} "
-            "count={} first_item_id={} first_order_seq={} new_order_seqs={}..{}",
-            session_id,
-            len(unstorable),
-            unstorable[0].id,
-            unstorable[0].orderSeq,
-            min(replacements.values()),
-            max(replacements.values()),
-        )
-        return [
-            item.model_copy(update={"orderSeq": replacements[item.id]})
-            if item.id in replacements
-            else item
-            for item in items
-        ], True
+            order = existing.orderSeq if existing else allocate_timeline_order_seq(
+                item.orderSeq, maximum, occupied=item.orderSeq in occupants and occupants[item.orderSeq] != item.id)
+            occupants[order] = item.id
+            maximum = max(maximum, order)
+            if order != item.orderSeq:
+                replacements[item.id] = order
+        return [item.model_copy(update={"orderSeq": replacements[item.id]})
+                if item.id in replacements else item for item in items], bool(replacements)
 
     @session_revision_fenced
     async def sync_timeline_items(
@@ -318,6 +294,8 @@ class TimelineRepositoryMixin:
             now = utc_now()
             changed_items: list[TimelineItem] = []
             max_order_seq = await self._max_timeline_order_seq(conn, session_id)
+            occupants = await self._timeline_order_occupants(conn, session_id,
+                {item.orderSeq for item in changed_inputs if timeline_order_seq_in_range(item.orderSeq)})
             first_updated_seq = await self._reserve_session_revisions(
                 conn,
                 session_id,
@@ -328,10 +306,9 @@ class TimelineRepositoryMixin:
                 existing = current_by_id.get(item.id)
                 if existing is not None:
                     order_seq = existing.orderSeq
-                elif item.orderSeq > max_order_seq:
-                    order_seq = item.orderSeq
                 else:
-                    order_seq = max_order_seq + 1
+                    order_seq = allocate_timeline_order_seq(item.orderSeq, max_order_seq, occupied=item.orderSeq in occupants)
+                occupants[order_seq] = item.id
                 max_order_seq = max(max_order_seq, order_seq)
                 normalized = timeline_item_from_runtime_input(
                     item,
@@ -458,6 +435,7 @@ class TimelineRepositoryMixin:
                     conn,
                     session_id,
                     existing,
+                    item.orderSeq,
                 )
                 result = timeline_item_from_runtime_input(
                     item,
@@ -692,10 +670,27 @@ class TimelineRepositoryMixin:
         conn: AsyncConnection,
         session_id: str,
         existing: TimelineItem | None,
+        requested: int,
     ) -> int:
         if existing is not None:
             return existing.orderSeq
-        return await self._max_timeline_order_seq(conn, session_id) + 1
+        occupants = await self._timeline_order_occupants(conn, session_id, {requested}) if timeline_order_seq_in_range(requested) else {}
+        return allocate_timeline_order_seq(requested, await self._max_timeline_order_seq(conn, session_id), occupied=bool(occupants))
+
+    async def _timeline_order_occupants(self, conn, session_id, requested):
+        if not requested:
+            return {}
+        rows = await conn.execute(select(timeline_items_t.c.order_seq, timeline_items_t.c.id).where(
+            timeline_items_t.c.session_id == session_id, timeline_items_t.c.order_seq.in_(requested)))
+        return {row.order_seq: row.id for row in rows}
+
+    async def timeline_order_seq_occupied(self, session_id, order_seq, item_id):
+        async with read_connection(self._engine) as conn:
+            rows = await conn.execute(select(timeline_items_t.c.id).where(
+                timeline_items_t.c.session_id == session_id,
+                timeline_items_t.c.order_seq == order_seq,
+                timeline_items_t.c.id != item_id).limit(1))
+            return rows.first() is not None
 
     @asynccontextmanager
     async def _timeline_transaction(

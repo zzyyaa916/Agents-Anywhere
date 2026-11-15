@@ -27,8 +27,8 @@ android {
         applicationId = "com.agentsanywhere.fork"
         minSdk = 26
         targetSdk = 36
-        versionCode = 28
-        versionName = "2.7.0"
+        versionCode = 29
+        versionName = "2.7.1"
         buildConfigField("String", "OFFICIAL_SERVER_URL", officialServerUrl.asBuildConfigString())
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

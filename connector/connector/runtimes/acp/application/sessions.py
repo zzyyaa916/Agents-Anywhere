@@ -733,6 +733,12 @@ class SessionService:
             if len(self.active_runs) >= self.max_runs:
                 raise AcpError("run_capacity", "并发执行已达到上限。")
             operation, _ = self.prompts.prepare(session_id, message_id, content, blocks)
+            # Persist and queue this event in the same transaction as dispatch,
+            # before scheduling the adapter, so no output can overtake the user.
+            user_item = context["projection"].begin_prompt(message_id, content, blocks)
+            self.store.put("projection", user_item["id"], user_item)
+            self._emit("timeline.itemUpsert", {"sessionId": session_id,
+                "externalSessionId": context["agentSessionId"], "item": user_item})
             self.active_runs.add(session_id)
             self._save_binding(
                 binding.observe(binding.connection_generation, foreground="running")

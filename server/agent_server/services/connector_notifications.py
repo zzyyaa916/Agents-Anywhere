@@ -876,7 +876,8 @@ class TimelineNotificationHandler:
         items = [
             TimelineItemIn.model_validate(item) for item in params.get("items", [])
         ]
-        _require_storable_order_seq(items)
+        if params.get("complete") is True:
+            _require_storable_order_seq(items)
         runtime, runtime_id = await timeline_runtime_identity_from_params(
             self._store,
             params,
@@ -959,7 +960,6 @@ class TimelineNotificationHandler:
                 "turn lifecycle markers must use dedicated session notifications",
             )
         item = TimelineItemIn.model_validate(params["item"])
-        _require_storable_order_seq([item])
         resolution = await self._store.resolve_connector_session_binding(
             connector_id=connector_id,
             session_id=params["sessionId"],

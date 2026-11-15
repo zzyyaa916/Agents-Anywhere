@@ -25,10 +25,6 @@ from agent_server.core.timeline import TIMELINE_ORDER_SEQ_MAX
 from agent_server.infra.redis_coordinator import RedisCoordinator
 from agent_server.infra.repositories.facade import Store
 from agent_server.infra.timeline_broker import TimelineBroker
-from agent_server.services.connector_notifications import (
-    ConnectorNotificationService,
-    NotificationValidationError,
-)
 from agent_server.services.timeline_write_buffer import TimelineWriteBuffer
 
 # The value found in production: 2026-10-17T11:57:00.041Z in epoch milliseconds.
@@ -91,68 +87,30 @@ async def poison_pending(
 
 
 @pytest.mark.anyio
-async def test_ingest_refuses_order_seq_the_table_cannot_store(tmp_path) -> None:
+async def test_out_of_range_appends_but_max_collision_overflows(tmp_path) -> None:
     store = Store()
     connector, _, _ = await store.create_connector(name="dev", user_id="user_1")
     session = await create_session_with_project(store, connector_id=connector.id)
     buffer = make_buffer(store, RedisCoordinator())
-    notifications = ConnectorNotificationService(
-        store,
-        NoopRealtime(),  # type: ignore[arg-type]
-        buffer,
-    )
     try:
-        sequence_before = await buffer.live_sequence(session.id)
-        for method, params in [
-            (
-                "timeline.itemUpsert",
-                {
-                    "sessionId": session.id,
-                    "item": item_input(
-                        session.id, "stamp", order_seq=TIMESTAMP_ORDER_SEQ
-                    ).model_dump(mode="json"),
-                },
-            ),
-            (
-                "timeline.sync",
-                {
-                    "sessionId": session.id,
-                    "items": [
-                        item_input(session.id, "ok", order_seq=1).model_dump(mode="json"),
-                        item_input(
-                            session.id, "low", order_seq=-(2**31) - 1
-                        ).model_dump(mode="json"),
-                    ],
-                },
-            ),
-        ]:
-            with pytest.raises(NotificationValidationError) as error:
-                await notifications.apply(
-                    connector_id=connector.id,
-                    method=method,
-                    params=params,
-                )
-            assert error.value.code == "invalid_order_seq"
-
-        assert await buffer.dirty_session_ids() == []
-        assert await buffer.live_sequence(session.id) == sequence_before
-        assert await store.timeline.read(session.id) == []
-
-        # The largest storable value is accepted; a new item that would have
-        # to follow it is refused before it reserves a revision.
-        last = await buffer.accept(
-            session_id=session.id,
-            item=item_input(session.id, "last", order_seq=TIMELINE_ORDER_SEQ_MAX),
-        )
-        assert last.item.orderSeq == TIMELINE_ORDER_SEQ_MAX
+        first = await buffer.accept(session_id=session.id,
+            item=item_input(session.id,"stamp",order_seq=TIMESTAMP_ORDER_SEQ))
+        assert first.item.orderSeq == 1
+        second = await buffer.accept(session_id=session.id,
+            item=item_input(session.id,"negative-overflow",order_seq=-(2**31)-1))
+        assert second.item.orderSeq == 2
+        last = await buffer.accept(session_id=session.id,
+            item=item_input(session.id,"last",order_seq=TIMELINE_ORDER_SEQ_MAX))
+        # A lower free slot is still valid even after MAX; only a collision
+        # requires an impossible max+1 and must fail before revision allocation.
+        free = await buffer.accept(session_id=session.id,
+            item=item_input(session.id,"free",order_seq=3))
         with pytest.raises(OverflowError):
-            await buffer.accept(
-                session_id=session.id,
-                item=item_input(session.id, "after", order_seq=1),
-            )
-        assert await buffer.live_sequence(session.id) == last.item.updatedSeq
+            await buffer.accept(session_id=session.id,
+                item=item_input(session.id,"after",order_seq=TIMELINE_ORDER_SEQ_MAX))
+        assert await buffer.live_sequence(session.id) == free.item.updatedSeq
         await buffer.flush_through(session.id)
-        assert await stored_order(store, session.id) == [("last", TIMELINE_ORDER_SEQ_MAX)]
+        assert await stored_order(store,session.id) == [("stamp",1),("negative-overflow",2),("free",3),("last",TIMELINE_ORDER_SEQ_MAX)]
     finally:
         await buffer.close()
         await store.close()
@@ -204,7 +162,7 @@ async def test_deployed_server_repairs_stuck_items_before_placing_new_ones(
             ("stamped", 6),
             ("after_stamp", 7),
         ]
-        assert accepted.item.orderSeq == 8
+        assert accepted.item.orderSeq == 1
         assert any(payload.get("refetch") for payload in published)
 
         # Updating a repaired item keeps its stored position.
@@ -216,10 +174,10 @@ async def test_deployed_server_repairs_stuck_items_before_placing_new_ones(
 
         await new_server.flush_through(session.id)
         assert await stored_order(store, session.id) == [
+            ("new", 1),
             ("durable", 5),
             ("stamped", 6),
             ("after_stamp", 7),
-            ("new", 8),
         ]
         assert await new_server.dirty_session_ids() == []
     finally:
@@ -342,8 +300,7 @@ def test_session_list_survives_order_seq_overflow(tmp_path, monkeypatch) -> None
         assert response.status_code == 200, response.text
         return [session["id"] for session in response.json()["sessions"]]
 
-    # A Connector delivering the production value gets a permanent 400 and
-    # nothing reaches the buffer.
+    # Incremental overflow values are normalized before reaching the column.
     response = client.post(
         "/connector/ingest",
         headers={"Authorization": f"Bearer {access_token}"},
@@ -361,10 +318,9 @@ def test_session_list_survives_order_seq_overflow(tmp_path, monkeypatch) -> None
             ]
         },
     )
-    assert response.status_code == 400, response.text
-    assert response.json()["detail"]["code"] == "invalid_order_seq"
-    assert asyncio.run(buffer.dirty_session_ids()) == []
+    assert response.status_code == 200, response.text
     assert session_id in listed_session_ids()
+    assert asyncio.run(stored_order(store,session_id)) == [("stamp",1)]
 
     # A backlog an older Server left in the buffer no longer breaks the list.
     asyncio.run(
@@ -391,6 +347,7 @@ def test_session_list_survives_order_seq_overflow(tmp_path, monkeypatch) -> None
 
     assert session_id in listed_session_ids()
     assert asyncio.run(stored_order(store, session_id)) == [
+        ("stamp", 1),
         ("durable", 5),
         ("stamped", 6),
     ]

@@ -12,10 +12,40 @@ class Projection:
         self.items: dict[str, dict] = {}
         self.message_index = 0
         self.current_kind = None
+        self.prompt_users: dict[str, str] = {}
+        self.current_prompt: str | None = None
+
+    def begin_prompt(self, client_message_id: str, text: str, blocks=None) -> dict:
+        """Reserve the user position before any adapter coroutine can emit output."""
+        key = fingerprint([self.session_id, "user_message_chunk", client_message_id])
+        self.prompt_users[client_message_id] = key
+        self.current_prompt = client_message_id
+        old = self.items.get(key)
+        if old:
+            return old
+        item = {
+            "id": key, "sessionId": self.session_id, "type": "message", "role": "user", "status": "done",
+            "content": {"kind": "markdown", "format": "markdown", "text": text,
+                "clientMessageId": client_message_id,
+                **({"attachments": [b["_meta"]["aa"]["attachment"] for b in blocks
+                    if isinstance(b, dict) and b.get("_meta", {}).get("aa", {}).get("attachment")]} if blocks else {})},
+            "source": {"runtime": self.runtime_type, "epoch": self.epoch, "clientMessageId": client_message_id},
+            "orderSeq": max((row["orderSeq"] for row in self.items.values()), default=0) + 1, "revision": 1,
+        }
+        item["contentHash"] = "sha256:" + fingerprint({k: item[k] for k in ("type", "status", "role", "content", "source")})
+        self.items[key] = item
+        return item
 
     def apply(self, update: dict) -> dict | None:
         native = update.get("_meta", {}).get("aa", {}).get("timelineItem")
         if native and update.get("aaProjectionVerified"):
+            client_id = native.get("source", {}).get("clientMessageId") or native.get("content", {}).get("clientMessageId")
+            local_key = self.prompt_users.get(client_id) if native.get("role") == "user" else None
+            if local_key and local_key in self.items:
+                local = self.items[local_key]
+                native = {**native, "id": local_key, "orderSeq": local["orderSeq"],
+                    "revision": max(native.get("revision", 0), local["revision"] + 1),
+                    "source": {**native.get("source", {}), "clientMessageId": client_id}}
             if not isinstance(native.get("id"), str) or native.get("type") not in {
                 "message",
                 "tool",
@@ -38,6 +68,21 @@ class Projection:
             self.items[item["id"]] = item
             return item
         kind = update.get("sessionUpdate")
+        if kind == "user_message_chunk":
+            # Pi supplies _meta.aa.clientMessageId. ACP v1 does not require it;
+            # in that case only the explicit in-flight prompt state may claim an
+            # echo. Text equality never participates in identity matching.
+            client_id = update.get("_meta", {}).get("aa", {}).get("clientMessageId") or self.current_prompt
+            local_key = self.prompt_users.get(client_id)
+            if local_key and local_key in self.items:
+                old = self.items[local_key]
+                item = {**old, "revision": old["revision"] + 1,
+                    "source": {**old["source"], "clientMessageId": client_id}}
+                # Submitted text is already complete; concatenating the echo
+                # would duplicate it (including adapters that stream chunks).
+                item["contentHash"] = "sha256:" + fingerprint({k: item[k] for k in ("type", "status", "role", "content", "source")})
+                self.items[local_key] = item
+                return item
         if kind in {"agent_message_chunk", "agent_thought_chunk", "user_message_chunk"}:
             if self.current_kind != kind:
                 self.message_index += 1
@@ -152,4 +197,5 @@ class Projection:
                 )
                 result.append(dict(item))
         self.current_kind = None
+        self.current_prompt = None
         return result

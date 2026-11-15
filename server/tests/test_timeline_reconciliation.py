@@ -246,3 +246,76 @@ async def test_complete_snapshot_only_writes_changed_items(
         } == {"item_1"}
     finally:
         await store.close()
+
+
+@pytest.mark.anyio
+async def test_late_user_keeps_free_position_before_assistant() -> None:
+    """A3 regression: a late user keeps its unoccupied native position."""
+    store = Store()
+    try:
+        connector, _, _ = await store.create_connector(name="dev", user_id="user_1")
+        session = await create_session_with_project(store, connector_id=connector.id)
+        assistants = [timeline_input(f"assistant-{n}", order_seq=n).model_copy(
+            update={"sessionId": session.id}) for n in range(2, 5)]
+        await store.sync_timeline_items(session_id=session.id, items=assistants)
+        user = timeline_input("late-user", order_seq=1).model_copy(
+            update={"sessionId": session.id, "role": "user"})
+        result = await store.sync_timeline_items(session_id=session.id, items=[user])
+        assert result.items[0].orderSeq == 1
+        items = await store.timeline.read(session.id)
+        assert sorted(items, key=lambda item: item.orderSeq)[0].id == "late-user"
+    finally:
+        await store.close()
+
+
+@pytest.mark.anyio
+async def test_free_positions_collisions_existing_ids_and_before_cursor():
+    store = Store()
+    try:
+        connector, _, _ = await store.create_connector(name='dev', user_id='user_1')
+        session = await create_session_with_project(store, connector_id=connector.id)
+        def entry(name, order, **updates):
+            return timeline_input(name, order_seq=order).model_copy(update={'sessionId':session.id, **updates})
+        await store.sync_timeline_items(session_id=session.id, items=[entry('assistant', 4)])
+        result = await store.sync_timeline_items(session_id=session.id, items=[entry('first',1),entry('second',1),entry('occupied',4)])
+        assert [row.orderSeq for row in result.items] == [1,5,6]
+        update = await store.upsert_timeline_item(session_id=session.id, item=entry('first',99,contentHash='changed'))
+        assert update.item.orderSeq == 1
+        free = await store.upsert_timeline_item(session_id=session.id, item=entry('free',2))
+        assert free.item.orderSeq == 2
+        before, more = await store.list_timeline_before_order_seq(session_id=session.id,before_order_seq=4,limit=10)
+        assert {row.orderSeq for row in before} == {1,2}
+        assert not more
+        rows = await store.timeline.read(session.id)
+        assert len(rows) == len({row.orderSeq for row in rows})
+    finally:
+        await store.close()
+
+
+@pytest.mark.anyio
+async def test_buffer_claims_holes_checks_durable_and_pending_and_preserves_ids():
+    from agent_server.infra.redis_coordinator import RedisCoordinator
+    from agent_server.infra.timeline_broker import TimelineBroker
+    from agent_server.services.timeline_write_buffer import TimelineWriteBuffer
+    store = Store()
+    coordinator = RedisCoordinator()
+    buffer = TimelineWriteBuffer(store, TimelineBroker(coordinator), coordinator)
+    try:
+        connector, _, _ = await store.create_connector(name='dev', user_id='user_1')
+        session = await create_session_with_project(store, connector_id=connector.id)
+        def entry(name, order):
+            return timeline_input(name,order_seq=order).model_copy(update={'sessionId':session.id})
+        await store.sync_timeline_items(session_id=session.id, items=[entry('assistant',4)])
+        results = []
+        for name, order in [('user',1),('collision',1),('durable-collision',4),('outside',2**40)]:
+            result = await buffer.accept(session_id=session.id,item=entry(name,order))
+            results.append(result.item.orderSeq)
+        assert results == [1,5,6,7]
+        updated = entry('user',99).model_copy(update={'contentHash':'updated'})
+        assert (await buffer.accept(session_id=session.id,item=updated)).item.orderSeq == 1
+        await buffer.flush_through(session.id)
+        rows = await store.timeline.read(session.id)
+        assert len(rows) == len({row.orderSeq for row in rows})
+    finally:
+        await buffer.close()
+        await store.close()
