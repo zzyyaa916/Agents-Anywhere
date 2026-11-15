@@ -358,6 +358,7 @@ class AccountUsageRpc:
 
     async def _manual_probe(self):
         from connector.runtimes.claude.usage_probe import (
+            ParseError,
             fetch_usage,
             node_enabled,
             normalized_usage,
@@ -404,6 +405,8 @@ class AccountUsageRpc:
             result["windows"] = [{"kind": w["kind"], "usedPercent": w["used_percent"], "remainingPercent": 100 - w["used_percent"],
                 "resetsAt": w["resets_at"], "windowDurationMins": 300 if w["kind"] == "five_hour" else 10080} for w in normalized["windows"]]
             return result
+        except ParseError as error:
+            return {"runtime": "claude_code", "errorCode": "parse_error", "detail": str(error), "parseWarnings": error.warnings}
         except Exception:  # noqa: BLE001 -- never propagate credential, CLI or HTTP details.
             return {"runtime": "claude_code", "errorCode": "unavailable"}
 

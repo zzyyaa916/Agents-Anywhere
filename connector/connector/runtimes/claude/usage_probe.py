@@ -151,7 +151,7 @@ def _credential_lock(path):
         yield
 
 
-def _refresh(path, previous, client, *, force=False):
+def _refresh(path, previous, client, *, force=False, user_agent):
     refreshed = False
     temporary = None
     try:
@@ -165,7 +165,7 @@ def _refresh(path, previous, client, *, force=False):
             request = urllib.request.Request(TOKEN_URL, method="POST", data=json.dumps({
                 "grant_type": "refresh_token", "refresh_token": oauth["refreshToken"],
                 "client_id": CLIENT_ID,
-            }).encode(), headers={"Content-Type": "application/json", "Accept": "application/json"})
+            }).encode(), headers={"Content-Type": "application/json", "Accept": "application/json", "User-Agent": user_agent})
             with client.open(request, timeout=20) as response:
                 raw = response.read(65537)
                 if len(raw) > 65536:
@@ -177,13 +177,13 @@ def _refresh(path, previous, client, *, force=False):
             if isinstance(duration, bool) or not isinstance(duration, (int, float)) or not math.isfinite(duration) or duration <= 0:
                 raise AuthExpired()
             expires = int((time.time() + duration) * 1000)
+            refreshed = True
             # Preserve other fields from the latest file, including changes made
             # during the request. Never overwrite a newer external login.
             latest, latest_stat = _credentials(path)
             if latest["claudeAiOauth"]["refreshToken"] != oauth["refreshToken"]:
                 return latest, True
             latest["claudeAiOauth"].update(accessToken=access, refreshToken=refresh, expiresAt=expires)
-            refreshed = True
             fd, temporary = tempfile.mkstemp(prefix=".credentials-", dir=path.parent)
             with os.fdopen(fd, "w") as stream:
                 if (os.fstat(stream.fileno()).st_uid, os.fstat(stream.fileno()).st_gid) != (latest_stat.st_uid, latest_stat.st_gid):
@@ -228,13 +228,14 @@ def fetch_usage(command, *, opener=None):
         # Both endpoints use direct TLS, with proxies and redirects disabled.
         client = opener or urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
         refreshed = False
+        user_agent = "claude-code/" + match.group(1)
         if credentials["claudeAiOauth"]["expiresAt"] <= (time.time() + 60) * 1000:
-            credentials, refreshed = _refresh(path, credentials, client)
+            credentials, refreshed = _refresh(path, credentials, client, user_agent=user_agent)
         for attempt in range(2):
             request = urllib.request.Request(URL, method="GET", headers={
                 "Authorization": "Bearer " + _token(credentials["claudeAiOauth"]["accessToken"]),
                 "anthropic-beta": "oauth-2025-04-20",
-                "User-Agent": "claude-code/" + match.group(1), "Accept": "application/json",
+                "User-Agent": user_agent, "Accept": "application/json",
             })
             try:
                 with client.open(request, timeout=20) as response:
@@ -256,7 +257,7 @@ def fetch_usage(command, *, opener=None):
                     error.close()
                 if refreshed or attempt:
                     raise AuthExpired()
-                credentials, refreshed = _refresh(path, credentials, client, force=True)
+                credentials, refreshed = _refresh(path, credentials, client, force=True, user_agent=user_agent)
         raise AuthExpired()
     except ParseError as error:
         return {"error_code": "parse_error", "detail": str(error), "parse_warnings": error.warnings}

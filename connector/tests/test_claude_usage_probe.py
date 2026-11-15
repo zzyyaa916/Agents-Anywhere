@@ -304,3 +304,18 @@ async def test_probe_rpc_preserves_error_codes_and_warnings(tmp_path, monkeypatc
     result = await rpc._manual_probe()
     assert result['errorCode'] == code
     assert result['parseWarnings'] == [warning]
+
+
+def test_default_opener_disables_proxies_and_redirects(probe_credentials, monkeypatch):
+    path, value = probe_credentials
+    value['claudeAiOauth']['expiresAt'] = (NOW+3600)*1000
+    path.write_text(json.dumps(value))
+    handlers = []
+    def build(*values):
+        handlers.extend(values)
+        return SimpleNamespace(open=lambda *a, **kw: JsonResponse(body()))
+    monkeypatch.setattr(module.urllib.request,'build_opener',build)
+    assert 'windows' in module.fetch_usage(['claude'])
+    assert handlers[0].proxies == {}
+    assert isinstance(handlers[1],module.NoRedirect)
+    assert handlers[1].redirect_request(None,None,302,'',{},'https://example.invalid') is None
