@@ -7,7 +7,11 @@ import pytest
 from jsonschema import validate
 
 from agent_server.core.account_usage import (
-    ClaudeProbeResult, UsageResponse, UsageWindow, merged_claude_windows, probe_failure,
+    ClaudeProbeResult,
+    UsageResponse,
+    UsageWindow,
+    merged_claude_windows,
+    probe_failure,
 )
 
 

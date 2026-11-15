@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+
 from connector.core.json_kv import JsonKeyValueStore
 from connector.runtimes.claude import usage_probe as module
 
@@ -185,7 +186,6 @@ def test_bad_reset_discards_only_that_window(reset):
 
 
 def test_refresh_success_is_atomic_preserves_owner_mode_and_other_fields(probe_credentials):
-    import os
     path, original = probe_credentials
     stat = path.stat(); response = refresh_response(); calls = []
     def open_request(request, **kw):
@@ -218,7 +218,7 @@ def test_refresh_failure_leaves_file_byte_identical(probe_credentials):
 
 def test_other_writer_refresh_before_lock_uses_existing_credentials(probe_credentials, monkeypatch):
     from contextlib import contextmanager
-    path, original = probe_credentials; updated = refresh_response()
+    path, _original = probe_credentials; updated = refresh_response()
     @contextmanager
     def lock(_):
         value = json.loads(path.read_text())
