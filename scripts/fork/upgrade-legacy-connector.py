@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Upgrade a legacy Fork Connector in a separate venv; keep the original for rollback."""
+import errno
 import hashlib
+import stat
 import json
 import os
 from pathlib import Path
@@ -53,6 +55,48 @@ def install_package(root, manifest, uv, python, command=subprocess.run):
              str(wheel if local_wheel else root / 'connector')], check=True)
 
 
+def restore_package_access(old, new):
+    """Preserve only existing public program permissions, never credential ACLs.
+
+    Wheel extraction can replace the old package with 0700 directories under
+    the maintenance umask. Copy modes and POSIX ACLs, but not timestamps or
+    contents (old timestamps could make Python reuse stale bytecode).
+    """
+    sites = list(old.glob('lib/python*/site-packages'))
+    if len(sites) != 1:
+        raise RuntimeError('无法确认旧环境程序目录')
+    old_site = sites[0]
+    new_site = new / old_site.relative_to(old)
+    old_infos = list(old_site.glob('anywhere_cli-*.dist-info'))
+    if len(old_infos) != 1:
+        raise RuntimeError('无法确认旧安装包元数据')
+    pairs = [(old_site / 'connector', new_site / 'connector'),
+             (old_infos[0], new_site / f'anywhere_cli-{VERSION}.dist-info')]
+    for source, target in pairs:
+        for path in [target, *target.rglob('*')]:
+            if path.is_symlink():
+                raise RuntimeError('新版程序目录不应包含链接')
+            template = source / path.relative_to(target)
+            if not template.exists():
+                template = source if path.is_dir() else source / ('__init__.py' if target.name == 'connector' else 'METADATA')
+            os.chmod(path, stat.S_IMODE(template.stat().st_mode))
+            for attribute in ['system.posix_acl_access', 'system.posix_acl_default']:
+                if attribute.endswith('_default') and not path.is_dir():
+                    continue
+                try:
+                    value = os.getxattr(template, attribute)
+                except OSError as error:
+                    if error.errno not in {errno.ENODATA, errno.ENOTSUP}:
+                        raise
+                    try:
+                        os.removexattr(path, attribute)
+                    except OSError as missing:
+                        if missing.errno not in {errno.ENODATA, errno.ENOTSUP}:
+                            raise
+                else:
+                    os.setxattr(path, attribute, value)
+
+
 def prepare_environment(root, manifest, uv, venv, new):
     try:
         subprocess.run(['cp', '-a', '--reflink=auto', str(venv) + '/.', str(new)], check=True)
@@ -61,6 +105,7 @@ def prepare_environment(root, manifest, uv, venv, new):
         run([new / 'bin/python', '-c', 'import connector.cli; from connector.local import worktrees; from connector.server import local_rpc; from importlib.metadata import version; assert version("anywhere-cli") == "2.7.1"; print("import check OK")'])
         owner = venv.stat()
         subprocess.run(['chown', '-R', f'{owner.st_uid}:{owner.st_gid}', str(new)], check=True)
+        restore_package_access(venv, new)
     except BaseException:
         shutil.rmtree(new)
         raise

@@ -205,3 +205,26 @@ class NativeCleanupUpgradeTests(unittest.TestCase):
                 self.assertEqual(broker.read_bytes(), b"old broker" if fail else b"new broker")
                 self.assertEqual(helper.read_bytes(), b"old helper" if fail else b"new helper")
                 self.assertEqual((root / "runtime-broker.before.py").read_bytes(), b"old broker")
+
+
+class ProgramAccessTests(unittest.TestCase):
+    def test_install_preserves_program_modes_without_copying_old_code_or_times(self):
+        import os
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory); old=root/'old'; new=root/'new'
+            old_site=old/'lib/python3.12/site-packages'; new_site=new/'lib/python3.12/site-packages'
+            for site, version in [(old_site,'2.6.7'),(new_site,module['VERSION'])]:
+                for name in ['connector',f'anywhere_cli-{version}.dist-info']:
+                    (site/name).mkdir(parents=True)
+            (old_site/'connector/__init__.py').write_text('old code')
+            (new_site/'connector/__init__.py').write_text('new code')
+            (old_site/'anywhere_cli-2.6.7.dist-info/METADATA').write_text('old metadata')
+            (new_site/f'anywhere_cli-{module["VERSION"]}.dist-info/METADATA').write_text('new metadata')
+            for path in old_site.rglob('*'):path.chmod(0o755 if path.is_dir() else 0o644)
+            for path in new_site.rglob('*'):path.chmod(0o700 if path.is_dir() else 0o600)
+            path=new_site/'connector/__init__.py'; os.utime(path,(1000000000,1000000000))
+            module['restore_package_access'](old,new)
+            self.assertEqual(path.read_text(),'new code')
+            self.assertEqual(path.stat().st_mode & 0o777,0o644)
+            self.assertEqual(path.stat().st_mtime,1000000000)
+            self.assertEqual((new_site/'connector').stat().st_mode & 0o777,0o755)
