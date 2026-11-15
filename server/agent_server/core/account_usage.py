@@ -141,6 +141,8 @@ class UsageResponse(Wire):
 
 def probe_failure(state, now, error_code, *, retry_after_seconds=None, retry_after_at=None):
     """One server-clock retry policy; failures never change cached windows."""
+    if error_code != "rate_limited":
+        retry_after_seconds = retry_after_at = None
     if retry_after_seconds is not None:
         try:
             datetime.fromtimestamp(now + retry_after_seconds, UTC)
