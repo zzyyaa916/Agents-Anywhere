@@ -11,6 +11,10 @@ module = runpy.run_path(str(Path(__file__).with_name('update-preview.py')))
 
 
 class UpdatePreviewTests(unittest.TestCase):
+    def test_current_deployments_are_supported(self):
+        self.assertTrue({'2.6.5','2.6.6','2.6.7','2.7.0',module['VERSION']} <= set(module['SUPPORTED_SOURCE_VERSIONS']))
+        self.assertNotIn('2.8.0',module['SUPPORTED_SOURCE_VERSIONS'])
+
     def test_payload_accepts_only_matching_files(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

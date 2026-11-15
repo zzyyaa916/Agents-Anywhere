@@ -33,6 +33,9 @@ def build(destination):
     for path in web.rglob('*'):
         if path.is_file():
             files['web-static/' + str(path.relative_to(web))] = path
+    wheel = ROOT / 'connector/dist' / f'anywhere_cli-{version}-py3-none-any.whl'
+    if wheel.is_file():
+        files[wheel.name] = wheel
     files['deploy.py'] = ROOT / 'scripts/fork/update-preview.py'
     files['upgrade-legacy-connector.py'] = ROOT / 'scripts/fork/upgrade-legacy-connector.py'
     files['runtime-broker.py'] = ROOT / 'scripts/fork/runtime-broker.py'

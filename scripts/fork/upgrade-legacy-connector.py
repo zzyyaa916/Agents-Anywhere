@@ -12,6 +12,7 @@ import time
 SERVICE = 'agents-anywhere-fork.service'
 VENV = Path('/home/aa-fork/.venv')
 VERSION = '2.7.1'
+SUPPORTED_SOURCE_VERSIONS = ('2.6.0', '2.6.1', '2.6.2', '2.6.3', '2.6.4', '2.6.5', '2.6.6', '2.6.7', '2.7.0', VERSION)
 
 
 def run(args):
@@ -85,6 +86,7 @@ def install_native_cleanup(root, manifest, unit, command=run, *, broker=Path('/u
            for source, target in targets):
         return  # Identical helpers must not restart the broker and interrupt native conversations.
     previous = broker.read_bytes()
+    broker_changed = (root / "runtime-broker.py").read_bytes() != previous
     saved = root / 'runtime-broker.before.py'
     saved.write_bytes(previous)
     saved.chmod(0o600)
@@ -97,7 +99,10 @@ def install_native_cleanup(root, manifest, unit, command=run, *, broker=Path('/u
             os.chown(temporary, 0, 0)
             temporary.chmod(0o755)
             temporary.replace(target)
-        command(['systemctl', 'restart', 'aa-fork-runtime.service'])
+        # Helpers are exec'ed afresh on each request; replacing just a helper
+        # must not restart the unchanged broker and interrupt native sessions.
+        if broker_changed:
+            command(['systemctl', 'restart', 'aa-fork-runtime.service'])
         command(['systemctl', 'is-active', '--quiet', 'aa-fork-runtime.service'])
     except BaseException:
         broker.write_bytes(previous)
@@ -111,7 +116,8 @@ def install_native_cleanup(root, manifest, unit, command=run, *, broker=Path('/u
                 probe_helper.unlink(missing_ok=True)
             else:
                 probe_helper.write_bytes(old_probe)
-        command(['systemctl', 'restart', 'aa-fork-runtime.service'])
+        if broker_changed:
+            command(['systemctl', 'restart', 'aa-fork-runtime.service'])
         raise
 
 
@@ -141,7 +147,7 @@ def upgrade(root):
         raise RuntimeError('请先确认没有运行任务并在维护连接中停止 Fork Connector；本脚本不停止在线任务。')
     python = VENV / 'bin/python'
     current = run([python, '-c', 'from importlib.metadata import version; print(version("anywhere-cli"))'])
-    if current not in ('2.5.4', '2.5.5', '2.6.0', '2.6.1', '2.6.2', '2.6.3', '2.6.4', VERSION):
+    if current not in ('2.5.4', '2.5.5', *SUPPORTED_SOURCE_VERSIONS):
         raise RuntimeError('Connector 来源版本未经验证；未修改服务。')
     if VENV.is_symlink() and (not VENV.resolve().is_relative_to(VENV.parent) or not VENV.resolve().name.startswith('.venv')):
         raise RuntimeError('Connector 环境链接目标未经验证；未修改服务。')

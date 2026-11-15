@@ -29,6 +29,9 @@ class PreviewBuildTests(unittest.TestCase):
             web = root / 'web-next/out'
             web.mkdir(parents=True); (web / 'index.html').write_text('exported')
             (root / '.git/info/exclude').write_text('web-next/out/\n')
+            wheel = root / 'connector/dist/anywhere_cli-2.6.5-py3-none-any.whl'
+            wheel.parent.mkdir(); wheel.write_bytes(b'verified local wheel')
+            with (root / '.git/info/exclude').open('a') as stream: stream.write('connector/dist/\n')
             function = MODULE['build']
             previous = function.__globals__['ROOT']
             function.__globals__['ROOT'] = root
@@ -38,6 +41,7 @@ class PreviewBuildTests(unittest.TestCase):
                 with tarfile.open(output) as archive:
                     manifest = json.load(archive.extractfile('manifest.json'))
                     self.assertEqual(manifest['version'], '2.6.5')
+                    self.assertIn('anywhere_cli-2.6.5-py3-none-any.whl', manifest['files'])
                     self.assertIn('upgrade-legacy-connector.py', manifest['files'])
                     self.assertIn('runtime-broker.py', manifest['files'])
                     self.assertIn('native-history-cleanup.py', manifest['files'])
