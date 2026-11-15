@@ -14,7 +14,7 @@ import urllib.error
 import urllib.request
 
 
-VERSION = '2.6.7'
+VERSION = '2.7.0'
 
 
 def digest(path):

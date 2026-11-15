@@ -77,6 +77,8 @@ fun ForkUsageButton(controller: ForkController, modifier: Modifier = Modifier) {
     }
     if (open) AlertDialog(onDismissRequest = { open = false }, title = { Text(stringResource(R.string.fork_usage)) }, text = {
         Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (usage?.refresh?.errorCode == "auth_expired") Text("登录令牌已过期")
+            if (usage?.refresh?.errorCode == "parse_error") Text("用量数据解析失败")
             if (status == "offline") Text("探针节点离线")
             if (status in setOf("retry", "offline", "circuit") && deadline > 0) Text("可重试时间：${localUsageTime(usage?.refresh?.nextAllowedAt)}")
             if (failed) Text("刷新失败，原有数据保留", color = MaterialTheme.colorScheme.error)
@@ -86,8 +88,8 @@ fun ForkUsageButton(controller: ForkController, modifier: Modifier = Modifier) {
                     Text(stringResource(when (window.kind) { "five_hour" -> R.string.fork_five_hour; "weekly", "seven_day", "weekly_scoped" -> R.string.fork_weekly; else -> R.string.fork_other_window }))
                     Text("剩余 ${window.remaining.roundToInt()}%")
                     Text("重置时间：${localUsageTime(window.resetsAt)}")
+                    if (account.runtime == "claude_code") Text(claudeUpdate(listOf(window)), style = MaterialTheme.typography.bodySmall)
                 }
-                if (account.runtime == "claude_code" && account.windows.isNotEmpty()) Text(claudeUpdate(account.windows), style = MaterialTheme.typography.bodySmall)
                 if (account.runtime == "codex") Text(stringResource(if (account.stale) R.string.fork_stale else R.string.fork_updated, localUsageTime(account.fetchedAt)), style = MaterialTheme.typography.bodySmall)
             }
             if (usage?.accounts.isNullOrEmpty()) Text("暂无数据")

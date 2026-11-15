@@ -136,3 +136,34 @@ def test_response_forbids_credentials_and_unknown_payloads():
     body["windows"][0]["remainingPercent"] = 50
     with pytest.raises(ValidationError):
         UsageCollection.model_validate(body)
+
+
+@pytest.mark.anyio
+async def test_probe_partial_merge_null_clears_reset_without_refreshing_failed_window():
+    """Integration: requires the throwaway PostgreSQL database."""
+    from agent_server.core.account_usage import ClaudeProbeResult
+    from agent_server.infra.repositories.facade import Store
+    store = Store()
+    try:
+        connector, _, _ = await store.create_connector(name='probe', user_id='user_1')
+        await seed(store, connector.id, 'claude')
+        async def finish(body, now):
+            token, _ = await store.claim_claude_probe(now)
+            assert token
+            await store.finish_claude_probe(token, user_id='user_1', connector_id=connector.id,
+                runtime_id='claude', result=ClaudeProbeResult.model_validate(body), error_code=None, now=now)
+        first = payload('claude_code', 2000000000)
+        first.pop('fetchedAt'); first.pop('stale')
+        first['windows'].append({**first['windows'][0], 'kind':'seven_day','windowDurationMins':10080})
+        await finish(first, 2000000000)
+        second = {**first, 'windows': [{**first['windows'][0], 'usedPercent':0, 'remainingPercent':100, 'resetsAt':None}],
+            'parseWarnings':[{'field':'seven_day.utilization','reason':'TypeError'}]}
+        await finish(second, 2000000300)
+        row = (await store.account_usage_rows('user_1'))[0]
+        import json
+        data = json.loads(row['claude_windows_json'])
+        assert data['five_hour']['probe']['window']['resetsAt'] is None
+        assert data['seven_day']['probe']['received_at'] == datetime.fromtimestamp(2000000000, UTC).isoformat()
+        assert data['parse_warnings'] == second['parseWarnings']
+    finally:
+        await store.close()

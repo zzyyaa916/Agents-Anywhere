@@ -45,9 +45,16 @@
           "type": "number"
         },
         "resetsAt": {
-          "format": "date-time",
-          "title": "Resetsat",
-          "type": "string"
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Resetsat"
         },
         "windowDurationMins": {
           "exclusiveMinimum": 0,
@@ -165,7 +172,9 @@
             "invalid_response",
             "account_changed",
             "account_unavailable",
-            "unsupported_auth"
+            "unsupported_auth",
+            "auth_expired",
+            "parse_error"
           ],
           "type": "string"
         },

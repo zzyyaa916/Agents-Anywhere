@@ -6,6 +6,13 @@ import org.junit.Test
 import java.time.Instant
 
 class ForkUsageTest {
+    @Test fun inactiveWindowRemainsVisible() {
+        val cache = UsageCache.parse(JSONObject("""{"snapshots":[{"runtime":"claude_code","windows":[{"kind":"five_hour","remainingPercent":100,"resetsAt":null}]}],"refresh":{"status":"retry","errorCode":"parse_error"}}"""))
+        assertEquals(100.0, cache.accounts.single().windows.single().remaining, 0.0)
+        assertNull(cache.accounts.single().windows.single().resetsAt)
+        assertEquals("parse_error", cache.refresh.errorCode)
+    }
+
     @Test fun quotaWaitResumesOnlyAfterKnownDeadline() {
         val now = Instant.parse("2026-11-10T00:00:00Z")
         assertTrue(QuotaWait("limited", null).waiting(now))

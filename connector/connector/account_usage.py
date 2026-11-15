@@ -372,7 +372,7 @@ class AccountUsageRpc:
                 process = await asyncio.create_subprocess_exec(*claude_command(["--aa-usage-probe", self.host.connector_id]),
                     stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL, limit=65536)
                 try:
-                    stdout, _ = await asyncio.wait_for(process.communicate(), 35)
+                    stdout, _ = await asyncio.wait_for(process.communicate(), 80)
                     if process.returncode or len(stdout) > 65536:
                         raise ValueError("probe unavailable")
                     payload = json.loads(stdout)
@@ -387,13 +387,20 @@ class AccountUsageRpc:
                 return {"runtime": "claude_code", "errorCode": "account_changed"}
             result = {"runtime": "claude_code", "accountKey": after["account_key"], "planType": after.get("plan_type")}
             if payload.get("error_code"):
-                result["errorCode"] = "rate_limited" if payload["error_code"] == "rate_limited" else "unavailable"
+                result["errorCode"] = payload["error_code"] if payload["error_code"] in {"rate_limited", "auth_expired", "parse_error"} else "unavailable"
+                if payload.get("detail") == "write_failed_after_refresh":
+                    result["detail"] = "write_failed_after_refresh"
+                if payload.get("parse_warnings"):
+                    result["parseWarnings"] = payload["parse_warnings"]
+                    result["detail"] = "; ".join(w["field"] + ": " + w["reason"] for w in payload["parse_warnings"])
                 if "retry_after_seconds" in payload:
                     result["retryAfterSeconds"] = payload["retry_after_seconds"]
                 if "retry_after_at" in payload:
                     result["retryAfterAt"] = payload["retry_after_at"]
                 return result
             normalized = normalized_usage({w["kind"]: {"utilization": w["used_percent"], "resets_at": w["resets_at"]} for w in payload["windows"]})
+            if payload.get("parse_warnings") or normalized.get("parse_warnings"):
+                result["parseWarnings"] = payload.get("parse_warnings", []) + normalized.get("parse_warnings", [])
             result["windows"] = [{"kind": w["kind"], "usedPercent": w["used_percent"], "remainingPercent": 100 - w["used_percent"],
                 "resetsAt": w["resets_at"], "windowDurationMins": 300 if w["kind"] == "five_hour" else 10080} for w in normalized["windows"]]
             return result

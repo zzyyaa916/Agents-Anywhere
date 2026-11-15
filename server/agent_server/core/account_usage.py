@@ -13,6 +13,8 @@ from pydantic import (
 )
 from pydantic.alias_generators import to_camel
 
+DETAIL_PATTERN = r"^(write_failed_after_refresh|(?:\$|windows|(?:five_hour|seven_day)(?:\.(?:utilization|resets_at))?): (?:TypeError|ValueError|OverflowError|MissingField|JSONDecodeError|SizeLimit)(?:; (?:\$|windows|(?:five_hour|seven_day)(?:\.(?:utilization|resets_at))?): (?:TypeError|ValueError|OverflowError|MissingField|JSONDecodeError|SizeLimit))*)$"
+
 MINIMUM = {"codex": 60, "claude_code": 300}
 Runtime = Literal["codex", "claude_code", "dsh"]
 Plan = Literal[
@@ -25,6 +27,8 @@ ErrorCode = Literal[
     "account_changed",
     "account_unavailable",
     "unsupported_auth",
+    "auth_expired",
+    "parse_error",
 ]
 
 
@@ -39,7 +43,7 @@ class UsageWindow(Wire):
     model_scope: Literal["opus", "sonnet", "haiku", "unknown"] | None = None
     used_percent: FiniteFloat = Field(ge=0, le=100)
     remaining_percent: FiniteFloat = Field(ge=0, le=100)
-    resets_at: AwareDatetime
+    resets_at: AwareDatetime | None
     window_duration_mins: int = Field(gt=0, le=525600)
     source: Literal["event", "probe"] | None = None
     received_at: AwareDatetime | None = None
@@ -52,6 +56,11 @@ class UsageWindow(Wire):
         if self.kind == "five_hour" and self.window_duration_mins != 300:
             raise ValueError("invalid window duration")
         return self
+
+
+class ParseWarning(Wire):
+    field: str = Field(pattern=r"^(\$|windows|(?:five_hour|seven_day)(?:\.(?:utilization|resets_at))?)$")
+    reason: Literal["TypeError", "ValueError", "OverflowError", "MissingField", "JSONDecodeError", "SizeLimit"]
 
 
 class UsageIdentity(Wire):
@@ -74,6 +83,7 @@ class UsageBinding(Wire):
 
 
 class UsageSnapshot(Wire):
+    parse_warnings: list[ParseWarning] = Field(default_factory=list, max_length=8)
     runtime: Runtime
     account_key: str
     bindings: list[UsageBinding] = Field(default_factory=list)
@@ -87,6 +97,8 @@ class UsageSnapshot(Wire):
 
 
 class ProbeRefresh(Wire):
+    parse_warnings: list[ParseWarning] = Field(default_factory=list, max_length=8)
+    detail: str | None = Field(default=None, pattern=DETAIL_PATTERN)
     status: Literal["idle", "running", "success", "retry", "offline", "circuit", "disabled"] = "idle"
     next_allowed_at: AwareDatetime | None = None
     completed_at: AwareDatetime | None = None
@@ -107,6 +119,8 @@ class ClaudeUsageEvent(Wire):
 
 
 class ClaudeProbeResult(UsageIdentity):
+    parse_warnings: list[ParseWarning] = Field(default_factory=list, max_length=8)
+    detail: str | None = Field(default=None, pattern=DETAIL_PATTERN)
     windows: list[UsageWindow] = Field(default_factory=list, max_length=2)
     retry_after_seconds: FiniteFloat | None = Field(default=None, ge=0)
     retry_after_at: AwareDatetime | None = None
@@ -136,6 +150,8 @@ def probe_failure(state, now, error_code, *, retry_after_seconds=None, retry_aft
     value.update(status="offline" if error_code == "node_offline" else "retry", error_code=error_code, attempt_id=None, lease_until=0)
     if error_code == "rate_limited":
         value["consecutive_429"] = value.get("consecutive_429", 0) + 1
+    else:
+        value.update(consecutive_429=0, circuit_until=0)
     if retry_after_seconds is not None:
         deadline = now + retry_after_seconds
         value["interval"] = max(300, retry_after_seconds)
@@ -143,7 +159,7 @@ def probe_failure(state, now, error_code, *, retry_after_seconds=None, retry_aft
         deadline = max(now, retry_after_at.timestamp())
         value["interval"] = max(300, deadline - now)
     else:
-        value["interval"] = value.get("interval", 300) * 2
+        value["interval"] = min(1800, 300 * 2 ** min(value["consecutive_429"], 3)) if error_code == "rate_limited" else 300
         deadline = now + value["interval"]
     if value.get("consecutive_429", 0) >= 3:
         tomorrow = datetime.fromtimestamp(now, UTC).date() + timedelta(days=1)

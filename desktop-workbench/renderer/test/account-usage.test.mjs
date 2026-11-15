@@ -40,7 +40,7 @@ test('opening only reads cache, windows show individual sources and server ages'
   const panel = await render(t)
   assert.ok(requests.length >= 1 && requests.every(([method]) => method === 'GET'))
   assert.match(panel.textContent, /05\/18 03:21 更新 · 缓存/)
-  assert.doesNotMatch(panel.textContent, /更新 · 探针/)
+  assert.match(panel.textContent, /更新 · 探针/)
   assert.equal(refresh().textContent, '刷新')
 })
 test('only refresh posts; successful data starts at server age zero', async t => {
@@ -84,23 +84,37 @@ test('device wall-clock skew does not bypass server retry time or change data ag
 })
 
 
-test('usage stays compact and combines matching Claude update labels', async t => {
+test('usage stays compact and shows each Claude window update', async t => {
   const panel = await render(t, () => {
     for (const window of body.snapshots[0].windows) { window.source = 'probe'; window.receivedAt = '2033-05-18T03:33:20Z' }
   })
   assert.equal(refresh().textContent, '刷新')
   assert.doesNotMatch(panel.textContent, /已用|报告重置|分钟前|只有点击刷新/)
-  assert.equal((panel.textContent.match(/05\/18 03:33 更新 · 探针/g) || []).length, 1)
+  assert.equal((panel.textContent.match(/05\/18 03:33 更新 · 探针/g) || []).length, 2)
   assert.match(panel.textContent, /重置时间/)
 })
 
 
-test('one Claude footer follows the newest window source in either direction', async t => {
+test('each Claude window preserves its own update source', async t => {
   let panel = await render(t, () => { body.snapshots[0].windows[1].receivedAt = '2033-05-18T03:30:00Z' })
   assert.match(panel.textContent, /05\/18 03:30 更新 · 探针/)
-  assert.doesNotMatch(panel.textContent, /更新 · 缓存/)
+  assert.match(panel.textContent, /更新 · 缓存/)
   body.snapshots[0].windows[0].receivedAt = '2033-05-18T03:33:20Z'
   await act(async () => refresh().click())
   assert.match(panel.textContent, /05\/18 03:33 更新 · 缓存/)
-  assert.doesNotMatch(panel.textContent, /更新 · 探针/)
+  assert.match(panel.textContent, /更新 · 探针/)
 })
+
+for (const [code, label] of [["auth_expired", "登录令牌已过期"], ["parse_error", "用量数据解析失败"]]) {
+  test(`inactive window and ${code} preserve cached data`, async t => {
+    const panel = await render(t, () => {
+      body.snapshots[0].windows[0].resetsAt = null
+      body.snapshots[0].windows[0].remainingPercent = 100
+      body.refresh = {status: "retry", errorCode: code}
+    })
+    assert.match(panel.textContent, /5 小时 · 剩余 100%/)
+    assert.match(panel.textContent, /重置时间：—/)
+    assert.ok(panel.textContent.includes(label))
+    assert.doesNotMatch(panel.textContent, /Invalid Date|1970/)
+  })
+}

@@ -208,12 +208,14 @@ class AccountUsageRepositoryMixin:
                 .values(**values)
             )
 
-    async def _merge_claude_windows(self, conn, user_id, account_key, source, windows, received_at, observation_id=None):
+    async def _merge_claude_windows(self, conn, user_id, account_key, source, windows, received_at, observation_id=None, parse_warnings=None):
         await conn.execute(insert(db.account_usage_snapshots).values(user_id=user_id, runtime="claude_code", account_key=account_key).on_conflict_do_nothing())
         current = (await conn.execute(select(db.account_usage_snapshots.c.claude_windows_json).where(
             db.account_usage_snapshots.c.user_id == user_id, db.account_usage_snapshots.c.runtime == "claude_code",
             db.account_usage_snapshots.c.account_key == account_key).with_for_update())).scalar_one()
         data = json.loads(current) if current else {}
+        if parse_warnings is not None:
+            data["parse_warnings"] = [w.model_dump() for w in parse_warnings]
         for window in windows:
             previous = data.get(window.kind, {}).get(source)
             if previous and datetime.fromisoformat(previous["received_at"]).timestamp() > received_at:
@@ -273,13 +275,17 @@ class AccountUsageRepositoryMixin:
                 return state
             owned = (await conn.execute(select(db.connectors.c.id).where(db.connectors.c.id == connector_id,
                 db.connectors.c.user_id == user_id, db.connectors.c.revoked == 0))).scalar_one_or_none()
+            state["parse_warnings"] = [w.model_dump() for w in result.parse_warnings] if result else []
+            state["detail"] = result.detail if result else None
             if result is not None and not result.error_code and result.account_key and result.windows and owned:
-                await self._merge_claude_windows(conn, user_id, result.account_key, "probe", result.windows, now)
+                await self._merge_claude_windows(conn, user_id, result.account_key, "probe", result.windows, now, parse_warnings=result.parse_warnings)
                 await conn.execute(insert(db.account_usage_sources).values(connector_id=connector_id, runtime_id=runtime_id,
                     account_key=result.account_key).on_conflict_do_update(index_elements=["connector_id", "runtime_id"], set_={"account_key": result.account_key}))
                 state.update(status="success", last_success_at=now, next_allowed_at=now + 300, interval=300,
                              consecutive_429=0, circuit_until=0, error_code=None, attempt_id=None, lease_until=0)
             else:
+                if result is not None and result.account_key and owned:
+                    await self._merge_claude_windows(conn, user_id, result.account_key, "probe", [], now, parse_warnings=result.parse_warnings)
                 state = probe_failure(state, now, error_code or "unavailable",
                     retry_after_seconds=result.retry_after_seconds if result else None,
                     retry_after_at=result.retry_after_at if result else None)

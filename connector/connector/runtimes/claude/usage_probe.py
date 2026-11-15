@@ -9,8 +9,11 @@ import platform
 import re
 import subprocess
 import sys
+import tempfile
+import time
 import urllib.error
 import urllib.request
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from pathlib import Path
@@ -46,22 +49,54 @@ def retry_hint(value):
     return {}
 
 
+class ParseError(ValueError):
+    """Contains only controlled field paths and exception categories."""
+
+    def __init__(self, warnings):
+        self.warnings = warnings
+        super().__init__("; ".join(w["field"] + ": " + w["reason"] for w in warnings))
+
+
 def normalized_usage(payload):
-    windows = []
+    if not isinstance(payload, dict):
+        raise ParseError([{"field": "$", "reason": "TypeError"}])
+    windows, warnings = [], []
     for kind in ("five_hour", "seven_day"):
-        item = payload.get(kind)
-        if item is None:
+        if kind not in payload:
             continue
-        percent = item.get("utilization")
-        if isinstance(percent, bool) or not isinstance(percent, (int, float)) or not math.isfinite(percent) or not 0 <= percent <= 100:
-            raise ValueError("invalid usage")
-        reset = datetime.fromisoformat(item["resets_at"])
-        if reset.tzinfo is None:
-            raise ValueError("reset must be timezone aware")
-        windows.append({"kind": kind, "used_percent": percent, "resets_at": reset.astimezone(UTC).isoformat()})
+        field = kind
+        try:
+            item = payload[kind]
+            if not isinstance(item, dict):
+                raise TypeError()
+            field = kind + ".utilization"
+            if "utilization" not in item:
+                warnings.append({"field": field, "reason": "MissingField"})
+                continue
+            percent = item["utilization"]
+            reset = item.get("resets_at")
+            if percent is None and reset is None:
+                percent = 0
+            if isinstance(percent, bool) or not isinstance(percent, (int, float)):
+                raise TypeError()
+            if not math.isfinite(percent) or not 0 <= percent <= 100:
+                raise ValueError()
+            field = kind + ".resets_at"
+            if reset is not None:
+                if not isinstance(reset, str):
+                    raise TypeError()
+                reset = datetime.fromisoformat(reset)
+                if reset.tzinfo is None:
+                    raise ValueError()
+                reset = reset.astimezone(UTC).isoformat()
+            elif "resets_at" not in item:
+                warnings.append({"field": field, "reason": "MissingField"})
+            windows.append({"kind": kind, "used_percent": percent, "resets_at": reset})
+        except (TypeError, ValueError, OverflowError) as error:
+            warnings.append({"field": field, "reason": type(error).__name__})
     if not windows:
-        raise ValueError("no current windows")
-    return {"windows": windows}
+        raise ParseError(warnings or [{"field": "windows", "reason": "MissingField"}])
+    return {"windows": windows, **({"parse_warnings": warnings} if warnings else {})}
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -69,40 +104,165 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+TOKEN_URL = "https://console.anthropic.com/v1/oauth/token"
+CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+
+
+class AuthExpired(Exception):
+    def __init__(self, detail=None):
+        self.detail = detail
+
+
+def _token(value):
+    if not isinstance(value, str) or not value or "\r" in value or "\n" in value:
+        raise AuthExpired()
+    return value
+
+
+def _credentials(path):
+    with path.open() as stream:
+        value = json.load(stream)
+        stat = os.fstat(stream.fileno())
+    oauth = value["claudeAiOauth"]
+    _token(oauth["accessToken"])
+    _token(oauth["refreshToken"])
+    expires = oauth["expiresAt"]
+    if isinstance(expires, bool) or not isinstance(expires, (int, float)) or not math.isfinite(expires):
+        raise AuthExpired()
+    return value, stat
+
+
+@contextmanager
+def _credential_lock(path):
+    # Only cooperating writers use this lock. An external login can still race
+    # the final refresh-token comparison and rename; that residual risk remains.
+    import fcntl
+    fd = os.open(str(path) + ".lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "a") as stream:
+        deadline = time.monotonic() + 5
+        while True:
+            try:
+                fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise AuthExpired() from None
+                time.sleep(0.05)
+        yield
+
+
+def _refresh(path, previous, client, *, force=False):
+    refreshed = False
+    temporary = None
+    try:
+        with _credential_lock(path):
+            current, _ = _credentials(path)
+            oauth = current["claudeAiOauth"]
+            if oauth["refreshToken"] != previous["claudeAiOauth"]["refreshToken"]:
+                return current, False
+            if not force and oauth["expiresAt"] > (time.time() + 60) * 1000:
+                return current, False
+            request = urllib.request.Request(TOKEN_URL, method="POST", data=json.dumps({
+                "grant_type": "refresh_token", "refresh_token": oauth["refreshToken"],
+                "client_id": CLIENT_ID,
+            }).encode(), headers={"Content-Type": "application/json", "Accept": "application/json"})
+            with client.open(request, timeout=20) as response:
+                raw = response.read(65537)
+                if len(raw) > 65536:
+                    raise AuthExpired()
+                result = json.loads(raw)
+            access = _token(result["access_token"])
+            refresh = _token(result["refresh_token"])
+            duration = result["expires_in"]
+            if isinstance(duration, bool) or not isinstance(duration, (int, float)) or not math.isfinite(duration) or duration <= 0:
+                raise AuthExpired()
+            expires = int((time.time() + duration) * 1000)
+            # Preserve other fields from the latest file, including changes made
+            # during the request. Never overwrite a newer external login.
+            latest, latest_stat = _credentials(path)
+            if latest["claudeAiOauth"]["refreshToken"] != oauth["refreshToken"]:
+                return latest, True
+            latest["claudeAiOauth"].update(accessToken=access, refreshToken=refresh, expiresAt=expires)
+            refreshed = True
+            fd, temporary = tempfile.mkstemp(prefix=".credentials-", dir=path.parent)
+            with os.fdopen(fd, "w") as stream:
+                if (os.fstat(stream.fileno()).st_uid, os.fstat(stream.fileno()).st_gid) != (latest_stat.st_uid, latest_stat.st_gid):
+                    os.fchown(stream.fileno(), latest_stat.st_uid, latest_stat.st_gid)
+                os.fchmod(stream.fileno(), 0o600)
+                json.dump(latest, stream)
+                stream.flush()
+                os.fsync(stream.fileno())
+            # Hard requirement: compare again immediately before replacement.
+            final, _ = _credentials(path)
+            if final["claudeAiOauth"]["refreshToken"] != oauth["refreshToken"]:
+                return final, True
+            os.replace(temporary, path)
+            temporary = None
+            return latest, True
+    except urllib.error.HTTPError as error:
+        error.close()
+        raise AuthExpired() from None
+    except Exception:  # noqa: BLE001 -- Never include credential, response or exception text.
+        raise AuthExpired("write_failed_after_refresh" if refreshed else None) from None
+    finally:
+        if temporary is not None:
+            try:
+                os.unlink(temporary)
+            except OSError:
+                pass
+
+
 def fetch_usage(command, *, opener=None):
-    """Runs as the Claude identity, including behind the fixed-user broker. Never logs exceptions."""
+    """Runs as the Claude identity. Only sanitized categories leave this helper."""
     try:
         version = subprocess.run([*command, "--version"], capture_output=True, text=True, timeout=10, check=True)
         match = re.search(r"\b(\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?)\b", version.stdout)
         if match is None:
             return {"error_code": "unavailable"}
         config = Path(os.environ.get("CLAUDE_CONFIG_DIR", str(Path.home() / ".claude")))
-        credentials = json.loads((config / ".credentials.json").read_text())
-        token = credentials["claudeAiOauth"]["accessToken"]
-        if not isinstance(token, str) or not token or "\r" in token or "\n" in token:
-            return {"error_code": "unavailable"}
-        request = urllib.request.Request(URL, method="GET", headers={
-            "Authorization": "Bearer " + token,
-            "anthropic-beta": "oauth-2025-04-20",
-            "User-Agent": "claude-code/" + match.group(1),
-            "Accept": "application/json",
-        })
-        # Direct TLS only. Never forward the bearer token to redirects or environment proxies.
-        client = opener or urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
-        with client.open(request, timeout=20) as response:
-            data = response.read(65537)
-            if len(data) > 65536:
-                return {"error_code": "unavailable"}
-            return normalized_usage(json.loads(data))
-    except urllib.error.HTTPError as error:
+        path = config / ".credentials.json"
         try:
-            if error.code == 429:
-                return {"error_code": "rate_limited", **retry_hint((error.headers or {}).get("Retry-After"))}
-            return {"error_code": "unavailable"}
-        finally:
-            error.close()
-    except Exception:  # noqa: BLE001 -- raw upstream/credential failures must never escape.
-        # Upstream errors, response bodies, subprocess output and credentials must never be logged.
+            credentials, _ = _credentials(path)
+        except Exception:  # noqa: BLE001 -- sanitized credential read failure
+            raise AuthExpired() from None
+        # Both endpoints use direct TLS, with proxies and redirects disabled.
+        client = opener or urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+        refreshed = False
+        if credentials["claudeAiOauth"]["expiresAt"] <= (time.time() + 60) * 1000:
+            credentials, refreshed = _refresh(path, credentials, client)
+        for attempt in range(2):
+            request = urllib.request.Request(URL, method="GET", headers={
+                "Authorization": "Bearer " + _token(credentials["claudeAiOauth"]["accessToken"]),
+                "anthropic-beta": "oauth-2025-04-20",
+                "User-Agent": "claude-code/" + match.group(1), "Accept": "application/json",
+            })
+            try:
+                with client.open(request, timeout=20) as response:
+                    data = response.read(65537)
+                if len(data) > 65536:
+                    raise ParseError([{"field": "$", "reason": "SizeLimit"}])
+                try:
+                    payload = json.loads(data)
+                except (ValueError, UnicodeError):
+                    raise ParseError([{"field": "$", "reason": "JSONDecodeError"}]) from None
+                return normalized_usage(payload)
+            except urllib.error.HTTPError as error:
+                try:
+                    if error.code == 429:
+                        return {"error_code": "rate_limited", **retry_hint((error.headers or {}).get("Retry-After"))}
+                    if error.code != 401:
+                        return {"error_code": "unavailable"}
+                finally:
+                    error.close()
+                if refreshed or attempt:
+                    raise AuthExpired()
+                credentials, refreshed = _refresh(path, credentials, client, force=True)
+        raise AuthExpired()
+    except ParseError as error:
+        return {"error_code": "parse_error", "detail": str(error), "parse_warnings": error.warnings}
+    except AuthExpired as error:
+        return {"error_code": "auth_expired", **({"detail": error.detail} if error.detail else {})}
+    except Exception:  # noqa: BLE001 -- No raw upstream, credential, subprocess or exception text.
         return {"error_code": "unavailable"}
 
 

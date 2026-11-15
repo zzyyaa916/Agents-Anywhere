@@ -130,7 +130,7 @@ class AccountUsageService:
             if not await self.rpc.is_online(source["connector_id"]):
                 error = "node_offline"
             else:
-                payload = await self.rpc.request(source["connector_id"], "accountUsage.probe", {"runtimeId": source["runtime_id"]}, timeout=70)
+                payload = await self.rpc.request(source["connector_id"], "accountUsage.probe", {"runtimeId": source["runtime_id"]}, timeout=85)
                 result = ClaudeProbeResult.model_validate(payload)
                 if result.runtime != "claude_code" or (not result.error_code and (not result.account_key or not result.windows)):
                     error = "unavailable"
@@ -171,10 +171,11 @@ class AccountUsageService:
             snapshots.append(UsageSnapshot(runtime=row["runtime"], account_key=row["account_key"], account_label=row["account_key"][:8],
                 plan_type=parsed.plan_type if parsed else None, windows=windows, fetched_at=fetched, stale=stale,
                 error_code=None if row["runtime"] == "claude_code" else parsed.error_code if parsed else "unavailable",
+                parse_warnings=(json.loads(row.get("claude_windows_json") or "{}").get("parse_warnings", []) if row["runtime"] == "claude_code" else []),
                 next_attempt_at=row["next_attempt_at"], bindings=[{"connector_id": s["connector_id"], "runtime_id": s["runtime_id"]} for s in matching]))
         state = await self.store.claude_probe_state(now)
         enabled = await self._probe_source(user_id) is not None
-        refresh = ProbeRefresh(status=state.get("status", "idle") if enabled else "disabled",
+        refresh = ProbeRefresh(parse_warnings=state.get("parse_warnings", []), detail=state.get("detail"), status=state.get("status", "idle") if enabled else "disabled",
             next_allowed_at=datetime.fromtimestamp(state["lease_until"] if state.get("status") == "running" else state["next_allowed_at"], UTC)
                 if enabled and (state.get("lease_until") if state.get("status") == "running" else state.get("next_allowed_at")) else None,
             completed_at=datetime.fromtimestamp(state["last_success_at"], UTC) if enabled and state.get("last_success_at") else None,

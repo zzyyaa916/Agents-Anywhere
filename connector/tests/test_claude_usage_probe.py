@@ -25,7 +25,7 @@ class Response:
 
 def test_local_request_uses_installed_version_and_never_returns_credentials(tmp_path, monkeypatch):
     config = tmp_path / ".claude"; config.mkdir()
-    (config / ".credentials.json").write_text(json.dumps({"claudeAiOauth": {"accessToken": "synthetic-local-only"}}))
+    (config / ".credentials.json").write_text(json.dumps({"claudeAiOauth": {"accessToken": "synthetic-local-only", "refreshToken": "synthetic-refresh", "expiresAt": 9999999999999}}))
     monkeypatch.setenv("HOME", str(tmp_path)); monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
     calls = []
     def version(args, **kwargs):
@@ -56,7 +56,9 @@ def test_retry_after_is_a_hint_for_server_clock(header, expected):
 @pytest.mark.parametrize("bad", [True, -1, 101, float("nan"), "71"])
 def test_malformed_percent_is_never_forwarded(bad):
     value = body(); value["five_hour"]["utilization"] = bad
-    with pytest.raises(ValueError): module.normalized_usage(value)
+    result = module.normalized_usage(value)
+    assert [w["kind"] for w in result["windows"]] == ["seven_day"]
+    assert result["parse_warnings"][0]["field"] == "five_hour.utilization"
 
 
 def test_only_pinned_linux_arm_connector_is_enabled(monkeypatch):
@@ -109,7 +111,7 @@ async def test_native_event_push_has_no_observation_clock_and_keeps_reset_window
 def test_http_429_does_not_read_or_log_error_body(tmp_path, monkeypatch, caplog):
     from io import BytesIO
     from urllib.error import HTTPError
-    (tmp_path / ".credentials.json").write_text(json.dumps({"claudeAiOauth": {"accessToken": "synthetic-secret"}}))
+    (tmp_path / ".credentials.json").write_text(json.dumps({"claudeAiOauth": {"accessToken": "synthetic-secret", "refreshToken": "synthetic-refresh", "expiresAt": 9999999999999}}))
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
     monkeypatch.setattr(module.subprocess, "run", lambda *args, **kwargs: SimpleNamespace(stdout="9.8.7"))
     calls = []
@@ -125,3 +127,180 @@ def test_valid_old_reset_is_not_cleared_by_machine_clock():
     value = body()
     value["five_hour"]["resets_at"] = "1970-01-01T00:00:01Z"
     assert module.normalized_usage(value)["windows"][0]["used_percent"] == 71
+
+
+class JsonResponse:
+    def __init__(self, value): self.data = json.dumps(value).encode()
+    def __enter__(self): return self
+    def __exit__(self, *_): pass
+    def read(self, size): return self.data[:size]
+
+
+@pytest.fixture
+def probe_credentials(tmp_path, monkeypatch):
+    import secrets
+    path = tmp_path / '.credentials.json'
+    value = {'other': {'preserved': True}, 'claudeAiOauth': {
+        'accessToken': secrets.token_urlsafe(), 'refreshToken': secrets.token_urlsafe(),
+        'expiresAt': (NOW - 1) * 1000, 'scopes': ['preserved']}}
+    path.write_text(json.dumps(value))
+    path.chmod(0o600)
+    monkeypatch.setenv('CLAUDE_CONFIG_DIR', str(tmp_path))
+    monkeypatch.setattr(module.time, 'time', lambda: NOW)
+    monkeypatch.setattr(module.subprocess, 'run', lambda *a, **kw: SimpleNamespace(stdout='9.8.7'))
+    return path, value
+
+
+def refresh_response():
+    import secrets
+    return {'access_token': secrets.token_urlsafe(), 'refresh_token': secrets.token_urlsafe(), 'expires_in': 28800}
+
+
+def test_inactive_windows_and_real_sample():
+    value = {'five_hour': {'utilization': 0.0, 'resets_at': None, 'limit_dollars': None,
+        'used_dollars': None, 'remaining_dollars': None, 'locked_reason': None},
+        'seven_day': {'utilization': 43.0, 'resets_at': '2026-11-19T17:00:00.050859+00:00',
+        'limit_dollars': None, 'used_dollars': None, 'remaining_dollars': None, 'locked_reason': None}}
+    result = module.normalized_usage(value)
+    assert result['windows'][0] == {'kind': 'five_hour', 'used_percent': 0, 'resets_at': None}
+    assert result['windows'][1]['used_percent'] == 43
+    value['five_hour']['utilization'] = None
+    assert module.normalized_usage(value)['windows'][0]['used_percent'] == 0
+    del value['five_hour']['resets_at']
+    assert module.normalized_usage(value)['parse_warnings'] == [{'field': 'five_hour.resets_at', 'reason': 'MissingField'}]
+
+
+@pytest.mark.parametrize('value', [None, [], 'invalid', 1])
+def test_bad_root_is_sanitized(value):
+    with pytest.raises(module.ParseError, match=r'\$: TypeError'):
+        module.normalized_usage(value)
+
+
+@pytest.mark.parametrize('reset', ['bad-date', '2026-11-19T17:00:00', 123, False])
+def test_bad_reset_discards_only_that_window(reset):
+    value = body(); value['five_hour']['resets_at'] = reset
+    result = module.normalized_usage(value)
+    assert len(result['windows']) == 1
+    assert result['parse_warnings'][0]['field'] == 'five_hour.resets_at'
+
+
+def test_refresh_success_is_atomic_preserves_owner_mode_and_other_fields(probe_credentials):
+    import os
+    path, original = probe_credentials
+    stat = path.stat(); response = refresh_response(); calls = []
+    def open_request(request, **kw):
+        calls.append(request.full_url)
+        if request.full_url == module.TOKEN_URL:
+            assert json.loads(request.data)['grant_type'] == 'refresh_token'
+            return JsonResponse(response)
+        return JsonResponse(body())
+    result = module.fetch_usage(['claude'], opener=SimpleNamespace(open=open_request))
+    assert 'windows' in result
+    saved = json.loads(path.read_text())
+    assert saved['other'] == original['other']
+    assert saved['claudeAiOauth']['scopes'] == original['claudeAiOauth']['scopes']
+    assert saved['claudeAiOauth']['accessToken'] == response['access_token'], 'access field mismatch'
+    assert saved['claudeAiOauth']['refreshToken'] == response['refresh_token'], 'refresh field mismatch'
+    assert saved['claudeAiOauth']['expiresAt'] == (NOW + 28800) * 1000
+    assert path.stat().st_mode & 0o777 == 0o600
+    assert (path.stat().st_uid, path.stat().st_gid) == (stat.st_uid, stat.st_gid)
+    assert calls == [module.TOKEN_URL, module.URL]
+    assert not list(path.parent.glob('.credentials-*'))
+
+
+def test_refresh_failure_leaves_file_byte_identical(probe_credentials):
+    path, _ = probe_credentials; before = path.read_bytes()
+    def fail(*a, **kw): raise OSError('never forward exception text')
+    result = module.fetch_usage(['claude'], opener=SimpleNamespace(open=fail))
+    assert result == {'error_code': 'auth_expired'}
+    assert path.read_bytes() == before, 'credential file changed'
+
+
+def test_other_writer_refresh_before_lock_uses_existing_credentials(probe_credentials, monkeypatch):
+    from contextlib import contextmanager
+    path, original = probe_credentials; updated = refresh_response()
+    @contextmanager
+    def lock(_):
+        value = json.loads(path.read_text())
+        value['claudeAiOauth'].update(accessToken=updated['access_token'], refreshToken=updated['refresh_token'], expiresAt=(NOW+3600)*1000)
+        path.write_text(json.dumps(value))
+        yield
+    monkeypatch.setattr(module, '_credential_lock', lock)
+    calls = []
+    def request(req, **kw):
+        calls.append(req.full_url)
+        assert req.get_header('Authorization') == 'Bearer ' + updated['access_token'], 'did not use current credential'
+        return JsonResponse(body())
+    assert 'windows' in module.fetch_usage(['claude'], opener=SimpleNamespace(open=request))
+    assert calls == [module.URL]
+
+
+@pytest.mark.parametrize('expired', [True, False])
+def test_401_refreshes_at_most_once_and_retries_at_most_once(probe_credentials, expired):
+    from io import BytesIO
+    from urllib.error import HTTPError
+    path, value = probe_credentials
+    if not expired:
+        value['claudeAiOauth']['expiresAt'] = (NOW+3600)*1000
+        path.write_text(json.dumps(value))
+    calls = []
+    def request(req, **kw):
+        calls.append(req.full_url)
+        if req.full_url == module.TOKEN_URL: return JsonResponse(refresh_response())
+        raise HTTPError(module.URL, 401, '', {}, BytesIO())
+    result = module.fetch_usage(['claude'], opener=SimpleNamespace(open=request))
+    assert result == {'error_code': 'auth_expired'}
+    assert calls.count(module.TOKEN_URL) == 1
+    assert calls.count(module.URL) == (1 if expired else 2)
+
+
+def test_write_failure_after_refresh_is_explicit_and_preserves_bytes(probe_credentials, monkeypatch):
+    path, _ = probe_credentials; before = path.read_bytes()
+    def fail(*a): raise OSError()
+    monkeypatch.setattr(module.os, 'replace', fail)
+    result = module.fetch_usage(['claude'], opener=SimpleNamespace(open=lambda *a, **kw: JsonResponse(refresh_response())))
+    assert result == {'error_code': 'auth_expired', 'detail': 'write_failed_after_refresh'}
+    assert path.read_bytes() == before, 'credential file changed'
+    assert not list(path.parent.glob('.credentials-*'))
+
+
+def test_external_login_during_refresh_is_not_overwritten(probe_credentials):
+    path, value = probe_credentials; external = refresh_response(); calls = []
+    def request(req, **kw):
+        calls.append(req.full_url)
+        if req.full_url == module.TOKEN_URL:
+            value['claudeAiOauth'].update(accessToken=external['access_token'], refreshToken=external['refresh_token'], expiresAt=(NOW+3600)*1000)
+            path.write_text(json.dumps(value))
+            return JsonResponse(refresh_response())
+        assert req.get_header('Authorization') == 'Bearer ' + external['access_token'], 'wrong credential selected'
+        return JsonResponse(body())
+    assert 'windows' in module.fetch_usage(['claude'], opener=SimpleNamespace(open=request))
+    assert json.loads(path.read_text()) == value, 'external login overwritten'
+
+
+@pytest.mark.parametrize('raw', [b'{', b'[]', b'{"five_hour":false,"seven_day":{}}'])
+def test_fetch_parse_failures_are_not_unavailable(probe_credentials, raw):
+    path, value = probe_credentials
+    value['claudeAiOauth']['expiresAt'] = (NOW+3600)*1000
+    path.write_text(json.dumps(value))
+    response = JsonResponse(None); response.data = raw
+    result = module.fetch_usage(['claude'], opener=SimpleNamespace(open=lambda *a, **kw: response))
+    assert result['error_code'] == 'parse_error'
+    assert 'detail' in result
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize('code', ['auth_expired', 'parse_error'])
+async def test_probe_rpc_preserves_error_codes_and_warnings(tmp_path, monkeypatch, code):
+    from connector import account_usage
+    host = SimpleNamespace(connector_id='test')
+    rpc = account_usage.AccountUsageRpc(None, host)
+    rpc.collector = SimpleNamespace(identify=AsyncMock(return_value={'account_key': 'a'*64}))
+    monkeypatch.setattr(module, 'node_enabled', lambda _: True)
+    monkeypatch.setattr(account_usage, 'broker_executable', lambda _: None)
+    monkeypatch.setattr(account_usage, 'claude_command', lambda _: ['unused'])
+    warning = {'field': 'five_hour.utilization', 'reason': 'TypeError'}
+    monkeypatch.setattr(module, 'fetch_usage', lambda _: {'error_code': code, 'parse_warnings': [warning]})
+    result = await rpc._manual_probe()
+    assert result['errorCode'] == code
+    assert result['parseWarnings'] == [warning]

@@ -1,5 +1,33 @@
 {
   "$defs": {
+    "ParseWarning": {
+      "additionalProperties": false,
+      "properties": {
+        "field": {
+          "pattern": "^(\\$|windows|(?:five_hour|seven_day)(?:\\.(?:utilization|resets_at))?)$",
+          "title": "Field",
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "TypeError",
+            "ValueError",
+            "OverflowError",
+            "MissingField",
+            "JSONDecodeError",
+            "SizeLimit"
+          ],
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "field",
+        "reason"
+      ],
+      "title": "ParseWarning",
+      "type": "object"
+    },
     "UsageWindow": {
       "additionalProperties": false,
       "properties": {
@@ -45,9 +73,16 @@
           "type": "number"
         },
         "resetsAt": {
-          "format": "date-time",
-          "title": "Resetsat",
-          "type": "string"
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Resetsat"
         },
         "windowDurationMins": {
           "exclusiveMinimum": 0,
@@ -165,7 +200,9 @@
             "invalid_response",
             "account_changed",
             "account_unavailable",
-            "unsupported_auth"
+            "unsupported_auth",
+            "auth_expired",
+            "parse_error"
           ],
           "type": "string"
         },
@@ -175,6 +212,27 @@
       ],
       "default": null,
       "title": "Errorcode"
+    },
+    "parseWarnings": {
+      "items": {
+        "$ref": "#/$defs/ParseWarning"
+      },
+      "maxItems": 8,
+      "title": "Parsewarnings",
+      "type": "array"
+    },
+    "detail": {
+      "anyOf": [
+        {
+          "pattern": "^(write_failed_after_refresh|(?:\\$|windows|(?:five_hour|seven_day)(?:\\.(?:utilization|resets_at))?): (?:TypeError|ValueError|OverflowError|MissingField|JSONDecodeError|SizeLimit)(?:; (?:\\$|windows|(?:five_hour|seven_day)(?:\\.(?:utilization|resets_at))?): (?:TypeError|ValueError|OverflowError|MissingField|JSONDecodeError|SizeLimit))*)$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Detail"
     },
     "windows": {
       "items": {
