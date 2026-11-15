@@ -58,3 +58,11 @@ def test_contracts_match_models_and_accept_inactive_parse_warnings():
     validate(result.model_dump(mode='json', by_alias=True), json.loads((root / 'claude-probe-result.schema.json').read_text()))
     with pytest.raises(ValueError):
         ClaudeProbeResult(runtime='claude_code', detail='raw response must not pass')
+
+
+@pytest.mark.parametrize('code', ['auth_expired', 'parse_error'])
+def test_non_429_ignores_retry_after_and_resets_backoff(code):
+    state = probe_failure({'consecutive_429': 2, 'interval': 1200}, 2000000000, code, retry_after_seconds=7200)
+    assert state['interval'] == 300
+    assert state['next_allowed_at'] == 2000000300
+    assert state['consecutive_429'] == 0
