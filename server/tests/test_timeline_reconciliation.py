@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from session_fixtures import create_session_with_project
 
 from agent_server.core.models import TimelineItem, TimelineItemIn
 from agent_server.core.timeline import (
@@ -8,7 +9,6 @@ from agent_server.core.timeline import (
     timeline_snapshot_is_unchanged,
 )
 from agent_server.infra.repositories.facade import Store
-from session_fixtures import create_session_with_project
 
 
 def timeline_input(
@@ -263,7 +263,7 @@ async def test_late_user_keeps_free_position_before_assistant() -> None:
         result = await store.sync_timeline_items(session_id=session.id, items=[user])
         assert result.items[0].orderSeq == 1
         items = await store.timeline.read(session.id)
-        assert sorted(items, key=lambda item: item.orderSeq)[0].id == "late-user"
+        assert min(items, key=lambda item: item.orderSeq).id == "late-user"
     finally:
         await store.close()
 
@@ -323,7 +323,10 @@ async def test_buffer_claims_holes_checks_durable_and_pending_and_preserves_ids(
 
 @pytest.mark.anyio
 async def test_int32_boundaries_and_collision_overflow_rollback():
-    from agent_server.core.timeline import TIMELINE_ORDER_SEQ_MAX, TIMELINE_ORDER_SEQ_MIN
+    from agent_server.core.timeline import (
+        TIMELINE_ORDER_SEQ_MAX,
+        TIMELINE_ORDER_SEQ_MIN,
+    )
     store = Store()
     try:
         connector, _, _ = await store.create_connector(name='dev', user_id='user_1')
@@ -345,6 +348,7 @@ async def test_int32_boundaries_and_collision_overflow_rollback():
 @pytest.mark.anyio
 async def test_concurrent_buffer_and_sync_claims_remain_unique():
     import asyncio
+
     from agent_server.infra.redis_coordinator import RedisCoordinator
     from agent_server.infra.timeline_broker import TimelineBroker
     from agent_server.services.timeline_write_buffer import TimelineWriteBuffer

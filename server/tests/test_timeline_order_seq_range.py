@@ -99,7 +99,7 @@ async def test_out_of_range_appends_but_max_collision_overflows(tmp_path) -> Non
         second = await buffer.accept(session_id=session.id,
             item=item_input(session.id,"negative-overflow",order_seq=-(2**31)-1))
         assert second.item.orderSeq == 2
-        last = await buffer.accept(session_id=session.id,
+        await buffer.accept(session_id=session.id,
             item=item_input(session.id,"last",order_seq=TIMELINE_ORDER_SEQ_MAX))
         # A lower free slot is still valid even after MAX; only a collision
         # requires an impossible max+1 and must fail before revision allocation.

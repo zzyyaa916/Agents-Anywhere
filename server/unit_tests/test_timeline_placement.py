@@ -2,7 +2,11 @@ import pytest
 
 from agent_server.core.timeline import (
     TIMELINE_ORDER_SEQ_MAX as MAX,
+)
+from agent_server.core.timeline import (
     TIMELINE_ORDER_SEQ_MIN as MIN,
+)
+from agent_server.core.timeline import (
     allocate_timeline_order_seq,
     timeline_order_seq_in_range,
 )

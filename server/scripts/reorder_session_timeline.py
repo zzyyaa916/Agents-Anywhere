@@ -13,6 +13,8 @@ import os
 from datetime import datetime
 from pathlib import Path
 
+from sqlalchemy import select, update
+
 from agent_server.core.models import TimelineItem
 from agent_server.core.timeline import TIMELINE_ORDER_SEQ_MAX as MAX
 from agent_server.core.timeline import TIMELINE_ORDER_SEQ_MIN as MIN
@@ -21,7 +23,6 @@ from agent_server.infra.redis_coordinator import RedisCoordinator
 from agent_server.infra.repositories.facade import Store
 from agent_server.infra.timeline_broker import TimelineBroker
 from agent_server.services.timeline_write_buffer import TimelineWriteBuffer
-from sqlalchemy import select, update
 
 
 class RepairError(ValueError):

@@ -1,12 +1,13 @@
 import asyncio
 
 import pytest
+from test_acp_preparation_failure import service
+
 from connector.runtimes.acp.domain.definitions import (
     Workspace,
 )
 from connector.runtimes.acp.domain.sessions import SessionBinding
 from connector.runtimes.acp.infrastructure.projection import Projection
-from test_acp_preparation_failure import service
 
 
 @pytest.mark.parametrize("with_id", [True, False])
