@@ -3,13 +3,14 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 
 import pytest
+from sqlalchemy import insert
+from test_connector_deletion import api as api_fixture
+from test_connector_deletion import create_device
+
 from agent_server.core.account_usage import UsageCollection
 from agent_server.core.utc import utc_now
 from agent_server.infra.db import schema as db
 from agent_server.services.account_usage import AccountUsageService
-from sqlalchemy import insert
-from test_connector_deletion import api as api_fixture
-from test_connector_deletion import create_device
 
 api = api_fixture
 KEY = "a" * 64
