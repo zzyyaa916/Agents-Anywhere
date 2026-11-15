@@ -244,8 +244,8 @@ def fetch_usage(command, *, opener=None):
                     raise ParseError([{"field": "$", "reason": "SizeLimit"}])
                 try:
                     payload = json.loads(data)
-                except (ValueError, UnicodeError):
-                    raise ParseError([{"field": "$", "reason": "JSONDecodeError"}]) from None
+                except (ValueError, UnicodeError) as error:
+                    raise ParseError([{"field": "$", "reason": type(error).__name__}]) from None
                 return normalized_usage(payload)
             except urllib.error.HTTPError as error:
                 try:

@@ -15,6 +15,7 @@
             "OverflowError",
             "MissingField",
             "JSONDecodeError",
+            "UnicodeDecodeError",
             "SizeLimit"
           ],
           "title": "Reason",
@@ -42,7 +43,7 @@
         "detail": {
           "anyOf": [
             {
-              "pattern": "^(write_failed_after_refresh|(?:\\$|windows|(?:five_hour|seven_day)(?:\\.(?:utilization|resets_at))?): (?:TypeError|ValueError|OverflowError|MissingField|JSONDecodeError|SizeLimit)(?:; (?:\\$|windows|(?:five_hour|seven_day)(?:\\.(?:utilization|resets_at))?): (?:TypeError|ValueError|OverflowError|MissingField|JSONDecodeError|SizeLimit))*)$",
+              "pattern": "^(write_failed_after_refresh|(?:\\$|windows|(?:five_hour|seven_day)(?:\\.(?:utilization|resets_at))?): (?:TypeError|ValueError|OverflowError|MissingField|JSONDecodeError|UnicodeDecodeError|SizeLimit)(?:; (?:\\$|windows|(?:five_hour|seven_day)(?:\\.(?:utilization|resets_at))?): (?:TypeError|ValueError|OverflowError|MissingField|JSONDecodeError|UnicodeDecodeError|SizeLimit))*)$",
               "type": "string"
             },
             {

@@ -278,7 +278,7 @@ def test_external_login_during_refresh_is_not_overwritten(probe_credentials):
     assert json.loads(path.read_text()) == value, 'external login overwritten'
 
 
-@pytest.mark.parametrize('raw', [b'{', b'[]', b'{"five_hour":false,"seven_day":{}}'])
+@pytest.mark.parametrize('raw', [b'{', b'[]', b'\xff', b'{"five_hour":false,"seven_day":{}}'])
 def test_fetch_parse_failures_are_not_unavailable(probe_credentials, raw):
     path, value = probe_credentials
     value['claudeAiOauth']['expiresAt'] = (NOW+3600)*1000

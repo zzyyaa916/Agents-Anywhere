@@ -13,7 +13,7 @@ from pydantic import (
 )
 from pydantic.alias_generators import to_camel
 
-DETAIL_PATTERN = r"^(write_failed_after_refresh|(?:\$|windows|(?:five_hour|seven_day)(?:\.(?:utilization|resets_at))?): (?:TypeError|ValueError|OverflowError|MissingField|JSONDecodeError|SizeLimit)(?:; (?:\$|windows|(?:five_hour|seven_day)(?:\.(?:utilization|resets_at))?): (?:TypeError|ValueError|OverflowError|MissingField|JSONDecodeError|SizeLimit))*)$"
+DETAIL_PATTERN = r"^(write_failed_after_refresh|(?:\$|windows|(?:five_hour|seven_day)(?:\.(?:utilization|resets_at))?): (?:TypeError|ValueError|OverflowError|MissingField|JSONDecodeError|UnicodeDecodeError|SizeLimit)(?:; (?:\$|windows|(?:five_hour|seven_day)(?:\.(?:utilization|resets_at))?): (?:TypeError|ValueError|OverflowError|MissingField|JSONDecodeError|UnicodeDecodeError|SizeLimit))*)$"
 
 MINIMUM = {"codex": 60, "claude_code": 300}
 Runtime = Literal["codex", "claude_code", "dsh"]
@@ -60,7 +60,7 @@ class UsageWindow(Wire):
 
 class ParseWarning(Wire):
     field: str = Field(pattern=r"^(\$|windows|(?:five_hour|seven_day)(?:\.(?:utilization|resets_at))?)$")
-    reason: Literal["TypeError", "ValueError", "OverflowError", "MissingField", "JSONDecodeError", "SizeLimit"]
+    reason: Literal["TypeError", "ValueError", "OverflowError", "MissingField", "JSONDecodeError", "UnicodeDecodeError", "SizeLimit"]
 
 
 class UsageIdentity(Wire):
