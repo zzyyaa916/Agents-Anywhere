@@ -319,3 +319,49 @@ async def test_buffer_claims_holes_checks_durable_and_pending_and_preserves_ids(
     finally:
         await buffer.close()
         await store.close()
+
+
+@pytest.mark.anyio
+async def test_int32_boundaries_and_collision_overflow_rollback():
+    from agent_server.core.timeline import TIMELINE_ORDER_SEQ_MAX, TIMELINE_ORDER_SEQ_MIN
+    store = Store()
+    try:
+        connector, _, _ = await store.create_connector(name='dev', user_id='user_1')
+        session = await create_session_with_project(store, connector_id=connector.id)
+        def entry(name, order):
+            return timeline_input(name,order_seq=order).model_copy(update={'sessionId':session.id})
+        result = await store.sync_timeline_items(session_id=session.id,
+            items=[entry('maximum',TIMELINE_ORDER_SEQ_MAX),entry('minimum',TIMELINE_ORDER_SEQ_MIN)])
+        assert [row.orderSeq for row in result.items] == [TIMELINE_ORDER_SEQ_MAX,TIMELINE_ORDER_SEQ_MIN]
+        sequence = await store.get_session_seq(session.id)
+        with pytest.raises(OverflowError):
+            await store.sync_timeline_items(session_id=session.id,items=[entry('collision',TIMELINE_ORDER_SEQ_MAX)])
+        assert await store.get_session_seq(session.id) == sequence
+        assert await store.timeline.read_one(session.id,'collision') is None
+    finally:
+        await store.close()
+
+
+@pytest.mark.anyio
+async def test_concurrent_buffer_and_sync_claims_remain_unique():
+    import asyncio
+    from agent_server.infra.redis_coordinator import RedisCoordinator
+    from agent_server.infra.timeline_broker import TimelineBroker
+    from agent_server.services.timeline_write_buffer import TimelineWriteBuffer
+    store = Store()
+    coordinator = RedisCoordinator()
+    buffer = TimelineWriteBuffer(store,TimelineBroker(coordinator),coordinator)
+    try:
+        connector, _, _ = await store.create_connector(name='dev',user_id='user_1')
+        session = await create_session_with_project(store,connector_id=connector.id)
+        def entry(name):
+            return timeline_input(name,order_seq=1).model_copy(update={'sessionId':session.id})
+        await asyncio.gather(
+            buffer.accept(session_id=session.id,item=entry('buffered')),
+            store.sync_timeline_items(session_id=session.id,items=[entry('synced')]))
+        await buffer.flush_through(session.id)
+        rows = await store.timeline.read(session.id)
+        assert sorted(row.orderSeq for row in rows) == [1,2]
+    finally:
+        await buffer.close()
+        await store.close()
