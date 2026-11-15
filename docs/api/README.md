@@ -8,6 +8,8 @@ All Server HTTP, SSE, and WebSocket API documentation should live under this dir
 
 ## Documents
 
+- [时间线增量条目排序](timeline.md)：合法空位、自报序号冲突、分页与 ACP 用户回声关联。
+
 - [统一目标模式](goals.md)：Codex、Claude Code 的目标栏、操作回执、原生续跑和数据库恢复。
 
 - [统一原生 Plan](planning.md)：规划命令、流式卡片、不可变版本、审阅和回执 API；[完整设计](../runtime-protocol/unified-plan-implementation-plan.md)保留原生研究与分层依据。
