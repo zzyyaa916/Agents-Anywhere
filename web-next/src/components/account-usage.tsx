@@ -70,14 +70,15 @@ export function AccountUsagePanel() {
   const blocked = ["retry", "offline", "circuit"].includes(status) && deadline > serverNow
   const pending = busy || (status === "running" && (!deadline || deadline > serverNow))
   const retry = failed || ["retry", "offline"].includes(status) || (status === "running" && !pending)
-  const label = pending ? "请求中…" : status === "circuit" && blocked ? "今日探针已熔断，明日恢复" : retry ? "稍后重试" : status === "disabled" ? "未配置探针" : "刷新"
+  const label = pending ? "请求中…" : status === "circuit" && blocked ? "今日探针已熔断，明日恢复" : retry ? "稍后重试" : "刷新"
   return <Popover onOpenChange={(open) => { if (open && !busy) void read() }}>
     <PopoverTrigger asChild><Button size="icon" variant="ghost" aria-label="查看账号用量" title="账号用量" className="size-9 shrink-0 rounded-full bg-muted text-muted-foreground"><Gauge className="size-6" aria-hidden="true" /></Button></PopoverTrigger>
     <PopoverContent side="top" align="start" aria-label="账号剩余用量" className="max-h-[min(70vh,32rem)] w-80 max-w-[calc(100vw-2rem)] gap-0 overflow-y-auto text-xs">
-      <div className="mb-2 flex items-center justify-between"><span>账号用量</span><Button aria-label="刷新用量" size="sm" variant="ghost" disabled={pending || blocked || status === "disabled"} onClick={() => void refresh()}>{label}</Button></div>
+      <div className="mb-2 flex items-center justify-between"><span>账号用量</span><Button aria-label="刷新用量" size="sm" variant="ghost" disabled={pending || blocked} onClick={() => void refresh()}>{label}</Button></div>
       {data?.refresh?.errorCode === "auth_expired" && <p role="status">登录令牌已过期</p>}
       {data?.refresh?.errorCode === "parse_error" && <p role="status">用量数据解析失败</p>}
       {status === "offline" && <p role="status">探针节点离线</p>}
+      {status === "disabled" && <p role="status">未配置 Claude 探针，刷新仅更新 Codex</p>}
       {(["retry", "offline", "circuit"].includes(status) && deadline > 0) && <p role="status">可重试时间：{localTime(data!.refresh!.nextAllowedAt!)}</p>}
       {failed && <p role="status">刷新失败，原有数据保留</p>}
       {["codex", "claude_code"].map(runtime => {
