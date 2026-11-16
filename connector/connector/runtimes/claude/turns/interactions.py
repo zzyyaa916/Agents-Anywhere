@@ -44,7 +44,15 @@ class ClaudeInteractionController:
         default_factory=dict,
         init=False,
     )
+    _response_locks: dict[str, asyncio.Lock] = field(default_factory=dict, init=False)
     _approval_seq: int = field(default=1, init=False)
+
+    def _response_lock(self, notice_id: str) -> asyncio.Lock:
+        lock = self._response_locks.get(notice_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._response_locks[notice_id] = lock
+        return lock
 
     async def respond_interaction(
         self,
@@ -60,12 +68,58 @@ class ClaudeInteractionController:
                 code="claude_notice_not_found",
                 message="Claude approval notice was not found",
             )
+        async with self._response_lock(notice_id):
+            # Re-read under the per-notice lock: a first click may have resolved
+            # the notice while this click was waiting.
+            notice = self.notices.get(notice_id)
+            if notice is None or notice.session_id != session_id:
+                return RuntimeOperationResult(
+                    ok=False,
+                    code="claude_notice_not_found",
+                    message="Claude approval notice was not found",
+                )
+            future = self._interaction_futures.get(notice_id)
+            if notice.status in {"closed", "resolved", "cancelled", "expired"} or future is None or future.done():
+                return RuntimeOperationResult(
+                    ok=True,
+                    result={
+                        "resolved": True,
+                        "alreadyProcessed": True,
+                        "noticeId": notice_id,
+                        "sessionId": session_id,
+                    },
+                )
+            return await self._respond_interaction_locked(
+                session_id,
+                notice_id,
+                action_id,
+                input_data,
+            )
+
+    async def _respond_interaction_locked(
+        self,
+        session_id: str,
+        notice_id: str,
+        action_id: str,
+        input_data: Mapping[str, Any] | None = None,
+    ) -> RuntimeOperationResult:
+        notice = self.notices.get(notice_id)
         future = self._interaction_futures.get(notice_id)
-        if future is None or future.done():
+        if notice is None or notice.session_id != session_id:
             return RuntimeOperationResult(
                 ok=False,
-                code="claude_notice_not_pending",
-                message="Claude approval notice is not waiting for a response",
+                code="claude_notice_not_found",
+                message="Claude approval notice was not found",
+            )
+        if notice.status in {"closed", "resolved", "cancelled", "expired"} or future is None or future.done():
+            return RuntimeOperationResult(
+                ok=True,
+                result={
+                    "resolved": True,
+                    "alreadyProcessed": True,
+                    "noticeId": notice_id,
+                    "sessionId": session_id,
+                },
             )
 
         decision = decision_from_action(action_id)
@@ -202,6 +256,7 @@ class ClaudeInteractionController:
                 plan = await native_plan_document(self.notifications.host, session.session_id)
             if not isinstance(plan, str) or not plan.strip():
                 self._interaction_futures.pop(notice.notice_id, None)
+                self._response_locks.pop(notice.notice_id, None)
                 return ClaudeApprovalDecision(allowed=False, action_id="plan_document_required",
                     message="AA 未能读取完整原生计划正文，请先将计划保存到当前原生计划文件，再调用 ExitPlanMode。")
             try:
@@ -213,6 +268,7 @@ class ClaudeInteractionController:
                 return await future
             finally:
                 self._interaction_futures.pop(notice.notice_id, None)
+                self._response_locks.pop(notice.notice_id, None)
                 if not future.done():
                     future.cancel()
         await self.notifications.notice_handler.notice_upsert(notice)
@@ -230,6 +286,7 @@ class ClaudeInteractionController:
             return await future
         finally:
             self._interaction_futures.pop(notice.notice_id, None)
+            self._response_locks.pop(notice.notice_id, None)
 
     async def request_user_input(
         self,
@@ -279,6 +336,7 @@ class ClaudeInteractionController:
         finally:
             self._interaction_futures.pop(notice.notice_id, None)
             self._input_requests.pop(notice.notice_id, None)
+            self._response_locks.pop(notice.notice_id, None)
 
     async def close_open_interaction_notices(
         self,
