@@ -4,7 +4,8 @@ import json
 import os
 import tempfile
 import threading
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -37,8 +38,33 @@ class JsonKeyValueStore:
     def default(cls) -> JsonKeyValueStore:
         return cls(cls.default_path())
 
+    @contextmanager
+    def _file_lock(self, *, exclusive: bool) -> Iterator[None]:
+        """Serialize cooperating Connector processes sharing this KV file."""
+        fd = os.open(str(self.path) + ".lock", os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            if os.name == "nt":
+                import msvcrt
+                if os.fstat(fd).st_size == 0:
+                    os.write(fd, b"0")
+                os.lseek(fd, 0, os.SEEK_SET)
+                msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(fd, fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
+            yield
+        finally:
+            if os.name == "nt":
+                import msvcrt
+                os.lseek(fd, 0, os.SEEK_SET)
+                msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(fd, fcntl.LOCK_UN)
+            os.close(fd)
+
     def get(self, key: str) -> Mapping[str, Any] | None:
-        with self._lock:
+        with self._lock, self._file_lock(exclusive=False):
             document = self.read_document()
             value = document["values"].get(key)
         if not isinstance(value, Mapping):
@@ -46,13 +72,13 @@ class JsonKeyValueStore:
         return dict(value)
 
     def set(self, key: str, value: Mapping[str, Any]) -> None:
-        with self._lock:
+        with self._lock, self._file_lock(exclusive=True):
             document = self.read_document()
             document["values"][key] = dict(value)
             self.write_document(document)
 
     def delete(self, key: str) -> None:
-        with self._lock:
+        with self._lock, self._file_lock(exclusive=True):
             document = self.read_document()
             if key not in document["values"]:
                 return
