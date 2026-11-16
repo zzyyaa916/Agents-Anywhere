@@ -8,15 +8,46 @@ from agent_server.core.models import TimelineItem, TimelineItemIn
 # rewrite the whole table, so every writer must stay inside this range.
 TIMELINE_ORDER_SEQ_MIN = -(2**31)
 TIMELINE_ORDER_SEQ_MAX = 2**31 - 1
+# A late item may sit only this many positions behind the current durable head.
+# A connector that restarts its projection at 1 in a long session is far outside
+# this window and is appended instead of being inserted into old history.
+TIMELINE_ORDER_SEQ_PLACEMENT_WINDOW = 1000
 
 
 def timeline_order_seq_in_range(order_seq: int) -> bool:
     return isinstance(order_seq, int) and not isinstance(order_seq, bool) and TIMELINE_ORDER_SEQ_MIN <= order_seq <= TIMELINE_ORDER_SEQ_MAX
 
 
-def allocate_timeline_order_seq(requested: int, maximum: int, *, occupied: bool) -> int:
-    """Caller holds the session fence/transaction across occupancy and write."""
-    result = requested if timeline_order_seq_in_range(requested) and not occupied else maximum + 1
+def allocate_timeline_order_seq(
+    requested: int,
+    maximum: int,
+    *,
+    occupied: bool,
+    initial_sync: bool = False,
+) -> int:
+    """Place a self-reported orderSeq under the caller's session fence.
+
+    Incremental items may keep a late, smaller position only when it is still
+    inside the recent placement window.  A full initial sync may use its own
+    numbering; complete snapshots bypass this allocator entirely.
+    """
+    valid = timeline_order_seq_in_range(requested)
+    recent = initial_sync or (
+        valid and requested >= maximum - TIMELINE_ORDER_SEQ_PLACEMENT_WINDOW
+    )
+    result = (
+        requested
+        if valid and requested >= 1 and not occupied and recent
+        else maximum + 1
+    )
+    if not timeline_order_seq_in_range(result):
+        raise OverflowError("timeline orderSeq exceeds the column range")
+    return result
+
+
+def append_timeline_order_seq(maximum: int) -> int:
+    """Return the next append position for a server-authored item."""
+    result = maximum + 1
     if not timeline_order_seq_in_range(result):
         raise OverflowError("timeline orderSeq exceeds the column range")
     return result

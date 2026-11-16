@@ -4,7 +4,11 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock
 
 import pytest
-from agent_server.core.models import MessageCreateRequest, SessionRuntimeState
+from agent_server.core.models import (
+    MessageCreateRequest,
+    SessionRuntimeState,
+    TimelineItemIn,
+)
 from agent_server.core.session_quota import project_quota_state
 from agent_server.infra.db import schema as db
 from agent_server.services.connector_notifications import (
@@ -85,6 +89,25 @@ def test_limit_cache_expiry_original_identity_and_deletion(api, runtime):
             ),
             now.timestamp(),
         )
+        await store.upsert_timeline_item(
+            session_id=session.id,
+            item=TimelineItemIn.model_validate({
+                "id": "seed_timeline_item",
+                "sessionId": session.id,
+                "type": "message",
+                "status": "done",
+                "role": "assistant",
+                "content": {"kind": "markdown", "format": "markdown", "text": "seed"},
+                "source": {
+                    "runtime": runtime,
+                    "sessionId": "original-native",
+                    "itemType": "agentMessage",
+                },
+                "orderSeq": 9,
+                "revision": 1,
+                "contentHash": "sha256:seed",
+            }),
+        )
         params = {
             "sessionId": session.id,
             "runtime": runtime,
@@ -103,6 +126,7 @@ def test_limit_cache_expiry_original_identity_and_deletion(api, runtime):
             and effect.notices[0].title == "因限额中断"
         )
         assert effect.item["content"]["code"] == "usage_limit"
+        assert effect.item["orderSeq"] == 10
         again = await handler.apply(connector_id=device, method="session.state.updated", params=params)
         assert again.item["id"] == effect.item["id"]
         await store.replace_timeline_snapshot(session_id=session.id, items=[])
