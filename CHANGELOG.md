@@ -20,6 +20,7 @@
 
 ### Codex 与 Claude
 
+- Claude 用量观察器创建失败时会重试并记录脱敏原因，事件推送失败也会累计计数。（[0270636c](https://github.com/zzyyaa916/Agents-Anywhere/commit/0270636c)）
 - 同一条即时补充重复发送时不再执行两次，Codex 会按客户端消息标识去重。（[35d1ced0](https://github.com/zzyyaa916/Agents-Anywhere/commit/35d1ced0)）
 - 修复连接器回传的用量重试时间可能长时间推迟采集的问题；采集时间异常超前时记录失败。（[d8fd0ac2](https://github.com/zzyyaa916/Agents-Anywhere/commit/d8fd0ac2)）
 - 重复点击 Claude 审批按钮不再提示“未在等待回答”，第二次点击会按已处理返回。（[0c5ea2cb](https://github.com/zzyyaa916/Agents-Anywhere/commit/0c5ea2cb)）
