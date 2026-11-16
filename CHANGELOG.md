@@ -6,6 +6,7 @@
 
 ### 会话创建与消息交付
 
+- 项目目录较大时，删除前的设备预检不再因 30 秒超时被误报为离线。（[ff138f94](https://github.com/zzyyaa916/Agents-Anywhere/commit/ff138f94)）
 - 运行中补充会拒绝空内容，并像发送一样检查归档与限额状态；未执行的补充不再计入已发送用量。（[84d8e4a8](https://github.com/zzyyaa916/Agents-Anywhere/commit/84d8e4a8)）
 - 删除准备后数据库写入失败时，设备清理回执会被取消，不再残留占位。（[bbbb644a](https://github.com/zzyyaa916/Agents-Anywhere/commit/bbbb644a)）
 - 删除项目时也会保护同一账号其他 Connector 的嵌套路径，避免同机共享目录被误删。（[32223da9](https://github.com/zzyyaa916/Agents-Anywhere/commit/32223da9)）

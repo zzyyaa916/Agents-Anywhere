@@ -545,6 +545,20 @@ def device_cleanup(api, tmp_path, monkeypatch):
     return client, headers, project, sid, directory, native, request, rpc
 
 
+def test_device_cleanup_prepare_uses_its_own_widened_timeout(api, tmp_path, monkeypatch):
+    from agent_server.services.history_deletion import (
+        DEVICE_CLEANUP_PREPARE_TIMEOUT_SECONDS,
+    )
+
+    client, headers, project, sid, directory, native, request, _ = device_cleanup(api, tmp_path, monkeypatch)
+    assert client.delete(f"/sessions/{sid}/contents", headers=headers).status_code == 204
+    prepare_calls = [
+        call for call in request.await_args_list
+        if len(call.args) > 1 and call.args[1] == "history.cleanup.prepare"
+    ]
+    assert prepare_calls and prepare_calls[0].kwargs["timeout"] == DEVICE_CLEANUP_PREPARE_TIMEOUT_SECONDS
+
+
 def test_complete_session_deletion_cleans_native_data_but_keeps_project_files(api, tmp_path, monkeypatch):
     client, headers, project, sid, directory, native, request, _ = device_cleanup(api, tmp_path, monkeypatch)
     result = client.delete(f"/sessions/{sid}/contents", headers=headers)
