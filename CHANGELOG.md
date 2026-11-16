@@ -7,6 +7,10 @@
 ### 会话创建与消息交付
 
 - 项目目录较大时，删除前的设备预检不再因 30 秒超时被误报为离线。（[ff138f94](https://github.com/zzyyaa916/Agents-Anywhere/commit/ff138f94)）
+- 运行中补充会拒绝空内容，并像发送一样检查归档与限额状态；未执行的补充不再计入已发送用量。（[84d8e4a8](https://github.com/zzyyaa916/Agents-Anywhere/commit/84d8e4a8)）
+- 删除准备后数据库写入失败时，设备清理回执会被取消，不再残留占位。（[bbbb644a](https://github.com/zzyyaa916/Agents-Anywhere/commit/bbbb644a)）
+- 删除项目时也会保护同一账号其他 Connector 的嵌套路径，避免同机共享目录被误删。（[32223da9](https://github.com/zzyyaa916/Agents-Anywhere/commit/32223da9)）
+- 修复删除会话或项目时附件存储失败会导致清理状态不一致的问题；删除记录先提交，附件清理失败会保留重试任务。（[86809666](https://github.com/zzyyaa916/Agents-Anywhere/commit/86809666)）
 - 修复连接器重启后新消息被插入历史前部的问题；限额中断提示改为追加到会话末尾。（[b2448fc2](https://github.com/zzyyaa916/Agents-Anywhere/commit/b2448fc2)）
 - 修复迟到的用户消息被追加到 AI 回复之后的问题；用户消息会先于回复上报，延迟回声不会再生成重复条目。（[45250307](https://github.com/zzyyaa916/Agents-Anywhere/commit/45250307)）
 
@@ -18,16 +22,25 @@
 
 ### Codex 与 Claude
 
+- Claude 用量探针在整窗缺失时记录告警，凭据锁超时不再误报为登录过期。（[c7f64f69](https://github.com/zzyyaa916/Agents-Anywhere/commit/c7f64f69)）
+- Claude 回合失败消息中的异常文本也会脱敏，不再只处理原生 stderr。（[3bb71c41](https://github.com/zzyyaa916/Agents-Anywhere/commit/3bb71c41)）
+- Claude 用量观察器创建失败时会重试并记录脱敏原因，事件推送失败也会累计计数。（[0270636c](https://github.com/zzyyaa916/Agents-Anywhere/commit/0270636c)）
+- 同一条即时补充重复发送时不再执行两次，Codex 会按客户端消息标识去重。（[35d1ced0](https://github.com/zzyyaa916/Agents-Anywhere/commit/35d1ced0)）
+- 修复连接器回传的用量重试时间可能长时间推迟采集的问题；采集时间异常超前时记录失败。（[d8fd0ac2](https://github.com/zzyyaa916/Agents-Anywhere/commit/d8fd0ac2)）
 - 重复点击 Claude 审批按钮不再提示“未在等待回答”，第二次点击会按已处理返回。（[0c5ea2cb](https://github.com/zzyyaa916/Agents-Anywhere/commit/0c5ea2cb)）
 - 修复限额恢复时未激活用量窗口没有重置时间导致检查失败的问题。（[fdb958d1](https://github.com/zzyyaa916/Agents-Anywhere/commit/fdb958d1)）
 - 修复 Claude 未激活用量窗口导致刷新失败的问题；登录令牌到期时自动续期，单个窗口格式异常时保留其他窗口和原有缓存。（[92379a69](https://github.com/zzyyaa916/Agents-Anywhere/commit/92379a69)）
 
 ### Web 与 Desktop 界面
 
+- 两个 Connector 进程短暂共享数据目录时，本地缓存写入不再互相覆盖。（[6818d05c](https://github.com/zzyyaa916/Agents-Anywhere/commit/6818d05c)）
+- 用量面板显示 Codex 的失败原因和窗口解析告警，未激活窗口不再显示重置时间。（[50d5fddb](https://github.com/zzyyaa916/Agents-Anywhere/commit/50d5fddb)）
+- 未配置 Claude 探针时，Codex 用量仍可手动刷新，不再连刷新按钮一起禁用。（[058071c4](https://github.com/zzyyaa916/Agents-Anywhere/commit/058071c4)）
 - 用量面板按窗口显示更新时间，未激活窗口不显示重置时间，并明确提示登录过期和数据解析失败。（[92379a69](https://github.com/zzyyaa916/Agents-Anywhere/commit/92379a69)）
 
 ### Android
 
+- 用量面板显示 Codex 的失败原因和窗口解析告警，未激活窗口不再显示重置时间。（[50d5fddb](https://github.com/zzyyaa916/Agents-Anywhere/commit/50d5fddb)）
 - 修复发送消息后，快速到达的 AI 回复可能显示在本地待确认用户消息上方的问题。
 
 ## Fork 2.6.7（2026-11-14）
