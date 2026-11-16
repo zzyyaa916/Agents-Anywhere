@@ -72,7 +72,6 @@ fun ForkUsageButton(controller: ForkController, modifier: Modifier = Modifier) {
         pending -> "请求中…"
         status == "circuit" && blocked -> "今日探针已熔断，明日恢复"
         failed || status in setOf("retry", "offline") || (status == "running" && !pending) -> "稍后重试"
-        status == "disabled" -> "未配置探针"
         else -> "刷新"
     }
     if (open) AlertDialog(onDismissRequest = { open = false }, title = { Text(stringResource(R.string.fork_usage)) }, text = {
@@ -80,6 +79,10 @@ fun ForkUsageButton(controller: ForkController, modifier: Modifier = Modifier) {
             if (usage?.refresh?.errorCode == "auth_expired") Text("登录令牌已过期")
             if (usage?.refresh?.errorCode == "parse_error") Text("用量数据解析失败")
             if (status == "offline") Text("探针节点离线")
+            if (status == "disabled") Text("未配置 Claude 探针，刷新仅更新 Codex")
+            usage?.refresh?.parseWarnings?.takeIf { it.isNotEmpty() }?.let { warnings ->
+                Text("部分用量窗口解析失败：" + warnings.joinToString("；") { "${it.field}: ${it.reason}" })
+            }
             if (status in setOf("retry", "offline", "circuit") && deadline > 0) Text("可重试时间：${localUsageTime(usage?.refresh?.nextAllowedAt)}")
             if (failed) Text("刷新失败，原有数据保留", color = MaterialTheme.colorScheme.error)
             usage?.accounts?.forEach { account ->
@@ -87,14 +90,15 @@ fun ForkUsageButton(controller: ForkController, modifier: Modifier = Modifier) {
                 account.windows.forEach { window ->
                     Text(stringResource(when (window.kind) { "five_hour" -> R.string.fork_five_hour; "weekly", "seven_day", "weekly_scoped" -> R.string.fork_weekly; else -> R.string.fork_other_window }))
                     Text("剩余 ${window.remaining.roundToInt()}%")
-                    Text("重置时间：${localUsageTime(window.resetsAt)}")
+                    window.resetsAt?.let { Text("重置时间：${localUsageTime(it)}") }
                     if (account.runtime == "claude_code") Text(claudeUpdate(listOf(window)), style = MaterialTheme.typography.bodySmall)
                 }
                 if (account.runtime == "codex") Text(stringResource(if (account.stale) R.string.fork_stale else R.string.fork_updated, localUsageTime(account.fetchedAt)), style = MaterialTheme.typography.bodySmall)
+                if (account.runtime == "codex" && account.errorCode != null) Text("Codex 用量不可用：${account.errorCode}")
             }
             if (usage?.accounts.isNullOrEmpty()) Text("暂无数据")
         }
-    }, confirmButton = { TextButton(onClick = { load(true) }, enabled = !pending && !blocked && status != "disabled") { Text(label) } },
+    }, confirmButton = { TextButton(onClick = { load(true) }, enabled = !pending && !blocked) { Text(label) } },
         dismissButton = { TextButton(onClick = { open = false }) { Text(stringResource(R.string.fork_close)) } })
 }
 
