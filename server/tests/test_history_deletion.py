@@ -556,6 +556,31 @@ def test_complete_session_deletion_cleans_native_data_but_keeps_project_files(ap
     assert any(item["id"] == project for item in client.get("/projects", headers=headers).json()["projects"])
 
 
+def test_project_cleanup_protects_another_connectors_nested_path(api, tmp_path, monkeypatch):
+    client, headers, project, sid, directory, native, request, _ = device_cleanup(api, tmp_path, monkeypatch)
+    store = client.app.state.store
+    other = create_device(client, headers)
+    nested = directory / "nested"
+    nested.mkdir()
+    (nested / "keep.txt").write_text("keep")
+
+    async def seed():
+        owner = await store.get_connector(other)
+        await store.create_project(
+            user_id=owner.userId,
+            connector_id=other,
+            name="nested-project",
+            workspace_path=str(nested),
+            manually_created=True,
+        )
+
+    asyncio.run(seed())
+    response = client.delete(f"/projects/{project}/contents?expectedSessionCount=1", headers=headers)
+    assert response.status_code == 503
+    assert (nested / "keep.txt").read_text() == "keep"
+    assert directory.exists()
+
+
 def test_offline_device_never_turns_full_deletion_into_record_only_deletion(api, tmp_path, monkeypatch):
     client, headers, project, sid, directory, native, request, _ = device_cleanup(api, tmp_path, monkeypatch)
     request.side_effect = ConnectorOfflineError("device offline")

@@ -328,7 +328,11 @@ class HistoryDeletionRepositoryMixin:
         connector_id, ids = await self.history_deletion_target(object_id, user_id=user_id, project=project)
         async with read_connection(self._engine) as conn:
             rows = (await conn.execute(select(db.sessions).where(db.sessions.c.id.in_(ids)))).mappings().all() if ids else []
-            projects = (await conn.execute(select(db.projects).where(db.projects.c.connector_id == connector_id))).mappings().all()
+            owner = (await conn.execute(select(db.connectors.c.user_id).where(db.connectors.c.id == connector_id))).scalar_one()
+            # Connectors do not carry a machine identifier today. Protect every
+            # path owned by the same user across connectors so a second Connector
+            # on the same machine cannot have its project tree deleted underneath it.
+            projects = (await conn.execute(select(db.projects).where(db.projects.c.user_id == owner))).mappings().all()
             target = next((p for p in projects if p["id"] == object_id), None) if project else None
             if project and target is None:
                 raise KeyError(object_id)
@@ -343,7 +347,11 @@ class HistoryDeletionRepositoryMixin:
                     if shared:
                         raise HistoryDeletionConflict([], "shared_native_history")
             protected = [p["workspace_path"] for p in projects if not project or p["id"] != object_id]
-            other_cwds = (await conn.execute(select(db.sessions.c.cwd).where(db.sessions.c.connector_id == connector_id, db.sessions.c.id.not_in(ids)))).scalars().all()
+            other_cwds = (await conn.execute(
+                select(db.sessions.c.cwd)
+                .join(db.connectors, db.connectors.c.id == db.sessions.c.connector_id)
+                .where(db.connectors.c.user_id == owner, db.sessions.c.id.not_in(ids))
+            )).scalars().all()
             protected.extend(path for path in other_cwds if path)
             return {
                 "connectorId": connector_id,
