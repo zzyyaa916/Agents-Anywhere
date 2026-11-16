@@ -132,7 +132,7 @@ for (const [code, label] of [["auth_expired", "登录令牌已过期"], ["parse_
       body.refresh = {status: "retry", errorCode: code}
     })
     assert.match(panel.textContent, /5 小时 · 剩余 100%/)
-    assert.match(panel.textContent, /重置时间：—/)
+    assert.doesNotMatch(panel.textContent, /重置时间：—/)
     assert.ok(panel.textContent.includes(label))
     assert.doesNotMatch(panel.textContent, /Invalid Date|1970/)
   })
