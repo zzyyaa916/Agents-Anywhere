@@ -33,6 +33,7 @@
 
 ### Web 与 Desktop 界面
 
+- 审批后的协议更新推送失败时保留调试日志与异常类型，审批本身仍不被阻塞。（[32b4cf2e](https://github.com/zzyyaa916/Agents-Anywhere/commit/32b4cf2e)）
 - 两个 Connector 进程短暂共享数据目录时，本地缓存写入不再互相覆盖。（[6818d05c](https://github.com/zzyyaa916/Agents-Anywhere/commit/6818d05c)）
 - 用量面板显示 Codex 的失败原因和窗口解析告警，未激活窗口不再显示重置时间。（[50d5fddb](https://github.com/zzyyaa916/Agents-Anywhere/commit/50d5fddb)）
 - 未配置 Claude 探针时，Codex 用量仍可手动刷新，不再连刷新按钮一起禁用。（[058071c4](https://github.com/zzyyaa916/Agents-Anywhere/commit/058071c4)）
