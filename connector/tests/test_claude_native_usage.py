@@ -1,6 +1,7 @@
 import json
 
 import pytest
+
 from connector.account_usage import LocalAccountUsage
 from connector.core.json_kv import JsonKeyValueStore
 from connector.runtimes.claude.sdk.events import native_usage_from_message
@@ -87,6 +88,25 @@ async def test_real_host_callback_captures_account_and_rejects_later_switch(tmp_
 
 
 @pytest.mark.anyio
+async def test_usage_event_push_failure_is_counted(tmp_path, monkeypatch):
+    from connector.server.runtime_host import ConnectorRuntimeHost
+
+    profile = tmp_path / ".claude.json"
+    profile.write_text(json.dumps({"oauthAccount": {"accountUuid": "a"}}))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setenv("AGENT_CONNECTOR_KV_FILE", str(tmp_path / "kv.json"))
+    async def ignore(*args, **kwargs): pass
+    host = ConnectorRuntimeHost("conn_test", ignore, ignore)
+    observe = await host.claude_usage_observer()
+    assert observe is not None
+    async def fail(*args, **kwargs):
+        raise RuntimeError("push unavailable")
+    monkeypatch.setattr(host, "_notify_server", fail)
+    await observe("five_hour", .25, 2500000000)
+    assert host._claude_usage_event_failures == 1
+
+
+@pytest.mark.anyio
 async def test_broker_identity_cache_coalesces_events_and_expires_for_account_switch(tmp_path, monkeypatch):
     import asyncio
     import copy
@@ -133,11 +153,12 @@ async def test_broker_identity_failure_is_also_cached(tmp_path, monkeypatch):
     async def ignore(*args, **kwargs): pass
     host = runtime_host.ConnectorRuntimeHost("test", ignore, ignore)
     assert await host.claude_usage_observer() is None
+    assert len(calls) == 2
     assert await host.claude_usage_observer() is None
-    assert len(calls) == 1
+    assert len(calls) == 3
     now[0] += 61
     assert await host.claude_usage_observer() is None
-    assert len(calls) == 2
+    assert len(calls) == 5
 
 
 @pytest.fixture
@@ -189,6 +210,7 @@ def test_unified_windows_keep_strict_numeric_validation(unified_native_event, va
 @pytest.mark.anyio
 async def test_transport_observes_both_unified_windows_once(unified_native_event, native):
     from claude_agent_sdk._internal.message_parser import parse_message
+
     from connector.runtimes.claude.sdk.connection import ClaudeConnection
     service, key, _, _ = native
     seen = []
