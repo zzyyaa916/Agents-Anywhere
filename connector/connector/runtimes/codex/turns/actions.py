@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from connector.runtime_protocol import (
@@ -48,6 +48,7 @@ class CodexTurnActions:
     notices: CodexNoticeRegistry
     ensure_started: EnsureStarted
     pending_messages: PendingClientMessageRegistry
+    steered_ids: dict[str, tuple[str, set[str]]] = field(default_factory=dict)
     list_model_catalog: Callable[[str | None, int], Awaitable[Any]] | None = None
     list_permission_catalog: Callable[[str | None, int], Awaitable[Any]] | None = None
 
@@ -186,6 +187,7 @@ class CodexTurnActions:
             )
         if turn_id is not None:
             self.active_turn_ids[session_id] = turn_id
+            self.steered_ids[session_id] = (turn_id, set())
             self.pending_messages.bind_turn(
                 external_session_id=external_session_id,
                 client_message_id=client_message_id,
@@ -266,6 +268,20 @@ class CodexTurnActions:
                 message="Codex runtime has no active turn to steer",
                 result={"externalSessionId": external_session_id},
             )
+        current = self.steered_ids.get(session_id)
+        if current is None or current[0] != turn_id:
+            current = (turn_id, set())
+            self.steered_ids[session_id] = current
+        if client_message_id and client_message_id in current[1]:
+            return RuntimeOperationResult(
+                ok=True,
+                result={
+                    "steered": True,
+                    "turnId": turn_id,
+                    "externalSessionId": external_session_id,
+                    "deduplicated": True,
+                },
+            )
         await self.ensure_started()
         codex_attachments = await materialize_codex_attachments(
             self.host,
@@ -285,6 +301,8 @@ class CodexTurnActions:
             steering=True,
             turn_id=turn_id,
         )
+        if client_message_id:
+            current[1].add(client_message_id)
         try:
             result = await self.client.steer_turn(
                 CodexSteerTurnRequest(
@@ -295,6 +313,8 @@ class CodexTurnActions:
                 )
             )
         except (RuntimeError, RuntimeInvalidRequestError) as exc:
+            if client_message_id:
+                current[1].discard(client_message_id)
             soft_reason = soft_codex_unavailable_reason(str(exc))
             if soft_reason is None:
                 raise
