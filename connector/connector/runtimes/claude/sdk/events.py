@@ -1,14 +1,38 @@
 from __future__ import annotations
 
 import math
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from connector.logging import logger
 from connector.quota_errors import is_usage_limit
 
 ClaudeTerminalStatus = Literal["completed", "failed", "interrupted"]
 INTERRUPTED_TERMINAL_REASONS = frozenset({"aborted_streaming", "aborted_tools"})
+
+# Diagnostics only: counts and field names, never the raw native values.
+_USAGE_DROP_COUNTS: Counter[tuple[str, str]] = Counter()
+
+
+def usage_drop_counts() -> dict[tuple[str, str], int]:
+    return dict(_USAGE_DROP_COUNTS)
+
+
+def reset_usage_drop_counts() -> None:
+    _USAGE_DROP_COUNTS.clear()
+
+
+def _record_usage_drop(kind: str, field: str) -> None:
+    key = (kind, field)
+    _USAGE_DROP_COUNTS[key] += 1
+    logger.debug(
+        "claude usage window dropped kind={} field={} count={}",
+        kind,
+        field,
+        _USAGE_DROP_COUNTS[key],
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,7 +151,9 @@ def native_usage_from_message(message: Any) -> list[tuple[str, float | None, int
         resets_at = _attr(window, "resets_at") or _attr(window, "resetsAt")
         if isinstance(utilization, bool) or not isinstance(utilization, (int, float)) or not math.isfinite(utilization) or not 0 <= utilization <= 1:
             utilization = None
+            _record_usage_drop(kind, "utilization")
         if isinstance(resets_at, bool) or not isinstance(resets_at, int):
             resets_at = None
+            _record_usage_drop(kind, "resets_at")
         windows.append((kind, utilization, resets_at))
     return windows

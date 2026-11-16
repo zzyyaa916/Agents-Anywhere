@@ -1,9 +1,14 @@
 import json
 
 import pytest
+
 from connector.account_usage import LocalAccountUsage
 from connector.core.json_kv import JsonKeyValueStore
-from connector.runtimes.claude.sdk.events import native_usage_from_message
+from connector.runtimes.claude.sdk.events import (
+    native_usage_from_message,
+    reset_usage_drop_counts,
+    usage_drop_counts,
+)
 
 
 @pytest.fixture
@@ -25,6 +30,21 @@ def test_strict_native_event_shape():
     assert native_usage_from_message(message) == [("five_hour", None, None)]
     message["rate_limit_info"]["rate_limit_type"] = "unknown"
     assert native_usage_from_message(message) == []
+
+def test_invalid_native_usage_values_are_counted_without_raw_values():
+    reset_usage_drop_counts()
+    message = {"type": "rate_limit_event", "rate_limit_info": {
+        "rate_limit_type": "five_hour",
+        "utilization": {"token": "synthetic-not-forwarded"},
+        "resets_at": {"token": "synthetic-not-forwarded"},
+    }}
+    assert native_usage_from_message(message) == [("five_hour", None, None)]
+    assert usage_drop_counts() == {
+        ("five_hour", "utilization"): 1,
+        ("five_hour", "resets_at"): 1,
+    }
+    reset_usage_drop_counts()
+
 
 @pytest.mark.parametrize("used", [None, True, -0.1, 1.1, float("nan"), "0.2"])
 def test_missing_or_invalid_native_utilization_never_invents_a_percentage(native, used):
@@ -189,6 +209,7 @@ def test_unified_windows_keep_strict_numeric_validation(unified_native_event, va
 @pytest.mark.anyio
 async def test_transport_observes_both_unified_windows_once(unified_native_event, native):
     from claude_agent_sdk._internal.message_parser import parse_message
+
     from connector.runtimes.claude.sdk.connection import ClaudeConnection
     service, key, _, _ = native
     seen = []
