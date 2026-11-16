@@ -3870,6 +3870,42 @@ async def _test_claude_runtime_tool_approval_round_trips_to_sdk() -> None:
     assert host.session_state_updates[-1]["status"] == "idle"
 
 
+def test_claude_runtime_double_approval_is_idempotent() -> None:
+    asyncio.run(_test_claude_runtime_double_approval_is_idempotent())
+
+
+async def _test_claude_runtime_double_approval_is_idempotent() -> None:
+    host = _RecordingHost()
+    client = _ApprovalClaudeClient()
+    runtime = _runtime(host=host, client=client)
+
+    result = await runtime.start_turn(
+        "sess_approval_double",
+        "claude_session_approval_double",
+        "run ls",
+    )
+    task = runtime._sessions["sess_approval_double"].active_task
+    assert result.ok is True and task is not None
+    await _wait_until(lambda: bool(host.notice_upserts))
+
+    notice = host.notice_upserts[0]
+    first, second = await asyncio.gather(
+        runtime.respond_interaction("sess_approval_double", notice.notice_id, "approve"),
+        runtime.respond_interaction("sess_approval_double", notice.notice_id, "approve"),
+    )
+
+    assert first.ok is True
+    assert second.ok is True
+    assert sum(
+        bool(response.result.get("alreadyProcessed"))
+        for response in (first, second)
+    ) == 1
+    await task
+    statuses = [entry.status for entry in host.notice_upserts]
+    assert statuses.count("responding") == 1
+    assert statuses.count("resolved") == 1
+
+
 def test_claude_runtime_ask_user_question_round_trips_answers_to_sdk() -> None:
     asyncio.run(_test_claude_runtime_ask_user_question_round_trips_answers_to_sdk())
 
