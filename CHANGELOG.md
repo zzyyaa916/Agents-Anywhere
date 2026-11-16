@@ -20,7 +20,7 @@
 
 ### Web 与 Desktop 界面
 
-- 用量面板按窗口显示更新时间，未激活窗口不显示重置时间，并明确提示登录过期和数据解析失败。（[92379a69](https://github.com/zzyyaa916/Agents-Anywhere/commit/92379a69)）
+- 用量面板按窗口显示更新时间，未激活窗口的重置时间显示为「—」，不再显示为 01/01，并明确提示登录过期和数据解析失败。（[92379a69](https://github.com/zzyyaa916/Agents-Anywhere/commit/92379a69)、[efdb60fc](https://github.com/zzyyaa916/Agents-Anywhere/commit/efdb60fc)）
 
 ### Android
 
