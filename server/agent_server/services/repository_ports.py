@@ -219,6 +219,7 @@ class TimelineEffectRepository(Protocol):
         item: TimelineItemIn,
         source_observed_at: str | None = None,
         mark_read_on_change: bool = False,
+        append: bool = False,
     ) -> TimelineItemWriteResult: ...
 
 class InteractionResolutionRepository(
