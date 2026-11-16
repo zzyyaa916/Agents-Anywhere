@@ -230,7 +230,12 @@ async def _best_effort_publish_session_protocol_update(
             runtime_state_cache,
             session_id,
         )
-    except Exception:
+    except Exception as exc:
+        logger.debug(
+            "best-effort session protocol update failed session_id={} error={}",
+            session_id,
+            type(exc).__name__,
+        )
         return
 
 
