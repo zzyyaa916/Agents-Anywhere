@@ -23,6 +23,7 @@
 
 ### Web 与 Desktop 界面
 
+- 审批后的协议更新推送失败时保留调试日志与异常类型，审批本身仍不被阻塞。（[32b4cf2e](https://github.com/zzyyaa916/Agents-Anywhere/commit/32b4cf2e)）
 - 用量面板按窗口显示更新时间，未激活窗口不显示重置时间，并明确提示登录过期和数据解析失败。（[92379a69](https://github.com/zzyyaa916/Agents-Anywhere/commit/92379a69)）
 
 ### Android
