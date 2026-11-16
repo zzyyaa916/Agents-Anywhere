@@ -29,11 +29,13 @@
 
 ### Web 与 Desktop 界面
 
+- 用量面板显示 Codex 的失败原因和窗口解析告警，未激活窗口不再显示重置时间。（[50d5fddb](https://github.com/zzyyaa916/Agents-Anywhere/commit/50d5fddb)）
 - 未配置 Claude 探针时，Codex 用量仍可手动刷新，不再连刷新按钮一起禁用。（[058071c4](https://github.com/zzyyaa916/Agents-Anywhere/commit/058071c4)）
 - 用量面板按窗口显示更新时间，未激活窗口不显示重置时间，并明确提示登录过期和数据解析失败。（[92379a69](https://github.com/zzyyaa916/Agents-Anywhere/commit/92379a69)）
 
 ### Android
 
+- 用量面板显示 Codex 的失败原因和窗口解析告警，未激活窗口不再显示重置时间。（[50d5fddb](https://github.com/zzyyaa916/Agents-Anywhere/commit/50d5fddb)）
 - 修复发送消息后，快速到达的 AI 回复可能显示在本地待确认用户消息上方的问题。
 
 ## Fork 2.6.7（2026-11-14）

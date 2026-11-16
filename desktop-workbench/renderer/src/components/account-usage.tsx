@@ -8,8 +8,9 @@ import { apiClient } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 
 type UsageWindow = { kind: string; modelScope: string | null; usedPercent?: number; remainingPercent: number; resetsAt: string | null; windowDurationMins: number; source?: "event" | "probe" | null; receivedAt?: string | null; ageSeconds?: number | null }
-type Snapshot = { runtime: string; accountKey: string; accountLabel: string; planType: string | null; windows: UsageWindow[]; fetchedAt: string | null; stale: boolean; errorCode?: string | null; bindings: { connectorId: string; runtimeId: string }[] }
-type Refresh = { status: "idle" | "running" | "success" | "retry" | "offline" | "circuit" | "disabled"; nextAllowedAt?: string | null; completedAt?: string | null; errorCode?: string | null }
+type Snapshot = { runtime: string; accountKey: string; accountLabel: string; planType: string | null; windows: UsageWindow[]; fetchedAt: string | null; stale: boolean; errorCode?: string | null; parseWarnings?: ParseWarning[]; bindings: { connectorId: string; runtimeId: string }[] }
+type ParseWarning = { field: string; reason: string }
+type Refresh = { status: "idle" | "running" | "success" | "retry" | "offline" | "circuit" | "disabled"; nextAllowedAt?: string | null; completedAt?: string | null; errorCode?: string | null; parseWarnings?: ParseWarning[] }
 type Response = { snapshots: Snapshot[]; unavailable: string[]; serverTime?: string; refresh?: Refresh }
 type State = { data: Response | null; busy: boolean; failed: boolean; elapsed: number; read: () => Promise<void>; refresh: () => Promise<void> }
 const Context = React.createContext<State>({ data: null, busy: false, failed: false, elapsed: 0, read: async () => {}, refresh: async () => {} })
@@ -81,6 +82,7 @@ export function AccountUsagePanel() {
       {status === "disabled" && <p role="status">未配置 Claude 探针，刷新仅更新 Codex</p>}
       {(["retry", "offline", "circuit"].includes(status) && deadline > 0) && <p role="status">可重试时间：{localTime(data!.refresh!.nextAllowedAt!)}</p>}
       {failed && <p role="status">刷新失败，原有数据保留</p>}
+      {data?.refresh?.parseWarnings?.length ? <p role="status">部分用量窗口解析失败：{data.refresh.parseWarnings.map(w => `${w.field}: ${w.reason}`).join("；")}</p> : null}
       {["codex", "claude_code"].map(runtime => {
         const snapshots = data?.snapshots.filter(s => s.runtime === runtime) ?? []
         const name = runtime === "codex" ? "Codex" : "Claude Code"
@@ -90,11 +92,12 @@ export function AccountUsagePanel() {
             <p>{name} · {s.accountLabel}{s.planType ? ` · ${s.planType}` : ""}</p>
             {s.windows.map((w, index) => <div key={`${w.kind}-${index}`}>
               <p>{windowLabel(w)} · 剩余 {Math.round(w.remainingPercent)}%</p>
-              <p>重置时间：{localTime(w.resetsAt)}</p>
+              {w.resetsAt !== null && <p>重置时间：{localTime(w.resetsAt)}</p>}
               {runtime === "claude_code" && <p className="text-muted-foreground">{claudeUpdate([w])}</p>}
               <progress aria-label={`${name} ${windowLabel(w)}剩余`} value={w.remainingPercent} max={100} className="h-1 w-full accent-primary" />
             </div>)}
             {runtime !== "claude_code" && <p className="text-muted-foreground">{s.stale ? "数据已过期 · " : ""}{s.fetchedAt ? `${localTime(s.fetchedAt)} 更新` : "暂无数据"}</p>}
+            {runtime !== "claude_code" && s.errorCode && <p role="status">Codex 用量不可用：{s.errorCode}</p>}
           </div>)}
         </div>
       })}

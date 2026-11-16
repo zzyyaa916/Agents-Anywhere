@@ -51,6 +51,17 @@ test('only refresh posts; successful data starts at server age zero', async t =>
   assert.match(panel.textContent, /更新 · 探针/)
   assert.equal(refresh().textContent, '刷新')
 })
+test('Codex errors, parse warnings and inactive window reset are explicit', async t => {
+  const panel = await render(t, () => {
+    body.snapshots[0].runtime = 'codex'
+    body.snapshots[0].errorCode = 'account_changed'
+    body.snapshots[0].windows[0].resetsAt = null
+    body.refresh.parseWarnings = [{ field: 'seven_day.utilization', reason: 'TypeError' }]
+  })
+  assert.match(panel.textContent, /Codex 用量不可用：account_changed/)
+  assert.match(panel.textContent, /部分用量窗口解析失败：seven_day.utilization: TypeError/)
+  assert.doesNotMatch(panel.textContent, /重置时间：—/)
+})
 test('a disabled Claude probe does not disable the Codex refresh', async t => {
   const panel = await render(t, () => { body.refresh = { status: 'disabled', errorCode: 'probe_not_configured' } })
   assert.equal(refresh().disabled, false)
