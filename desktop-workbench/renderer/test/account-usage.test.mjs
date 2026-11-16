@@ -118,3 +118,16 @@ for (const [code, label] of [["auth_expired", "登录令牌已过期"], ["parse_
     assert.doesNotMatch(panel.textContent, /Invalid Date|1970/)
   })
 }
+
+for (const reset of [null, "1970-01-01T00:00:00Z", 0]) {
+  test(`inactive five-hour window renders without epoch date (${reset})`, async t => {
+    const panel = await render(t, () => {
+      body.snapshots[0].windows[0].resetsAt = reset
+      body.snapshots[0].windows[0].remainingPercent = 100
+    })
+    assert.match(panel.textContent, /5 小时 · 剩余 100%/)
+    assert.match(panel.textContent, /7 天 · 剩余 72%/)
+    assert.match(panel.textContent, /重置时间：—/)
+    assert.doesNotMatch(panel.textContent, /01\/01|1970|Invalid Date/)
+  })
+}

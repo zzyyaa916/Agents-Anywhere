@@ -14,7 +14,11 @@ type Response = { snapshots: Snapshot[]; unavailable: string[]; serverTime?: str
 type State = { data: Response | null; busy: boolean; failed: boolean; elapsed: number; read: () => Promise<void>; refresh: () => Promise<void> }
 const Context = React.createContext<State>({ data: null, busy: false, failed: false, elapsed: 0, read: async () => {}, refresh: async () => {} })
 export const useAccountUsage = () => React.useContext(Context)
-export const localTime = (value: string | null) => value === null ? "—" : new Date(value).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false })
+export const localTime = (value: string | null) => {
+  if (!value) return "—"
+  const date = new Date(value)
+  return !Number.isFinite(date.getTime()) || date.getTime() === 0 ? "—" : date.toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false })
+}
 export const windowLabel = (value: UsageWindow) => ({ five_hour: "5 小时", weekly: "周", seven_day: "7 天", weekly_scoped: `周 · ${value.modelScope ?? "模型"}` }[value.kind] ?? `${value.windowDurationMins} 分钟`)
 export function claudeUpdate(windows: UsageWindow[]): string {
   const latest = windows.reduce<UsageWindow | null>((found, window) => !found || Date.parse(window.receivedAt ?? "") > Date.parse(found.receivedAt ?? "") || (!found.receivedAt && window.receivedAt) ? window : found, null)

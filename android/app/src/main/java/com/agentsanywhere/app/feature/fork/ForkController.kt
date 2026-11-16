@@ -48,7 +48,7 @@ data class UsageCache(val accounts: List<UsageAccount>, val unavailable: List<St
                     (0 until (windows?.length() ?: 0)).mapNotNull { n ->
                         val w = windows?.optJSONObject(n) ?: return@mapNotNull null
                         val percent = w.optDouble("remainingPercent", Double.NaN)
-                        val reset = w.optString("resetsAt").takeUnless { it.isBlank() || it == "null" }
+                        val reset = w.optString("resetsAt").takeUnless { it.isBlank() || it == "null" || it == "0" || runCatching { Instant.parse(it) == Instant.EPOCH }.getOrDefault(false) }
                         if (!percent.isFinite() || percent !in 0.0..100.0 || (reset != null && runCatching { Instant.parse(reset) }.isFailure)) null
                         else UsageWindow(w.optString("kind"), percent, reset, w.optString("modelScope").takeUnless { it.isBlank() || it == "null" },
                             w.optString("source").takeIf { it == "event" || it == "probe" }, w.optDouble("ageSeconds", Double.NaN).takeIf { it.isFinite() && it >= 0 },

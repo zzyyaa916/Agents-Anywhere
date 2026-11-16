@@ -21,7 +21,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import kotlin.math.roundToInt
 
-internal fun localUsageTime(value: String?): String = value?.let {
+internal fun localUsageTime(value: String?): String = value?.takeUnless { it == "0" || runCatching { Instant.parse(it) == Instant.EPOCH }.getOrDefault(false) }?.let {
     runCatching { DateTimeFormatter.ofPattern("MM/dd HH:mm").withZone(ZoneId.systemDefault()).format(Instant.parse(it)) }.getOrNull()
 } ?: "—"
 

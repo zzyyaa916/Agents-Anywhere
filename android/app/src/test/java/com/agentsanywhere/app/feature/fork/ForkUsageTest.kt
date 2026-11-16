@@ -13,6 +13,20 @@ class ForkUsageTest {
         assertEquals("parse_error", cache.refresh.errorCode)
     }
 
+    @Test fun inactiveFiveHourAndActiveSevenDayBothSurviveParsing() {
+        val cache = UsageCache.parse(JSONObject("""{"snapshots":[{"runtime":"claude_code","windows":[{"kind":"five_hour","remainingPercent":100,"resetsAt":null},{"kind":"seven_day","remainingPercent":55,"resetsAt":"2026-11-19T16:59:59.947543+00:00"}]}]}"""))
+        val windows = cache.accounts.single().windows
+        assertEquals(listOf("five_hour", "seven_day"), windows.map { it.kind })
+        assertEquals(100.0, windows.first().remaining, 0.0)
+        assertNull(windows.first().resetsAt)
+        assertEquals(55.0, windows.last().remaining, 0.0)
+        assertEquals("—", com.agentsanywhere.app.ui.screens.fork.localUsageTime(windows.first().resetsAt))
+    }
+    @Test fun missingResetIsAcceptedAsAnInactiveWindow() {
+        val cache = UsageCache.parse(JSONObject("""{"snapshots":[{"runtime":"claude_code","windows":[{"kind":"five_hour","remainingPercent":100}]}]}"""))
+        assertEquals(1, cache.accounts.single().windows.size)
+        assertNull(cache.accounts.single().windows.single().resetsAt)
+    }
     @Test fun quotaWaitResumesOnlyAfterKnownDeadline() {
         val now = Instant.parse("2026-11-10T00:00:00Z")
         assertTrue(QuotaWait("limited", null).waiting(now))
