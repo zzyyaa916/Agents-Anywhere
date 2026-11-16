@@ -6,6 +6,7 @@
 
 ### 会话创建与消息交付
 
+- 运行中补充会拒绝空内容，并像发送一样检查归档与限额状态；未执行的补充不再计入已发送用量。（[84d8e4a8](https://github.com/zzyyaa916/Agents-Anywhere/commit/84d8e4a8)）
 - 删除准备后数据库写入失败时，设备清理回执会被取消，不再残留占位。（[bbbb644a](https://github.com/zzyyaa916/Agents-Anywhere/commit/bbbb644a)）
 - 删除项目时也会保护同一账号其他 Connector 的嵌套路径，避免同机共享目录被误删。（[32223da9](https://github.com/zzyyaa916/Agents-Anywhere/commit/32223da9)）
 - 修复删除会话或项目时附件存储失败会导致清理状态不一致的问题；删除记录先提交，附件清理失败会保留重试任务。（[86809666](https://github.com/zzyyaa916/Agents-Anywhere/commit/86809666)）
