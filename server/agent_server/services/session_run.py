@@ -915,9 +915,34 @@ class SessionRunService:
             session = await self._store.get_session(session_id, user_id=user_id)
         except KeyError:
             raise SessionRunNotFoundError("session not found") from None
+        if session.archived:
+            raise SessionRunConflictError(_session_source_error_detail(session))
         if not session.takeover:
             raise SessionRunConflictError(
                 "session is read-only until takeover is enabled"
+            )
+        quota = session.quotaLimit
+        if quota and quota.get("state") == "limited":
+            raise SessionRunConflictError(
+                {
+                    "code": "session_usage_limited",
+                    "message": "仍在用量限额中，请等待恢复或重新检查。",
+                    "resetsAt": quota.get("resetsAt"),
+                }
+            )
+        if (
+            quota
+            and quota.get("state") == "ready"
+            and (
+                not quota.get("externalSessionId")
+                or session.externalSessionId != quota["externalSessionId"]
+            )
+        ):
+            raise SessionRunConflictError(
+                {
+                    "code": "session_resume_identity_missing",
+                    "message": "原 Runtime 会话标识不可用，不能创建新会话替代。",
+                }
             )
         if not await self._manager.is_online(session.connectorId):
             raise SessionRunConflictError("connector is offline")
@@ -971,13 +996,14 @@ class SessionRunService:
             raise SessionRunConflictError(str(exc)) from exc
         except ConnectorRpcError as exc:
             raise SessionRunUpstreamError(exc.message or exc.code) from exc
-        await self._usage.record(
-            message_sent_event(
-                session,
-                user_id=user_id,
-                client_message_id=payload.clientMessageId,
+        if not (isinstance(result, dict) and result.get("ok") is False):
+            await self._usage.record(
+                message_sent_event(
+                    session,
+                    user_id=user_id,
+                    client_message_id=payload.clientMessageId,
+                )
             )
-        )
         return RpcResponsePayload(ok=True, result=result)
 
     async def _require_runtime_capability(
