@@ -171,6 +171,27 @@ def test_inactive_windows_and_real_sample():
     assert module.normalized_usage(value)['parse_warnings'] == [{'field': 'five_hour.resets_at', 'reason': 'MissingField'}]
 
 
+def test_missing_entire_window_is_a_missing_field_warning():
+    value = body()
+    del value['seven_day']
+    result = module.normalized_usage(value)
+    assert result['windows'] == [{'kind': 'five_hour', 'used_percent': 71, 'resets_at': value['five_hour']['resets_at']}]
+    assert result['parse_warnings'] == [{'field': 'seven_day', 'reason': 'MissingField'}]
+
+
+def test_credential_lock_timeout_is_reported_as_unavailable(probe_credentials, monkeypatch):
+    from contextlib import contextmanager
+
+    @contextmanager
+    def timeout(_path):
+        raise module.CredentialLockTimeout()
+        yield
+
+    monkeypatch.setattr(module, '_credential_lock', timeout)
+    result = module.fetch_usage(['claude'], opener=SimpleNamespace(open=lambda *a, **k: Response()))
+    assert result == {'error_code': 'unavailable'}
+
+
 @pytest.mark.parametrize('value', [None, [], 'invalid', 1])
 def test_bad_root_is_sanitized(value):
     with pytest.raises(module.ParseError, match=r'\$: TypeError'):

@@ -203,7 +203,7 @@ test('platform files stream into an official new session, mix with images and su
   const router = new RuntimeRouter({ native, query: fixture.ctx.sessionQuery, status: id => native.status(id) }, 'files')
   try {
     const content = Buffer.alloc(2 * 1024 * 1024, 65)
-    const file = { ...await stage(native.attachments, content, 'file_document'), name: 'notes.txt', mediaType: 'text/plain' }
+    const file = { ...await stage(native.attachments, content, 'file_document'), name: 'notes.md', mediaType: 'text/markdown' }
     const image = await stage(native.attachments)
     const params = { sessionId: 'sess_files', clientMessageId: 'files-message', content: '', cwd: home,
       agentPreset: 'standard', selections: initialSelections, attachments: [file, image] }

@@ -30,7 +30,8 @@ data class UsageWindow(val kind: String, val remaining: Double, val resetsAt: St
     fun expired(now: Instant = Instant.now()): Boolean = runCatching { !Instant.parse(resetsAt).isAfter(now) }.getOrDefault(true)
 }
 data class UsageAccount(val runtime: String, val label: String, val stale: Boolean, val fetchedAt: String?, val windows: List<UsageWindow>, val errorCode: String? = null)
-data class ProbeRefresh(val status: String = "idle", val nextAllowedAt: String? = null, val errorCode: String? = null, val completedAt: String? = null)
+data class ParseWarning(val field: String, val reason: String)
+data class ProbeRefresh(val status: String = "idle", val nextAllowedAt: String? = null, val errorCode: String? = null, val completedAt: String? = null, val parseWarnings: List<ParseWarning> = emptyList())
 data class UsageCache(val accounts: List<UsageAccount>, val unavailable: List<String>, val refresh: ProbeRefresh = ProbeRefresh(), val serverTime: String? = null) {
     fun lowFiveHour(runtime: String?, now: Instant = Instant.now()): List<Pair<UsageAccount, UsageWindow>> = accounts
         .filter { it.runtime == runtime && !it.stale }
@@ -59,7 +60,11 @@ data class UsageCache(val accounts: List<UsageAccount>, val unavailable: List<St
             val refresh = value.optJSONObject("refresh")
             return UsageCache(accounts, unavailable, ProbeRefresh(refresh?.optString("status") ?: "idle",
                 refresh?.optString("nextAllowedAt")?.takeUnless { it.isBlank() || it == "null" }, refresh?.optString("errorCode")?.takeUnless { it.isBlank() || it == "null" },
-                refresh?.optString("completedAt")?.takeUnless { it.isBlank() || it == "null" }),
+                refresh?.optString("completedAt")?.takeUnless { it.isBlank() || it == "null" },
+                (0 until (refresh?.optJSONArray("parseWarnings")?.length() ?: 0)).mapNotNull { i ->
+                    val warning = refresh?.optJSONArray("parseWarnings")?.optJSONObject(i) ?: return@mapNotNull null
+                    ParseWarning(warning.optString("field"), warning.optString("reason"))
+                }),
                 value.optString("serverTime").takeUnless { it.isBlank() || it == "null" })
         }
     }
