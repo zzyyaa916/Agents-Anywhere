@@ -4,6 +4,8 @@ import json
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
+from loguru import logger
+
 from agent_server.core.history_deletion import (
     BUSY_SESSION_STATUSES,
     DeviceCleanupIncomplete,
@@ -104,6 +106,7 @@ async def delete_history_data(
             if prepared.get("prepared") is not True:
                 raise DeviceCleanupIncomplete("Connector cannot safely delete device contents")
             device_cleanup = {"request": request, "receipt": prepared["receipt"]}
+        committed = False
         try:
             ids = await store.delete_history(
                 object_id,
@@ -113,9 +116,17 @@ async def delete_history_data(
                 cached_busy=busy,
                 **({"device_cleanup": device_cleanup} if device_cleanup is not None else {}),
             )
-        except HistoryDeletionConflict:
-            if device_cleanup is not None:
-                await manager.request(connector_id, "history.cleanup.cancel", device_cleanup, timeout=10)
+            committed = True
+        except BaseException:
+            if device_cleanup is not None and not committed:
+                try:
+                    await manager.request(connector_id, "history.cleanup.cancel", device_cleanup, timeout=10)
+                except Exception as exc:  # noqa: BLE001 - preserve the deletion error
+                    logger.warning(
+                        "device cleanup cancel failed connector_id={} error={}",
+                        connector_id,
+                        type(exc).__name__,
+                    )
             raise
         audits = await store.pending_history_cleanup(
             object_id=object_id, project=project, user_id=user_id
