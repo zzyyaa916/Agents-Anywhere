@@ -246,7 +246,9 @@ def test_storage_failure_does_not_report_success_and_can_retry(api, monkeypatch)
     )
     with pytest.raises(OSError, match="synthetic storage failure"):
         client.delete(f"/sessions/{sid}", headers=headers)
-    assert client.get(f"/sessions/{sid}/meta", headers=headers).status_code == 200
+    # The SQL deletion and its audit row are committed before external cleanup.
+    assert client.get(f"/sessions/{sid}/meta", headers=headers).status_code == 404
+    assert asyncio.run(client.app.state.store.pending_history_cleanup())
     monkeypatch.setattr(files, "delete_session", original)
     assert client.delete(f"/sessions/{sid}", headers=headers).status_code == 204
 
@@ -346,6 +348,22 @@ def test_upload_finishes_before_deletion_and_cannot_leave_orphan(api, tmp_path):
         with pytest.raises(KeyError):
             async with store.attachment_write_fence(sid, user_id=user_id):
                 pytest.fail("deleted session accepted an upload")
+        # The SQL rows commit first; the audit row drives external cleanup.
+        assert (tmp_path / "files" / sid).exists()
+        audits = await store.pending_history_cleanup(
+            object_id=sid, project=False, user_id=user_id
+        )
+        from agent_server.services.history_deletion import cleanup_deleted_history
+
+        class _Buffer:
+            async def discard_session(self, _sid):
+                return None
+
+        class _Cache:
+            async def discard(self, _sid):
+                return None
+
+        await cleanup_deleted_history(store, _Buffer(), _Cache(), audits)
         assert not (tmp_path / "files" / sid).exists()
 
     asyncio.run(scenario())

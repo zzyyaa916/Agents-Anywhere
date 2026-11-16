@@ -16,6 +16,9 @@ from pydantic.alias_generators import to_camel
 DETAIL_PATTERN = r"^(write_failed_after_refresh|(?:\$|windows|(?:five_hour|seven_day)(?:\.(?:utilization|resets_at))?): (?:TypeError|ValueError|OverflowError|MissingField|JSONDecodeError|UnicodeDecodeError|SizeLimit)(?:; (?:\$|windows|(?:five_hour|seven_day)(?:\.(?:utilization|resets_at))?): (?:TypeError|ValueError|OverflowError|MissingField|JSONDecodeError|UnicodeDecodeError|SizeLimit))*)$"
 
 MINIMUM = {"codex": 60, "claude_code": 300}
+# Connector-supplied retry hints are advisory; never let one hide collection for hours.
+MAX_CONNECTOR_RETRY_SECONDS = 1800
+FETCHED_AT_AHEAD_TOLERANCE_SECONDS = 30
 Runtime = Literal["codex", "claude_code", "dsh"]
 Plan = Literal[
     "free", "plus", "pro", "max", "team", "business", "enterprise", "edu", "go"
@@ -198,3 +201,13 @@ def merged_claude_windows(data, legacy_windows, now):
         selected[kind] = UsageWindow.model_validate({**newest["window"], "source": newest["source"],
             "receivedAt": received, "ageSeconds": max(0, now - received.timestamp())})
     return [selected[kind] for kind in ("five_hour", "seven_day") if kind in selected]
+
+
+def bounded_next_attempt_at(now: float, requested: float, delay: float) -> float:
+    """Cap a Connector retry hint at the server-owned maximum delay."""
+    requested_delay = max(0.0, requested - now) if requested > now else 0.0
+    return now + max(delay, min(requested_delay, MAX_CONNECTOR_RETRY_SECONDS))
+
+
+def fetched_at_is_ahead(fetched_at, now: float) -> bool:
+    return fetched_at is not None and fetched_at.timestamp() > now + FETCHED_AT_AHEAD_TOLERANCE_SECONDS

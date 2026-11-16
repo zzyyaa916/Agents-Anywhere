@@ -252,10 +252,9 @@ class HistoryDeletionRepositoryMixin:
                     deleted_at=now,
                 )
             )
-            # Match official Connector deletion: keep SQL rows retryable if external storage fails.
-            # Uploads share a session row lock, so no blob write can cross this deletion.
-            for sid in ids:
-                await self.files.delete_session(sid)
+            # External storage is deleted after this transaction commits, driven by
+            # the audit row.  A storage failure must not roll back the SQL rows or
+            # leave already-deleted blobs unrecoverable.
         return ids
 
     async def pending_history_cleanup(
