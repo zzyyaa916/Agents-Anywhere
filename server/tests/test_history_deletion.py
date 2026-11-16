@@ -666,6 +666,22 @@ def test_unexpected_prepare_error_is_not_reported_as_offline_device(api, tmp_pat
     assert directory.exists()
 
 
+def test_failed_sql_deletion_cancels_prepared_device_cleanup(api, tmp_path, monkeypatch):
+    client, headers, project, sid, directory, native, request, _ = device_cleanup(api, tmp_path, monkeypatch)
+    store = client.app.state.store
+    original = store.delete_history
+
+    async def fail_delete(*args, **kwargs):
+        raise RuntimeError("database failure")
+
+    monkeypatch.setattr(store, "delete_history", fail_delete)
+    with pytest.raises(RuntimeError, match="database failure"):
+        client.delete(f"/projects/{project}/contents?expectedSessionCount=1", headers=headers)
+    assert any(call.args[1].endswith("cancel") for call in request.await_args_list)
+    assert directory.exists()
+    monkeypatch.setattr(store, "delete_history", original)
+
+
 def test_lost_release_ack_is_retryable_without_repeating_native_deletion(api, tmp_path, monkeypatch):
     client, headers, project, sid, directory, native, request, rpc = device_cleanup(api, tmp_path, monkeypatch)
     async def lose_release_ack(connector, method, params, **kwargs):
