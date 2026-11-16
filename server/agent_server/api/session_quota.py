@@ -4,6 +4,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 from starlette.requests import HTTPConnection
 
+from agent_server.core.session_quota import recheck_window_usable
 from agent_server.deps import current_user_id, get_session_run_service
 from agent_server.services.session_run import SessionRunService
 
@@ -68,9 +69,11 @@ async def recheck_quota(
             and snapshot.windows
             and all(w.remaining_percent > 0 for w in snapshot.windows)
             and (snapshot.runtime != "claude_code" or all(
-                w.received_at is not None
-                and w.received_at > datetime.fromisoformat(quota["interruptedAt"])
-                and w.resets_at > datetime.fromisoformat(usage.server_time)
+                recheck_window_usable(
+                    w,
+                    datetime.fromisoformat(quota["interruptedAt"]),
+                    datetime.fromisoformat(usage.server_time),
+                )
                 for w in snapshot.windows
             ))
         ):
