@@ -78,6 +78,7 @@ class ConnectorRuntimeHost(RuntimeHostClient):
         self._account_usage_kv = None
         self._claude_identity_cache = {}
         self._claude_identity_lock = asyncio.Lock()
+        self._claude_usage_event_failures = 0
 
     async def prepare_runtime_host(self, runtime_id: str) -> ConnectorRuntimeHost:
         if self._runtime_storage is None:
@@ -120,10 +121,26 @@ class ConnectorRuntimeHost(RuntimeHostClient):
 
     async def claude_usage_observer(self):
         from connector.account_usage import LocalAccountUsage, window
-        try:
-            collector = LocalAccountUsage(self.account_usage_kv)
-            account_key = (await self._claude_identity(collector))["account_key"]
-        except Exception:  # noqa: BLE001 -- optional usage must not prevent the task
+        collector = LocalAccountUsage(self.account_usage_kv)
+        account_key = None
+        for attempt in range(2):
+            try:
+                account_key = (await self._claude_identity(collector))["account_key"]
+                break
+            except Exception as exc:  # noqa: BLE001 -- optional usage must not prevent the task
+                if attempt == 0:
+                    # The identity helper caches a failure for 60s; a creation
+                    # retry must not simply read that cached exception back.
+                    self._claude_identity_cache.clear()
+                    await asyncio.sleep(0.25)
+                    continue
+                logger.warning(
+                    "claude usage observer unavailable error={} attempts={}",
+                    type(exc).__name__,
+                    attempt + 1,
+                )
+                return None
+        if account_key is None:
             return None
         async def observe(kind, utilization, resets_at):
             try:
@@ -141,8 +158,13 @@ class ConnectorRuntimeHost(RuntimeHostClient):
                         "resetsAt": value["resets_at"], "windowDurationMins": value["window_duration_mins"]}
                 await self._notify_server("accountUsage.event", {"runtimeId": self._bound_runtime_id, "accountKey": account_key,
                     "eventId": uuid4().hex, "windows": [wire]})
-            except Exception:  # noqa: BLE001, S110 -- metadata failures must not fail tasks or log upstream details.
-                pass
+            except Exception as exc:  # noqa: BLE001 -- metadata failures must not fail tasks
+                self._claude_usage_event_failures += 1
+                logger.warning(
+                    "claude usage event push failed count={} error={}",
+                    self._claude_usage_event_failures,
+                    type(exc).__name__,
+                )
         return observe
 
     def flush_runtime_storage(self) -> bool:

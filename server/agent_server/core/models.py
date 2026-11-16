@@ -1248,7 +1248,7 @@ class SessionCommandResponse(BaseModel):
 class SessionSteerRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    content: str
+    content: str = Field(min_length=1)
     attachments: list[AttachmentRef] = Field(default_factory=list, max_length=10)
     clientMessageId: str | None = None
 

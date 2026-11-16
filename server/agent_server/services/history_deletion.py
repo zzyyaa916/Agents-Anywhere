@@ -4,12 +4,19 @@ import json
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
+from loguru import logger
+
 from agent_server.core.history_deletion import (
     BUSY_SESSION_STATUSES,
     DeviceCleanupIncomplete,
     HistoryDeletionConflict,
 )
 from agent_server.services.repository_ports import HistoryDeletionRepository
+
+# Preparing a project tree can walk many directories; keep this separate from
+# the commit/release timeouts so a large project is not reported as offline.
+DEVICE_CLEANUP_PREPARE_TIMEOUT_SECONDS = 300
+DEVICE_CLEANUP_COMMIT_TIMEOUT_SECONDS = 120
 
 if TYPE_CHECKING:
     from agent_server.infra.terminal_broker import TerminalBroker
@@ -33,7 +40,7 @@ async def cleanup_deleted_history(
                 raise DeviceCleanupIncomplete("device cleanup requires an online Connector")
             plan = json.loads(audit["device_cleanup_json"])
             if not plan.get("deviceComplete"):
-                result = await manager.request(plan["request"]["connectorId"], "history.cleanup.commit", plan, timeout=120)
+                result = await manager.request(plan["request"]["connectorId"], "history.cleanup.commit", plan, timeout=DEVICE_CLEANUP_COMMIT_TIMEOUT_SECONDS)
                 if result.get("complete") is not True:
                     raise DeviceCleanupIncomplete("device cleanup did not complete")
                 plan["deviceComplete"] = True
@@ -100,10 +107,11 @@ async def delete_history_data(
                 raise DeviceCleanupIncomplete("device cleanup requires an online Connector")
             request = await store.history_device_cleanup_plan(object_id, user_id=user_id, project=project)
             request["operationId"] = uuid4().hex
-            prepared = await manager.request(connector_id, "history.cleanup.prepare", request, timeout=30)
+            prepared = await manager.request(connector_id, "history.cleanup.prepare", request, timeout=DEVICE_CLEANUP_PREPARE_TIMEOUT_SECONDS)
             if prepared.get("prepared") is not True:
                 raise DeviceCleanupIncomplete("Connector cannot safely delete device contents")
             device_cleanup = {"request": request, "receipt": prepared["receipt"]}
+        committed = False
         try:
             ids = await store.delete_history(
                 object_id,
@@ -113,9 +121,17 @@ async def delete_history_data(
                 cached_busy=busy,
                 **({"device_cleanup": device_cleanup} if device_cleanup is not None else {}),
             )
-        except HistoryDeletionConflict:
-            if device_cleanup is not None:
-                await manager.request(connector_id, "history.cleanup.cancel", device_cleanup, timeout=10)
+            committed = True
+        except BaseException:
+            if device_cleanup is not None and not committed:
+                try:
+                    await manager.request(connector_id, "history.cleanup.cancel", device_cleanup, timeout=10)
+                except Exception as exc:  # noqa: BLE001 - preserve the deletion error
+                    logger.warning(
+                        "device cleanup cancel failed connector_id={} error={}",
+                        connector_id,
+                        type(exc).__name__,
+                    )
             raise
         audits = await store.pending_history_cleanup(
             object_id=object_id, project=project, user_id=user_id
