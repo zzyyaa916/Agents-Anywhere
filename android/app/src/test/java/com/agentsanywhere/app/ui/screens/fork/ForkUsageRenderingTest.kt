@@ -16,7 +16,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [34], qualifiers = "zh-rCN")
 class ForkUsageRenderingTest {
     @get:Rule val compose = createComposeRule()
 
@@ -36,7 +36,7 @@ class ForkUsageRenderingTest {
             }
             val controller = ForkController(ForkApi(ApiClient()), auth)
             compose.setContent { MaterialTheme { ForkUsageButton(controller) } }
-            compose.onNodeWithContentDescription("账号用量").performClick()
+            compose.onNodeWithContentDescription("账号剩余用量").performClick()
             compose.waitUntil(10000) { compose.onAllNodesWithText("剩余 100%").fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithText("剩余 100%").assertIsDisplayed()
             compose.onNodeWithText("剩余 55%").assertIsDisplayed()
