@@ -39,7 +39,7 @@ class ClaudeStderrBuffer:
         return text
 
     def failure_message(self, exc: Exception) -> str:
-        message = str(exc) or exc.__class__.__name__
+        message = redact_secret(str(exc)) or exc.__class__.__name__
         stderr = self.excerpt()
         if stderr:
             return f"{message}\n\nClaude stderr:\n{stderr}"

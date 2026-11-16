@@ -3611,6 +3611,7 @@ async def _test_claude_runtime_includes_redacted_stderr_in_error_state() -> None
     assert "Claude stderr:" in state.error["message"]
     assert "api_key=***" in state.error["message"]
     assert "secret-token" not in state.error["message"]
+    assert "exception-secret" not in state.error["message"]
     assert "blocked" not in [update["status"] for update in host.session_state_updates]
     assert client.settings_path is not None
     assert client.settings_path.exists() is False
@@ -4252,7 +4253,7 @@ class _AskUserQuestionClaudeClient(_FakeClaudeClient):
 class _StderrFailingClaudeClient(_FakeClaudeClient):
     async def receive_response(self) -> list[Any]:
         self.options.kwargs["stderr"]("api_key=secret-token")
-        raise RuntimeError("Claude crashed")
+        raise RuntimeError("Claude crashed api_key=exception-secret")
 
 
 class _BlockingClaudeClient(_FakeClaudeClient):
