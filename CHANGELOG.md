@@ -25,6 +25,7 @@
 
 ### Web 与 Desktop 界面
 
+- 未配置 Claude 探针时，Codex 用量仍可手动刷新，不再连刷新按钮一起禁用。（[058071c4](https://github.com/zzyyaa916/Agents-Anywhere/commit/058071c4)）
 - 用量面板按窗口显示更新时间，未激活窗口不显示重置时间，并明确提示登录过期和数据解析失败。（[92379a69](https://github.com/zzyyaa916/Agents-Anywhere/commit/92379a69)）
 
 ### Android
