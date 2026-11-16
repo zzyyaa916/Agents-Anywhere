@@ -21,6 +21,7 @@
 
 ### Codex 与 Claude
 
+- Claude 用量探针在整窗缺失时记录告警，凭据锁超时不再误报为登录过期。（[c7f64f69](https://github.com/zzyyaa916/Agents-Anywhere/commit/c7f64f69)）
 - Claude 回合失败消息中的异常文本也会脱敏，不再只处理原生 stderr。（[3bb71c41](https://github.com/zzyyaa916/Agents-Anywhere/commit/3bb71c41)）
 - Claude 用量观察器创建失败时会重试并记录脱敏原因，事件推送失败也会累计计数。（[0270636c](https://github.com/zzyyaa916/Agents-Anywhere/commit/0270636c)）
 - 同一条即时补充重复发送时不再执行两次，Codex 会按客户端消息标识去重。（[35d1ced0](https://github.com/zzyyaa916/Agents-Anywhere/commit/35d1ced0)）

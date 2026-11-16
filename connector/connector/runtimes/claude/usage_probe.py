@@ -63,6 +63,7 @@ def normalized_usage(payload):
     windows, warnings = [], []
     for kind in ("five_hour", "seven_day"):
         if kind not in payload:
+            warnings.append({"field": kind, "reason": "MissingField"})
             continue
         field = kind
         try:
@@ -113,6 +114,10 @@ class AuthExpired(Exception):
         self.detail = detail
 
 
+class CredentialLockTimeout(Exception):
+    """Another cooperating process held the credential lock for too long."""
+
+
 def _token(value):
     if not isinstance(value, str) or not value or "\r" in value or "\n" in value:
         raise AuthExpired()
@@ -146,7 +151,7 @@ def _credential_lock(path):
                 break
             except BlockingIOError:
                 if time.monotonic() >= deadline:
-                    raise AuthExpired() from None
+                    raise CredentialLockTimeout() from None
                 time.sleep(0.05)
         yield
 
@@ -202,6 +207,8 @@ def _refresh(path, previous, client, *, force=False, user_agent):
     except urllib.error.HTTPError as error:
         error.close()
         raise AuthExpired() from None
+    except CredentialLockTimeout:
+        raise
     except Exception:  # noqa: BLE001 -- Never include credential, response or exception text.
         raise AuthExpired("write_failed_after_refresh" if refreshed else None) from None
     finally:
