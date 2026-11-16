@@ -688,9 +688,10 @@ class SessionStateNotificationHandler:
             marker = TimelineItemIn.model_validate({
                 "id": marker_id, "sessionId": session_id, "type": "system", "status": "done", "role": "system",
                 "content": marker_content, "source": {"runtime": "platform", "itemType": "usage_limit"},
-                "orderSeq": 1, "revision": 1, "contentHash": "sha256:" + hashlib.sha256(json.dumps(marker_content, sort_keys=True).encode()).hexdigest(),
+                # Placeholder only: append=True allocates the durable max+1 under the session lock.
+                "orderSeq": 0, "revision": 1, "contentHash": "sha256:" + hashlib.sha256(json.dumps(marker_content, sort_keys=True).encode()).hexdigest(),
             })
-            written = await self._store.upsert_timeline_item(session_id=session_id, item=marker)
+            written = await self._store.upsert_timeline_item(session_id=session_id, item=marker, append=True)
             quota_item = written.item.model_dump(mode="json")
 
             notices = [NoticeIn.model_validate({

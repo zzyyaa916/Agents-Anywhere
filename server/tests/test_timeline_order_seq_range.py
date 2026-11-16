@@ -99,18 +99,19 @@ async def test_out_of_range_appends_but_max_collision_overflows(tmp_path) -> Non
         second = await buffer.accept(session_id=session.id,
             item=item_input(session.id,"negative-overflow",order_seq=-(2**31)-1))
         assert second.item.orderSeq == 2
-        await buffer.accept(session_id=session.id,
+        last = await buffer.accept(session_id=session.id,
             item=item_input(session.id,"last",order_seq=TIMELINE_ORDER_SEQ_MAX))
-        # A lower free slot is still valid even after MAX; only a collision
-        # requires an impossible max+1 and must fail before revision allocation.
-        free = await buffer.accept(session_id=session.id,
-            item=item_input(session.id,"free",order_seq=3))
+        # A position far below the durable head is no longer honored: both a
+        # stale low slot and another MAX collision require an impossible max+1.
+        with pytest.raises(OverflowError):
+            await buffer.accept(session_id=session.id,
+                item=item_input(session.id,"free",order_seq=3))
         with pytest.raises(OverflowError):
             await buffer.accept(session_id=session.id,
                 item=item_input(session.id,"after",order_seq=TIMELINE_ORDER_SEQ_MAX))
-        assert await buffer.live_sequence(session.id) == free.item.updatedSeq
+        assert await buffer.live_sequence(session.id) == last.item.updatedSeq
         await buffer.flush_through(session.id)
-        assert await stored_order(store,session.id) == [("stamp",1),("negative-overflow",2),("free",3),("last",TIMELINE_ORDER_SEQ_MAX)]
+        assert await stored_order(store,session.id) == [("stamp",1),("negative-overflow",2),("last",TIMELINE_ORDER_SEQ_MAX)]
     finally:
         await buffer.close()
         await store.close()

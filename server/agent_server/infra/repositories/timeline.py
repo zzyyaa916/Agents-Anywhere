@@ -15,6 +15,7 @@ from agent_server.core.timeline import (
     TimelineBatchWriteResult,
     TimelineItemWriteResult,
     allocate_timeline_order_seq,
+    append_timeline_order_seq,
     latest_timeline_items_by_id,
     next_timeline_item_revision,
     timeline_item_from_runtime_input,
@@ -302,12 +303,18 @@ class TimelineRepositoryMixin:
                 count=len(changed_inputs),
                 mark_read=mark_read_on_change,
             )
+            initial_sync = max_order_seq == 0
             for index, item in enumerate(changed_inputs):
                 existing = current_by_id.get(item.id)
                 if existing is not None:
                     order_seq = existing.orderSeq
                 else:
-                    order_seq = allocate_timeline_order_seq(item.orderSeq, max_order_seq, occupied=item.orderSeq in occupants)
+                    order_seq = allocate_timeline_order_seq(
+                        item.orderSeq,
+                        max_order_seq,
+                        occupied=item.orderSeq in occupants,
+                        initial_sync=initial_sync,
+                    )
                 occupants[order_seq] = item.id
                 max_order_seq = max(max_order_seq, order_seq)
                 normalized = timeline_item_from_runtime_input(
@@ -407,6 +414,7 @@ class TimelineRepositoryMixin:
         item: TimelineItemIn,
         source_observed_at: str | None = None,
         mark_read_on_change: bool = False,
+        append: bool = False,
     ) -> TimelineItemWriteResult:
         """Apply one Runtime-owned item by stable ID without scanning history."""
 
@@ -436,6 +444,7 @@ class TimelineRepositoryMixin:
                     session_id,
                     existing,
                     item.orderSeq,
+                    append=append,
                 )
                 result = timeline_item_from_runtime_input(
                     item,
@@ -671,11 +680,16 @@ class TimelineRepositoryMixin:
         session_id: str,
         existing: TimelineItem | None,
         requested: int,
+        *,
+        append: bool = False,
     ) -> int:
         if existing is not None:
             return existing.orderSeq
+        maximum = await self._max_timeline_order_seq(conn, session_id)
+        if append:
+            return append_timeline_order_seq(maximum)
         occupants = await self._timeline_order_occupants(conn, session_id, {requested}) if timeline_order_seq_in_range(requested) else {}
-        return allocate_timeline_order_seq(requested, await self._max_timeline_order_seq(conn, session_id), occupied=bool(occupants))
+        return allocate_timeline_order_seq(requested, maximum, occupied=bool(occupants))
 
     async def _timeline_order_occupants(self, conn, session_id, requested):
         if not requested:
