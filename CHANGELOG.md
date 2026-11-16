@@ -17,6 +17,7 @@
 
 ### Codex 与 Claude
 
+- Claude 原生用量字段异常时会记录脱敏计数和字段名，便于排查采集缺失。（[46c101f8](https://github.com/zzyyaa916/Agents-Anywhere/commit/46c101f8)）
 - 重复点击 Claude 审批按钮不再提示“未在等待回答”，第二次点击会按已处理返回。（[0c5ea2cb](https://github.com/zzyyaa916/Agents-Anywhere/commit/0c5ea2cb)）
 - 修复限额恢复时未激活用量窗口没有重置时间导致检查失败的问题。（[fdb958d1](https://github.com/zzyyaa916/Agents-Anywhere/commit/fdb958d1)）
 - 修复 Claude 未激活用量窗口导致刷新失败的问题；登录令牌到期时自动续期，单个窗口格式异常时保留其他窗口和原有缓存。（[92379a69](https://github.com/zzyyaa916/Agents-Anywhere/commit/92379a69)）
