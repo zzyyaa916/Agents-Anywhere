@@ -6,6 +6,7 @@
 
 ### 会话创建与消息交付
 
+- 运行中补充会拒绝空内容，并像发送一样检查归档与限额状态；未执行的补充不再计入已发送用量。（[84d8e4a8](https://github.com/zzyyaa916/Agents-Anywhere/commit/84d8e4a8)）
 - 修复连接器重启后新消息被插入历史前部的问题；限额中断提示改为追加到会话末尾。（[b2448fc2](https://github.com/zzyyaa916/Agents-Anywhere/commit/b2448fc2)）
 - 修复迟到的用户消息被追加到 AI 回复之后的问题；用户消息会先于回复上报，延迟回声不会再生成重复条目。（[45250307](https://github.com/zzyyaa916/Agents-Anywhere/commit/45250307)）
 
