@@ -6038,6 +6038,30 @@ async def _test_codex_runtime_steers_active_turn() -> None:
     assert host.state_updates[-1]["status"] == "running"
 
 
+def test_codex_runtime_repeated_steer_is_deduplicated() -> None:
+    asyncio.run(_test_codex_runtime_repeated_steer_is_deduplicated())
+
+
+async def _test_codex_runtime_repeated_steer_is_deduplicated() -> None:
+    client = FakeCodexClient()
+    host = FakeHost()
+    runtime = CodexRuntime(config=_config(), host=host, client=client)
+
+    await runtime.start_turn("sess_1", "thread_1", "hello")
+    first = await runtime.steer_turn(
+        "sess_1", "thread_1", "more context", client_message_id="cm_same"
+    )
+    before = sum(1 for method, _ in client.requests if method == "turn/steer")
+    second = await runtime.steer_turn(
+        "sess_1", "thread_1", "more context", client_message_id="cm_same"
+    )
+
+    assert first.ok is True
+    assert second.ok is True
+    assert second.result["deduplicated"] is True
+    assert sum(1 for method, _ in client.requests if method == "turn/steer") == before
+
+
 def test_codex_runtime_steer_without_active_turn_returns_conflict() -> None:
     asyncio.run(_test_codex_runtime_steer_without_active_turn_returns_conflict())
 

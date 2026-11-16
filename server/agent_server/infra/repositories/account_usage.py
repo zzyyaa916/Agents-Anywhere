@@ -5,11 +5,14 @@ import time
 from datetime import UTC, datetime
 from uuid import uuid4
 
+from loguru import logger
 from sqlalchemy import and_, func, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 
 from agent_server.core.account_usage import (
     MINIMUM,
+    bounded_next_attempt_at,
+    fetched_at_is_ahead,
     normalize_probe_state,
     probe_failure,
 )
@@ -163,11 +166,20 @@ class AccountUsageRepositoryMixin:
                 and result.account_key == row["account_key"]
                 and result.runtime == row["runtime"]
             )
+            ahead = bool(valid and fetched_at_is_ahead(result.fetched_at, now))
+            if ahead:
+                logger.warning(
+                    "account usage fetched_at is ahead runtime={} account={} skew_seconds={:.0f}",
+                    row["runtime"],
+                    row["account_key"][:8],
+                    max(0.0, result.fetched_at.timestamp() - now),
+                )
             ok = (
                 valid
                 and not result.stale
                 and result.fetched_at is not None
                 and bool(result.windows)
+                and not ahead
             )
             failures = 0 if ok else current["failures"] + 1
             delay = (
@@ -175,9 +187,11 @@ class AccountUsageRepositoryMixin:
                 if ok
                 else (300, 900, 1800)[min(failures - 1, 2)]
             )
-            next_at = now + delay
-            if valid and now < result.next_attempt_at < now + 7 * 86400:
-                next_at = max(next_at, result.next_attempt_at)
+            next_at = (
+                bounded_next_attempt_at(now, result.next_attempt_at, delay)
+                if valid
+                else now + delay
+            )
             values = {
                 "next_attempt_at": next_at,
                 "failures": failures,
@@ -188,11 +202,7 @@ class AccountUsageRepositoryMixin:
                 if current["snapshot_json"]
                 else None
             )
-            if (
-                valid
-                and result.fetched_at is not None
-                and result.fetched_at.timestamp() <= now + 30
-            ):
+            if valid and not ahead and result.fetched_at is not None:
                 candidate = result.model_dump(mode="json", by_alias=True)
                 if previous is None or (candidate.get("fetchedAt") or "") >= (
                     previous.get("fetchedAt") or ""

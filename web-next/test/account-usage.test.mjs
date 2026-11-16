@@ -51,6 +51,14 @@ test('only refresh posts; successful data starts at server age zero', async t =>
   assert.match(panel.textContent, /更新 · 探针/)
   assert.equal(refresh().textContent, '刷新')
 })
+test('a disabled Claude probe does not disable the Codex refresh', async t => {
+  const panel = await render(t, () => { body.refresh = { status: 'disabled', errorCode: 'probe_not_configured' } })
+  assert.equal(refresh().disabled, false)
+  assert.equal(refresh().textContent, '刷新')
+  assert.match(panel.textContent, /未配置 Claude 探针，刷新仅更新 Codex/)
+  await act(async () => refresh().click())
+  assert.deepEqual(requests.filter(([method]) => method === 'POST'), [['POST', '/account-usage/refresh']])
+})
 test('transport failure keeps the exact prior values, source and age', async t => {
   const panel = await render(t)
   fail = true
