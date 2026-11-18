@@ -13,7 +13,7 @@ import time
 
 SERVICE = 'agents-anywhere-fork.service'
 VENV = Path('/home/aa-fork/.venv')
-VERSION = '2.7.2'
+VERSION = '2.7.3'
 SUPPORTED_SOURCE_VERSIONS = ('2.6.0', '2.6.1', '2.6.2', '2.6.3', '2.6.4', '2.6.5', '2.6.6', '2.6.7', '2.7.0', VERSION)
 
 
@@ -102,7 +102,9 @@ def prepare_environment(root, manifest, uv, venv, new):
         subprocess.run(['cp', '-a', '--reflink=auto', str(venv) + '/.', str(new)], check=True)
         install_package(root, manifest, uv, new / 'bin/python')
         subprocess.run([uv, 'pip', 'check', '--python', str(new / 'bin/python')], check=True)
-        run([new / 'bin/python', '-c', 'import connector.cli; from connector.local import worktrees; from connector.server import local_rpc; from importlib.metadata import version; assert version("anywhere-cli") == "2.7.1"; print("import check OK")'])
+        # The import check pins the installed distribution to the version this
+        # release ships; a hardcoded literal silently drifted from the wheel.
+        run([new / 'bin/python', '-c', 'import connector.cli; from connector.local import worktrees; from connector.server import local_rpc; from importlib.metadata import version; assert version("anywhere-cli") == "' + VERSION + '"; print("import check OK")'])
         owner = venv.stat()
         subprocess.run(['chown', '-R', f'{owner.st_uid}:{owner.st_gid}', str(new)], check=True)
         restore_package_access(venv, new)
