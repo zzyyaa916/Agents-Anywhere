@@ -146,6 +146,9 @@ async def test_probe_partial_merge_null_clears_reset_without_refreshing_failed_w
     from agent_server.infra.repositories.facade import Store
     store = Store()
     try:
+        # Production registers the user through login before a Connector is
+        # created; usage snapshots carry a user_id foreign key to that row.
+        await store.create_user(user_id='user_1', password='test-password')
         connector, _, _ = await store.create_connector(name='probe', user_id='user_1')
         await seed(store, connector.id, 'claude')
         async def finish(body, now):
