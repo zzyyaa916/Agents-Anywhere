@@ -8,6 +8,7 @@ from loguru import logger
 
 from agent_server.core.history_deletion import (
     BUSY_SESSION_STATUSES,
+    CLEANUP_REFUSAL_CODES,
     DeviceCleanupIncomplete,
     HistoryDeletionConflict,
 )
@@ -24,6 +25,24 @@ if TYPE_CHECKING:
         SessionRuntimeStateCache,
     )
     from agent_server.services.timeline_write_buffer import TimelineWriteBuffer
+
+
+def _cleanup_refusal(exc: BaseException) -> str | None:
+    """Return the fixed refusal code a device cleanup raised, if any.
+
+    The Connector refuses an unsafe cleanup by raising a short code, and the
+    code may reach us as the exception itself when the call is in-process or
+    as an RPC error whose ``code``/``message`` carries it. Anything else is a
+    genuine failure and must keep its own handling.
+    """
+    for candidate in (
+        getattr(exc, "code", None),
+        getattr(exc, "message", None),
+        str(exc),
+    ):
+        if isinstance(candidate, str) and candidate in CLEANUP_REFUSAL_CODES:
+            return candidate
+    return None
 
 
 async def cleanup_deleted_history(
@@ -107,7 +126,17 @@ async def delete_history_data(
                 raise DeviceCleanupIncomplete("device cleanup requires an online Connector")
             request = await store.history_device_cleanup_plan(object_id, user_id=user_id, project=project)
             request["operationId"] = uuid4().hex
-            prepared = await manager.request(connector_id, "history.cleanup.prepare", request, timeout=DEVICE_CLEANUP_PREPARE_TIMEOUT_SECONDS)
+            try:
+                prepared = await manager.request(connector_id, "history.cleanup.prepare", request, timeout=DEVICE_CLEANUP_PREPARE_TIMEOUT_SECONDS)
+            except Exception as exc:  # noqa: BLE001 - re-raised with the refusal code
+                code = _cleanup_refusal(exc)
+                if code is None:
+                    raise
+                # The device protected shared or protected data. Translate the
+                # refusal into the cleanup failure the API already reports as
+                # 503, so the request keeps its retry semantics instead of
+                # surfacing a bare internal error.
+                raise DeviceCleanupIncomplete(code) from exc
             if prepared.get("prepared") is not True:
                 raise DeviceCleanupIncomplete("Connector cannot safely delete device contents")
             device_cleanup = {"request": request, "receipt": prepared["receipt"]}
@@ -157,7 +186,13 @@ async def abandon_device_cleanup(object_id, *, user_id, project, store, manager,
             current = next((row for row in pending if row["id"] == audit["id"]), None)
             if current is None or not current.get("device_cleanup_json"):
                 continue
-            result = await manager.request(connector_id, "history.cleanup.cancel", plan, timeout=120)
+            try:
+                result = await manager.request(connector_id, "history.cleanup.cancel", plan, timeout=120)
+            except Exception as exc:  # noqa: BLE001 - re-raised with the refusal code
+                code = _cleanup_refusal(exc)
+                if code is None:
+                    raise
+                raise DeviceCleanupIncomplete(code) from exc
             if result.get("released") is not True:
                 raise DeviceCleanupIncomplete("device did not cancel cleanup")
             await store.abandon_device_cleanup(audit["id"])
