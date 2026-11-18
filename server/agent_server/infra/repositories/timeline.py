@@ -237,15 +237,33 @@ class TimelineRepositoryMixin:
         # another durable writer. Recheck under the DB advisory transaction lock.
         requested = {item.orderSeq for item in items if timeline_order_seq_in_range(item.orderSeq)}
         occupants = await self._timeline_order_occupants(conn, session_id, requested)
-        maximum = max([await self._max_timeline_order_seq(conn, session_id)] + list(requested))
+        # The durable head is what a late item may still be placed behind.  A
+        # pending assignment in this batch must not raise that head: a valid,
+        # free position such as the column maximum is storable as it is, and
+        # folding it into ``maximum`` used to renumber it to maximum + 1 and
+        # overflow the whole batch.
+        maximum = await self._max_timeline_order_seq(conn, session_id)
         replacements = {}
         for item in sorted(items, key=lambda value: (
             not timeline_order_seq_in_range(value.orderSeq),
             value.orderSeq if not timeline_order_seq_in_range(value.orderSeq) else 0,
         )):
             existing = current_by_id.get(item.id)
-            order = existing.orderSeq if existing else allocate_timeline_order_seq(
-                item.orderSeq, maximum, occupied=item.orderSeq in occupants and occupants[item.orderSeq] != item.id)
+            if existing is not None:
+                order = existing.orderSeq
+            else:
+                # Recheck under the lock: a newer durable writer may already
+                # hold the position this batch reserved when it was buffered.
+                free = timeline_order_seq_in_range(item.orderSeq) and (
+                    item.orderSeq not in occupants or occupants[item.orderSeq] == item.id
+                )
+                order = (
+                    item.orderSeq
+                    if free
+                    else allocate_timeline_order_seq(
+                        item.orderSeq, maximum, occupied=True
+                    )
+                )
             occupants[order] = item.id
             maximum = max(maximum, order)
             if order != item.orderSeq:
@@ -303,7 +321,24 @@ class TimelineRepositoryMixin:
                 count=len(changed_inputs),
                 mark_read=mark_read_on_change,
             )
-            initial_sync = max_order_seq == 0
+            # A batch that is entirely new and free is not a late echo: an
+            # empty session lets it keep its own numbering, and a batch whose
+            # every position is free (the column minimum and maximum arriving
+            # together, for instance) must not be renumbered into an overflow.
+            free_positions = [
+                item.orderSeq
+                for item in changed_inputs
+                if current_by_id.get(item.id) is None
+                and timeline_order_seq_in_range(item.orderSeq)
+                and item.orderSeq not in occupants
+            ]
+            initial_sync = (
+                max_order_seq == 0 or len(free_positions) == len(changed_inputs)
+            )
+            # The durable head only moves with positions this batch actually
+            # stores; raising it with a pending assignment would renumber a
+            # later free position past the limit.
+            durable_head = max_order_seq
             for index, item in enumerate(changed_inputs):
                 existing = current_by_id.get(item.id)
                 if existing is not None:
@@ -311,12 +346,12 @@ class TimelineRepositoryMixin:
                 else:
                     order_seq = allocate_timeline_order_seq(
                         item.orderSeq,
-                        max_order_seq,
+                        durable_head,
                         occupied=item.orderSeq in occupants,
                         initial_sync=initial_sync,
                     )
                 occupants[order_seq] = item.id
-                max_order_seq = max(max_order_seq, order_seq)
+                durable_head = max(durable_head, order_seq)
                 normalized = timeline_item_from_runtime_input(
                     item,
                     updated_seq=first_updated_seq + index,

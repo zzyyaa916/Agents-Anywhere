@@ -9,9 +9,11 @@ from agent_server.core.models import TimelineItem, TimelineItemIn
 TIMELINE_ORDER_SEQ_MIN = -(2**31)
 TIMELINE_ORDER_SEQ_MAX = 2**31 - 1
 # A late item may sit only this many positions behind the current durable head.
-# A connector that restarts its projection at 1 in a long session is far outside
-# this window and is appended instead of being inserted into old history.
-TIMELINE_ORDER_SEQ_PLACEMENT_WINDOW = 1000
+# A late echo drifts by a handful of items; anything tens of positions behind is
+# a connector that restarted its projection at 1 and must be appended instead of
+# being inserted into old history.  The window is this small so that rule holds
+# for short sessions too, where a fixed large window swallowed every restart.
+TIMELINE_ORDER_SEQ_PLACEMENT_WINDOW = 16
 
 
 def timeline_order_seq_in_range(order_seq: int) -> bool:
@@ -27,19 +29,26 @@ def allocate_timeline_order_seq(
 ) -> int:
     """Place a self-reported orderSeq under the caller's session fence.
 
-    Incremental items may keep a late, smaller position only when it is still
-    inside the recent placement window.  A full initial sync may use its own
-    numbering; complete snapshots bypass this allocator entirely.
+    A valid position the session does not occupy is stored as it is: an
+    oversized or stale number must never drag a free position out of range.
+    An initial sync may also use its own numbering for a free position.
+    An incremental item keeps a late, smaller position only when it is still
+    inside the recent placement window; outside it the renumbering is a
+    connector restart and the item is appended.  A position the session
+    already holds is never reused, even when ``occupied`` is reported late.
     """
     valid = timeline_order_seq_in_range(requested)
+    # An initial sync (or a complete snapshot) reports the runtime's own
+    # numbering, so any in-range position it does not need to reuse is stored
+    # as it is -- including the negative bound.  The incremental path keeps
+    # appending non-positive and stale positions.
+    free = valid and not occupied and (
+        initial_sync or requested >= 1
+    )
     recent = initial_sync or (
         valid and requested >= maximum - TIMELINE_ORDER_SEQ_PLACEMENT_WINDOW
     )
-    result = (
-        requested
-        if valid and requested >= 1 and not occupied and recent
-        else maximum + 1
-    )
+    result = requested if free and recent else maximum + 1
     if not timeline_order_seq_in_range(result):
         raise OverflowError("timeline orderSeq exceeds the column range")
     return result
