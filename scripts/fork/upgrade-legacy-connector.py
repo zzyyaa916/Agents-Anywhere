@@ -14,7 +14,15 @@ import time
 SERVICE = 'agents-anywhere-fork.service'
 VENV = Path('/home/aa-fork/.venv')
 VERSION = '2.7.3'
-SUPPORTED_SOURCE_VERSIONS = ('2.6.0', '2.6.1', '2.6.2', '2.6.3', '2.6.4', '2.6.5', '2.6.6', '2.6.7', '2.7.0', VERSION)
+# Every published version an installed Connector may come from. Spelling out
+# the list keeps each release that adds a version from dropping the previous
+# one, which a trailing VERSION could never cover.
+SUPPORTED_SOURCE_VERSIONS = (
+    '2.6.0', '2.6.1', '2.6.2', '2.6.3',
+    '2.6.4', '2.6.5', '2.6.6', '2.6.7',
+    '2.7.0', '2.7.1', '2.7.2',
+    VERSION,
+)
 
 
 def run(args):
