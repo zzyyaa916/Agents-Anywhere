@@ -11,6 +11,12 @@ export interface Config {
   stateRoot?: string
   connectorSourceDir?: string
   uvPath?: string
+  /**
+   * Absolute rendezvous directory shared with the Connector (`connector.json`, attachment staging,
+   * creation intents). Unset keeps the per-user default; set it when DSH runs as a different OS user
+   * than the Connector, so the default home-relative path does not reach the Connector's directory.
+   */
+  bridgeDirectory?: string
 }
 
 export const Config: z<Config> = z.object({
@@ -19,6 +25,7 @@ export const Config: z<Config> = z.object({
   stateRoot: z.string(),
   connectorSourceDir: z.string(),
   uvPath: z.string(),
+  bridgeDirectory: z.string(),
 })
 
 export interface ResolvedConfig extends ConnectionSettings {
@@ -33,9 +40,15 @@ export function stateRoot(config: Config): string {
   return config.stateRoot ?? join(userInfo().homedir, '.agents-anywhere', 'dsh-bridge-next')
 }
 
-/** Fixed per-user rendezvous with the Connector; DSH_HOME and stateRoot do not move it. */
-export function bridgeDirectory(): string {
-  return join(userInfo().homedir, '.agents-anywhere', 'dsh-bridge')
+/**
+ * Rendezvous with the Connector. Defaults to the fixed per-user directory; DSH_HOME and stateRoot
+ * do not move it. Only an explicit `bridgeDirectory` config does.
+ */
+export function bridgeDirectory(config: Pick<Config, 'bridgeDirectory'> = {}): string {
+  const configured = config.bridgeDirectory
+  if (configured === undefined) return join(userInfo().homedir, '.agents-anywhere', 'dsh-bridge')
+  if (!isAbsolute(configured)) throw new Error('bridgeDirectory 必须是绝对路径。')
+  return configured
 }
 
 /**

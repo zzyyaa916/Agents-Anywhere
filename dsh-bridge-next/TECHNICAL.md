@@ -159,6 +159,7 @@ Host 配置位于 DSH 的插件配置行。常用项如下：
 |---|---|
 | `apiBaseUrl` | 默认云端后端地址；上次连接时保存的后端地址优先 |
 | `stateRoot` | 操作系统用户主目录下 `.agents-anywhere/dsh-bridge-next` |
+| `bridgeDirectory` | 不设时为操作系统用户主目录下 `.agents-anywhere/dsh-bridge`（与 Connector 的汇合目录）；设置时必须为绝对路径。仅在 DSH 与 Connector 以不同系统用户运行、默认路径到不了 Connector 目录时配置 |
 | `connectorSourceDir` | 包内 `lib/bundled-connector`；覆盖时必须为绝对路径 |
 | `uvPath` | 优先使用显式配置或 `UV_PATH`，否则使用 npm 依赖 `@dataiku/uv` 中的平台二进制；依赖不可用时尝试系统 PATH |
 
@@ -174,7 +175,7 @@ Python 下载镜像独立于 PyPI 镜像，提供官方源与 npmmirror。首次
 
 受限权限请求通过 DSH 官方 `approval/request` 转成 AA 交互通知，显示工具名与申请原因，提供“允许一次”和“拒绝”。结果通过官方待处理请求返回 DSH，不修改会话权限模式或批准策略。原生客户端作答或请求取消后，远端通知同步关闭；重连恢复同一个待处理请求，重复提交不会重复批准。计划审批 `plan-review` 复用问答卡片，展示完整计划正文和 DSH 提供的选项，也可填写修改意见。批准选项按 DSH 声明的标签匹配，不按位置推断；原生客户端作答、取消和重连沿用同一待处理请求。
 
-本机 Router 由 Connector 进程拥有（Unix socket 或 Windows 命名管道）；插件只负责发现与连接。插件不写端点文件：Connector 在 `~/.agents-anywhere/dsh-bridge/connector.json` 发布 rendezvous（endpoint + `dsh-bridge` key），插件读取后注册 `aa.dsh.v2.Bridge`，`instanceId` 或 key 变化时切换到新的 Router。插件管理锁（`acquireManagerLock`）仍防止两个插件实例同时注册，避免 Connector 的调用被分到两个 DSH 进程。旧的 `<dshHome>/agents-anywhere/bridge/endpoint.json` 镜像与 1.0 的 `initialize` 握手已删除。
+本机 Router 由 Connector 进程拥有（Unix socket 或 Windows 命名管道）；插件只负责发现与连接。插件不写端点文件：Connector 在 `~/.agents-anywhere/dsh-bridge/connector.json`（插件侧可由 `bridgeDirectory` 改到其他绝对路径）发布 rendezvous（endpoint + `dsh-bridge` key），插件读取后注册 `aa.dsh.v2.Bridge`，`instanceId` 或 key 变化时切换到新的 Router。插件管理锁（`acquireManagerLock`）仍防止两个插件实例同时注册，避免 Connector 的调用被分到两个 DSH 进程。旧的 `<dshHome>/agents-anywhere/bridge/endpoint.json` 镜像与 1.0 的 `initialize` 握手已删除。
 
 
 旧配置中的自动启动、心跳、重连及已有会话同步选项在加载时移除，不再影响连接行为。Host 重载自动恢复已授权设备；首次安装等待登录，仅 Desktop 正在运行时交由 Desktop 管理。同步间隔及固定的连接参数写入实际 `connector/connector.json`。`logs/connector.jsonl` 记录本机 Connector 生命周期。

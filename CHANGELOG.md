@@ -2,6 +2,14 @@
 
 按版本记录用户能感知到的变化，最新版本在最前，每项一句话。接口变化、各端最低配套版本、数据库迁移和安装包记录见各版本的[发布说明](docs/releases/)。
 
+## 未发布
+
+### DSH
+
+- 删除仍被 DSH 加载的空闲会话会立即成功：会话马上从 AA 消失，设备上的原生历史在 DSH 下次启动时清除；正在运行的会话会提示先停止。（[fix/dsh/history-delete-and-text-attachments](https://github.com/zzyyaa916/Agents-Anywhere/tree/fix/dsh/history-delete-and-text-attachments)）
+- 256KB 以内的文本附件（md/txt/json/csv/yaml 等）直接随消息发送，不再因 DSH 文件上传卡住而无法读取；其余文件上传超过 120 秒会报可重试错误。
+- 插件新增 `bridgeDirectory` 配置，可把与 Connector 的汇合目录指向绝对路径；不配置时行为不变。DSH 与 Connector 以不同系统用户运行时需要它，fork 部署见[部署记录](docs/fork/dsh-bridge-deferred-delete-deployment.md)。
+
 ## 2.7.3（2026-11-19）
 
 ### 会话创建与消息交付

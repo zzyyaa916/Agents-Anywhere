@@ -15,6 +15,52 @@ import { record } from './types.js'
 
 export const IMAGE_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'] as const
 
+/**
+ * Small UTF-8 text files are inlined into the prompt instead of going through DSH's file upload,
+ * whose admission can stall after the stream is fully read (observed on Harness 0.2.1-rc.5).
+ */
+export const INLINE_TEXT_MAX_BYTES = 256 * 1024
+const INLINE_TEXT_EXTENSIONS = new Set(['md', 'markdown', 'mdx', 'txt', 'text', 'log', 'csv', 'tsv', 'json', 'jsonl',
+  'yaml', 'yml', 'toml', 'ini', 'cfg', 'conf', 'xml', 'html', 'htm', 'css', 'rst', 'adoc', 'tex'])
+const INLINE_TEXT_MEDIA_TYPES = new Set(['application/json', 'application/x-ndjson', 'application/xml', 'application/yaml',
+  'application/x-yaml', 'application/toml'])
+/** Invisible marker that lets history keep inlined file text out of the user's message bubble. */
+export const INLINE_ATTACHMENT_MARKER = '\u2063aa-attachment\u2063'
+/** DSH upload is bounded so one stalled upload cannot block the session's write queue forever. */
+export const FILE_UPLOAD_TIMEOUT_MS = 120_000
+
+export function isInlineTextAttachment(item: Pick<AttachmentReference, 'name' | 'mediaType' | 'size'>): boolean {
+  if (item.size > INLINE_TEXT_MAX_BYTES) return false
+  const mediaType = item.mediaType.toLowerCase()
+  if (mediaType.startsWith('text/') || INLINE_TEXT_MEDIA_TYPES.has(mediaType)) return true
+  const dot = item.name.lastIndexOf('.')
+  return dot > 0 && INLINE_TEXT_EXTENSIONS.has(item.name.slice(dot + 1).toLowerCase())
+}
+
+export function isInlinedAttachmentText(text: string): boolean { return text.startsWith(INLINE_ATTACHMENT_MARKER) }
+
+function inlineAttachmentText(name: string, text: string): string {
+  const safeName = name.replace(/[\r\n"<>]/g, '_')
+  return `${INLINE_ATTACHMENT_MARKER}<attachment name="${safeName}">\n${text}\n</attachment>`
+}
+
+/** Await `operation`, failing after `ms` and aborting the operation's signal. */
+async function withTimeout<T>(signal: AbortSignal, ms: number, message: string, operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const controller = new AbortController()
+  const onAbort = () => controller.abort(signal.reason)
+  signal.addEventListener('abort', onAbort, { once: true })
+  let timer: NodeJS.Timeout | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      const error = new BridgeError('DSH_SERVICE_UNAVAILABLE', message, true)
+      controller.abort(error)
+      reject(error)
+    }, ms)
+  })
+  try { return await Promise.race([operation(controller.signal), timeout]) }
+  finally { clearTimeout(timer); signal.removeEventListener('abort', onAbort) }
+}
+
 /** lstat, so a symbolic link counts as present and is then refused by the staging checks. */
 async function exists(path: string): Promise<boolean> {
   try { await lstat(path); return true }
@@ -105,9 +151,10 @@ export class RuntimeAttachments {
   }
 
   async prepare(images: readonly StagedAttachment[], store: AttachmentStore, signal: AbortSignal,
-    upload?: { service: FileUploads, sessionId: SessionId }): Promise<PromptContentPart[]> {
+    upload?: { service: FileUploads, sessionId: SessionId, timeoutMs?: number }): Promise<PromptContentPart[]> {
     const imageFiles = images.filter(image => IMAGE_MIME_TYPES.includes(image.mediaType as ImageMediaType))
-    if (imageFiles.length !== images.length && !upload) throw new BridgeError(
+    const uploadCount = images.filter(image => !IMAGE_MIME_TYPES.includes(image.mediaType as ImageMediaType) && !isInlineTextAttachment(image)).length
+    if (uploadCount && !upload) throw new BridgeError(
       'UNSUPPORTED_OPERATION', 'File attachments require DSH 0.1.5-rc.1 or later. Update DSH and restart the plugin.')
     const limits = store.imageLimits
     if (imageFiles.length > limits.maxImagesPerMessage || imageFiles.some(image => image.size > limits.maxImageBytes) ||
@@ -133,6 +180,15 @@ export class RuntimeAttachments {
             throw new BridgeError('INVALID_PARAMS', 'Staged attachment content does not match its upload.')
           }
           parts.push({ type: 'image', name: image.name, mediaType: image.mediaType as ImageMediaType, data: data.toString('base64') })
+        } else if (isInlineTextAttachment(image)) {
+          const data = await file.readFile()
+          if (data.length !== image.size || createHash('sha256').update(data).digest('hex') !== image.sha256) {
+            throw new BridgeError('INVALID_PARAMS', 'Staged attachment content does not match its upload.')
+          }
+          let text: string
+          try { text = new TextDecoder('utf-8', { fatal: true }).decode(data) }
+          catch { throw new BridgeError('INVALID_PARAMS', `Attachment ${image.name} is not valid UTF-8 text.`) }
+          parts.push({ type: 'text', text: inlineAttachmentText(image.name, text) })
         } else {
           // Validate while streaming. Throw before EOF so DSH cannot commit a corrupt upload.
           const data = async function* () {
@@ -150,7 +206,9 @@ export class RuntimeAttachments {
               throw new BridgeError('INVALID_PARAMS', 'Staged attachment content does not match its upload.')
             }
           }
-          const result = await upload!.service.uploadStream({ sessionId: upload!.sessionId, name: image.name, data: data(), signal })
+          const result = await withTimeout(signal, upload!.timeoutMs ?? FILE_UPLOAD_TIMEOUT_MS,
+            `DSH did not finish receiving attachment ${image.name}. Retry, or restart DSH if it keeps stalling.`,
+            uploadSignal => upload!.service.uploadStream({ sessionId: upload!.sessionId, name: image.name, data: data(), signal: uploadSignal }))
           parts.push({ type: 'file', receiptId: result.receiptId })
         }
       } finally { await file.close() }

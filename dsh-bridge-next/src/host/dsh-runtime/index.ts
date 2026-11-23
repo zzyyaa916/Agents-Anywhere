@@ -5,7 +5,7 @@ import { Context, Service } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-session-query'
 import { join } from 'node:path'
-import { bridgeDirectory, Config, legacyBridgeDirectory } from '../config.js'
+import { bridgeDirectory, Config, legacyBridgeDirectory, stateRoot } from '../config.js'
 import { BridgeConnection } from './connection.js'
 import { NativeRuntime } from './native.js'
 import { RpcLogOutput } from './log-output.js'
@@ -37,11 +37,11 @@ export class DshRuntimeService extends Service {
 
   constructor(ctx: Context, config: Config) {
     super(ctx, 'agentsAnywhereRuntime')
-    const bridge = bridgeDirectory()
+    const bridge = bridgeDirectory(config)
     const legacy = legacyBridgeDirectory(config)
     this.diagnostics = new RuntimeDiagnostics(this.logOutput)
     this.native = new NativeRuntime(ctx, join(bridge, 'create-intents'), this.diagnostics,
-      legacy && join(legacy, 'attachments', 'staging'))
+      legacy && join(legacy, 'attachments', 'staging'), stateRoot(config))
     // The Connector publishes its Router in connector.json; the plugin registers the Bridge on it.
     this.makeServer = () => new BridgeConnection(join(bridge, 'connector.json'), {
       native: this.native,
@@ -71,6 +71,8 @@ export class DshRuntimeService extends Service {
   }
 
   async [Service.init](): Promise<void> {
+    // Deferred deletions are erased before AA can resume them; failures stay pending for the next start.
+    await this.native.purgePendingDeletions().catch(error => this.diagnostics.log('warn', 'session.deferred_deletion_failed', {}, error))
     await this.restart()
   }
 

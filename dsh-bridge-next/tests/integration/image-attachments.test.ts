@@ -239,3 +239,51 @@ test('platform files stream into an official new session, mix with images and su
     assert.equal(users().length, 1)
   } finally { router.close(); adapter.release?.(); await fixture.ctx.fiber.dispose(); await rm(home, { recursive: true, force: true }) }
 })
+
+test('small text files are inlined into the prompt instead of going through DSH upload', { timeout: 40_000 }, async () => {
+  const home = await mkdtemp(join(tmpdir(), 'aa-dsh-inline-'))
+  const adapter = new VisionAdapter()
+  const fixture = await nativeRuntime(home, ctx => mountAgents(ctx, adapter), 'inline-')
+  const native = fixture.ctx.agentsAnywhereRuntime.native
+  const router = new RuntimeRouter({ native, query: fixture.ctx.sessionQuery, status: id => native.status(id) }, 'inline')
+  try {
+    const content = Buffer.from('# 标题\n\n- item one\n')
+    const file = { ...await stage(native.attachments, content, 'file_notes'), name: 'notes.md', mediaType: 'application/octet-stream' }
+    const params = { sessionId: 'sess_inline', clientMessageId: 'inline-message', content: 'read this', cwd: home,
+      agentPreset: 'standard', selections: initialSelections, attachments: [file] }
+    const result = await router.request('createAndStartSession', params, new AbortController().signal) as { accepted: boolean }
+    assert.equal(result.accepted, true, JSON.stringify(result))
+    await until(() => adapter.requests.length === 1)
+    const id = SessionId(nativeSessionId('inline', 'sess_inline'))
+    const event = fixture.ctx.sessions.get(id)!.snapshotEvents().find(event => event.type === 'user/message' && event.data.source.kind === 'user')!
+    if (event.type !== 'user/message') throw new Error('missing message')
+    assert.ok(!event.data.content.some(part => part.type === 'file'))
+    const texts = event.data.content.flatMap(part => part.type === 'text' ? [part.text] : [])
+    assert.equal(texts[0], 'read this')
+    assert.ok(texts[1]!.includes('<attachment name="notes.md">') && texts[1]!.includes('- item one'))
+    const projected = projectHistory(await native.read(id), 'sess_inline').find(item => item.role === 'user')!
+    assert.equal(projected.content.text, 'read this')
+    assert.deepEqual((projected.content.attachments as { fileId: string }[]).map(file => file.fileId), ['file_notes'])
+    adapter.release?.()
+    const binary = { ...await stage(native.attachments, Buffer.from([0xff, 0xfe, 0x00]), 'file_bad'), name: 'bad.txt', mediaType: 'text/plain' }
+    await assert.rejects(native.attachments.prepare([binary], fixture.ctx.attachments, new AbortController().signal), /not valid UTF-8/)
+  } finally { router.close(); adapter.release?.(); await fixture.ctx.fiber.dispose(); await rm(home, { recursive: true, force: true }) }
+})
+
+test('a stalled DSH upload fails after the timeout instead of blocking the session', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'aa-dsh-stall-'))
+  try {
+    const attachments = new RuntimeAttachments(home)
+    const staged = { ...await stage(attachments, Buffer.alloc(1024, 1), 'file_blob'), name: 'blob.bin', mediaType: 'application/octet-stream' }
+    let aborted = false
+    const service = { uploadStream: async ({ data, signal }: { data: AsyncIterable<Buffer>, signal: AbortSignal }) => {
+      for await (const _ of data) { /* drain like DSH does */ }
+      signal.addEventListener('abort', () => { aborted = true })
+      return new Promise(() => {})
+    } }
+    const store = { imageLimits: { maxImagesPerMessage: 10, maxImageBytes: 1 << 20, maxMessageImageBytes: 1 << 22 } }
+    await assert.rejects(attachments.prepare([staged], store as never, new AbortController().signal,
+      { service: service as never, sessionId: SessionId('stall'), timeoutMs: 50 }), /did not finish receiving attachment blob\.bin/)
+    assert.equal(aborted, true)
+  } finally { await rm(home, { recursive: true, force: true }) }
+})

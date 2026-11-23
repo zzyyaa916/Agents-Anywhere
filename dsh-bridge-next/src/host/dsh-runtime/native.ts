@@ -1,4 +1,4 @@
-import { deleteNativeHistory } from './history-deletion.js'
+import { deleteNativeHistory, PendingDeletions } from './history-deletion.js'
 import type { Context } from '@deepseek-ai/cordis'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { SessionPromptRequest } from '@deepseek-ai/dsh-api-session-controller'
@@ -8,6 +8,7 @@ import type {} from '@deepseek-ai/dsh-workspace'
 import type {} from '@deepseek-ai/dsh-storage-domain'
 import type {} from '@deepseek-ai/dsh-permission-presets'
 import { realpath, stat } from 'node:fs/promises'
+import { writeJson } from '../storage/files.js'
 import { dirname, isAbsolute, join } from 'node:path'
 import { canonicalJson, digest, userMessageId } from './identity.js'
 import { BridgeError, CreationNotStartedError } from './errors.js'
@@ -52,6 +53,8 @@ export function lastTurnEndKind(events: readonly SessionEvent[]): string | undef
   return last?.type === 'turn/end' ? last.data.reason.kind : undefined
 }
 
+const ACTIVITY_INTERVAL_MS = 30_000
+
 /** All native interpretation stays in the Host; observers never await transport work. */
 export class NativeRuntime {
   readonly presence: ClientPresence
@@ -67,17 +70,29 @@ export class NativeRuntime {
   private closed = false
   private creations: CreationIntents
   readonly attachments: RuntimeAttachments
+  readonly pendingDeletions: PendingDeletions
+  private purging: Promise<void> | undefined
+  private readonly activityPath: string
+  private activityWrite: Promise<void> = Promise.resolve()
   private readonly facts = new Map<string, { revision: string, value: SessionFacts }>()
 
+  /**
+   * @param stateDirectory - the Bridge's configured state root (`stateRoot(config)`), which holds
+   *   operator-facing state: deferred deletions and the activity heartbeat. Defaults to the parent of
+   *   `creationDirectory` for callers without a Bridge config.
+   */
   constructor(readonly ctx: Context, creationDirectory: string,
     readonly diagnostics = new RuntimeDiagnostics(),
-    legacyAttachmentStaging?: string) {
+    legacyAttachmentStaging?: string,
+    stateDirectory = dirname(creationDirectory)) {
     this.creations = new CreationIntents(creationDirectory)
     this.attachments = new RuntimeAttachments(join(dirname(creationDirectory), 'attachments'), legacyAttachmentStaging)
     this.catalogs = new RuntimeCatalogs(ctx, () => this.emit({ type: 'catalogs', catalogType: 'model' }))
     this.configuration = new RuntimeConfiguration(ctx)
     this.planning = new RuntimePlanning(ctx, this.configuration)
     this.source = new NativeSessionSource(ctx, diagnostics)
+    this.activityPath = join(stateDirectory, 'activity.json')
+    this.pendingDeletions = new PendingDeletions(join(stateDirectory, 'pending-deletions.json'), this.source.pendingDeletion)
     this.commands = new RuntimeCommands(ctx, this.configuration, this.source, () => this.emit({ type: 'commands' }))
     ctx.on('llm/adapters-updated', () => this.catalogs.invalidate(), { global: true })
     ctx.on('permission-presets/catalog-changed', () => this.emit({ type: 'catalogs', catalogType: 'permission' }), { global: true })
@@ -122,7 +137,16 @@ export class NativeRuntime {
         }
       }
     }, { global: true })
-    ctx.on('agent/status', ({ agent }) => this.emit({ type: 'status', id: agent.id }), { global: true })
+    ctx.on('agent/status', ({ agent }) => {
+      this.emit({ type: 'status', id: agent.id })
+      this.publishActivity()
+    }, { global: true })
+    ctx.effect(() => {
+      this.publishActivity()
+      const timer = setInterval(() => this.publishActivity(), ACTIVITY_INTERVAL_MS)
+      timer.unref?.()
+      return () => clearInterval(timer)
+    }, 'runtime.activity')
     ctx.on('domain/changed', change => {
       if (change.domain !== 'workspace') return
       if (change.table === '' && change.operation === 'put') {
@@ -135,6 +159,23 @@ export class NativeRuntime {
           }
         }
       }
+    })
+  }
+
+  /** Sessions with a running Agent turn, from every DSH client, not only AA. */
+  runningSessions(): string[] {
+    return (this.ctx.get('agents')?.list() ?? []).filter(agent => agent.status === 'running').map(agent => agent.id).sort()
+  }
+
+  /**
+   * Heartbeat for operators: a scheduled DSH restart skips while any turn runs.
+   * Best effort and serialized; a stale file means the Bridge is not reporting.
+   */
+  publishActivity(): void {
+    if (this.closed) return
+    const value = { version: 1, pid: process.pid, updatedAt: new Date().toISOString(), running: this.runningSessions() }
+    this.activityWrite = this.activityWrite.then(() => writeJson(this.activityPath, value)).catch(error => {
+      this.diagnostics.log('warn', 'runtime.activity_write_failed', {}, error)
     })
   }
 
@@ -179,6 +220,8 @@ export class NativeRuntime {
   }
   candidates(): string[] { return this.source.candidates() }
   async inventory(signal?: AbortSignal, visit?: (entry: SessionRecord) => Promise<void>): Promise<SessionRecord[]> {
+    await this.pendingDeletions.load()
+    if (this.pendingDeletions.ids.size) await this.purgePendingDeletions()
     await this.source.initialize(signal)
     const result: SessionRecord[] = []
     // Concurrent detail reads may refresh the source map while visibility awaits I/O.
@@ -260,6 +303,8 @@ export class NativeRuntime {
       throw new BridgeError('INVALID_PARAMS', 'A text message and stable client message ID are required.')
     }
     await this.write(id, signal, async () => {
+      await this.pendingDeletions.load()
+      if (this.source.pendingDeletion.has(id)) throw new BridgeError('SESSION_NOT_FOUND', 'The session was deleted.')
       await this.source.initialize(signal)
       if (!create || this.source.archived.has(id)) await this.source.requireAvailable(id)
       const live = this.ctx.get('agents')?.get(id)
@@ -358,12 +403,49 @@ export class NativeRuntime {
     try { return await task } finally { if (this.writes.get(id) === task) this.writes.delete(id) }
   }
   async deleteHistory(id: SessionId, commit: boolean): Promise<void> {
-    await deleteNativeHistory(this.ctx.get('sessionPersistence'), id, Boolean(this.ctx.sessions.get(id)), commit)
+    await this.pendingDeletions.load()
+    const attached = Boolean(this.ctx.sessions.get(id))
+    if (attached) {
+      if (this.status(id) === 'running') {
+        throw new BridgeError('DSH_SERVICE_UNAVAILABLE', 'The native DSH session is still running. Stop it before deleting.', true)
+      }
+      // Validate storage now; the erase itself waits for the next start (see PendingDeletions).
+      await deleteNativeHistory(this.ctx.get('sessionPersistence'), id, false, false)
+      if (!commit) return
+      await this.pendingDeletions.add(id)
+      this.diagnostics.log('info', 'session.deletion_deferred', { sessionId: id })
+      this.emit({ type: 'visibility' })
+      this.emit({ type: 'refresh', id })
+      return
+    }
+    await deleteNativeHistory(this.ctx.get('sessionPersistence'), id, false, commit)
     if (commit) {
+      await this.pendingDeletions.remove(id)
       this.source.release(id)
       await this.source.refresh()
       this.emit({ type: 'refresh', id })
     }
+  }
+
+  /** Erase deferred deletions that DSH has not loaded; a loaded one waits for the next start. */
+  purgePendingDeletions(): Promise<void> {
+    return this.purging ??= (async () => {
+      try {
+        const storage = this.ctx.get('sessionPersistence')
+        if (!storage) return
+        for (const id of [...await this.pendingDeletions.load()]) {
+          if (this.ctx.sessions.get(id as SessionId)) continue
+          try {
+            await deleteNativeHistory(storage, id, false, true)
+            await this.pendingDeletions.remove(id)
+            this.source.release(id)
+            this.diagnostics.log('info', 'session.deferred_deletion_completed', { sessionId: id })
+          } catch (error) {
+            this.diagnostics.log('warn', 'session.deferred_deletion_failed', { sessionId: id }, error)
+          }
+        }
+      } finally { this.purging = undefined }
+    })()
   }
 
   async interrupt(id: SessionId): Promise<void> {
@@ -372,6 +454,7 @@ export class NativeRuntime {
   }
   async close(): Promise<void> {
     this.closed = true
+    await this.activityWrite
     this.presence.close()
     this.source.close()
     this.commands.close()
