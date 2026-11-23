@@ -16,6 +16,9 @@ import WorkspaceRegistry from '@deepseek-ai/dsh-workspace'
 import { bridgePath, nativeRuntime, useHome } from '../fixtures/native-runtime.js'
 import { NativeRuntime } from '../../src/host/dsh-runtime/native.js'
 
+/** The fixture's configured Bridge state root (`stateRoot` in its plugin config). */
+const stateDir = (home: string) => join(home, 'account')
+
 async function sessionDirs(home: string, id: string): Promise<string[]> {
   const root = join(home, 'native-sessions')
   const found: string[] = []
@@ -47,7 +50,9 @@ test('a session DSH still holds is hidden at once and erased on the next start',
     assert.equal(await native.visible(live), false)
     await assert.rejects(native.send(live, 'hello', 'after-delete'), /deleted/)
     assert.equal((await sessionDirs(home, live)).length, 1)
-    const pending = JSON.parse(await readFile(bridgePath(home, 'pending-deletions.json'), 'utf8')) as { sessions: string[] }
+    const pending = JSON.parse(await readFile(join(stateDir(home), 'pending-deletions.json'), 'utf8')) as { sessions: string[] }
+    // State follows the configured state root, never the Connector rendezvous directory.
+    await assert.rejects(access(bridgePath(home, 'pending-deletions.json')))
     assert.deepEqual(pending.sessions, ['deferred-live'])
     // Repeating the deletion is idempotent.
     await native.deleteHistory(live, true)
@@ -68,11 +73,11 @@ test('a session DSH still holds is hidden at once and erased on the next start',
       await ctx.plugin(StorageJson, { root: join(home, 'storage') }).await()
       await ctx.plugin(StorageDomain, { backend: 'json' }).await()
       await ctx.plugin(WorkspaceRegistry).await()
-      const restarted = new NativeRuntime(ctx, bridgePath(home, 'create-intents'))
+      const restarted = new NativeRuntime(ctx, bridgePath(home, 'create-intents'), undefined, undefined, stateDir(home))
       await restarted.purgePendingDeletions()
       assert.equal((await sessionDirs(home, live)).length, 0)
       assert.equal(restarted.source.pendingDeletion.size, 0)
-      const after = JSON.parse(await readFile(bridgePath(home, 'pending-deletions.json'), 'utf8')) as { sessions: string[] }
+      const after = JSON.parse(await readFile(join(stateDir(home), 'pending-deletions.json'), 'utf8')) as { sessions: string[] }
       assert.deepEqual(after.sessions, [])
       assert.equal((await sessionDirs(home, 'persisted-only')).length, 1, 'other sessions are untouched')
       await restarted.close()
@@ -102,7 +107,8 @@ test('the Bridge publishes an activity heartbeat for scheduled restarts', { time
   try {
     native.publishActivity()
     await native.close()
-    const activity = JSON.parse(await readFile(bridgePath(home, 'activity.json'), 'utf8')) as { version: number, pid: number, updatedAt: string, running: string[] }
+    await assert.rejects(access(bridgePath(home, 'activity.json')))
+    const activity = JSON.parse(await readFile(join(stateDir(home), 'activity.json'), 'utf8')) as { version: number, pid: number, updatedAt: string, running: string[] }
     assert.equal(activity.version, 1)
     assert.equal(activity.pid, process.pid)
     assert.ok(Date.now() - Date.parse(activity.updatedAt) < 10_000)

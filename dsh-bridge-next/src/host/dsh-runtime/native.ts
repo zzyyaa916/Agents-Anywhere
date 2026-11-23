@@ -76,17 +76,23 @@ export class NativeRuntime {
   private activityWrite: Promise<void> = Promise.resolve()
   private readonly facts = new Map<string, { revision: string, value: SessionFacts }>()
 
+  /**
+   * @param stateDirectory - the Bridge's configured state root (`stateRoot(config)`), which holds
+   *   operator-facing state: deferred deletions and the activity heartbeat. Defaults to the parent of
+   *   `creationDirectory` for callers without a Bridge config.
+   */
   constructor(readonly ctx: Context, creationDirectory: string,
     readonly diagnostics = new RuntimeDiagnostics(),
-    legacyAttachmentStaging?: string) {
+    legacyAttachmentStaging?: string,
+    stateDirectory = dirname(creationDirectory)) {
     this.creations = new CreationIntents(creationDirectory)
     this.attachments = new RuntimeAttachments(join(dirname(creationDirectory), 'attachments'), legacyAttachmentStaging)
     this.catalogs = new RuntimeCatalogs(ctx, () => this.emit({ type: 'catalogs', catalogType: 'model' }))
     this.configuration = new RuntimeConfiguration(ctx)
     this.planning = new RuntimePlanning(ctx, this.configuration)
     this.source = new NativeSessionSource(ctx, diagnostics)
-    this.activityPath = join(dirname(creationDirectory), 'activity.json')
-    this.pendingDeletions = new PendingDeletions(join(dirname(creationDirectory), 'pending-deletions.json'), this.source.pendingDeletion)
+    this.activityPath = join(stateDirectory, 'activity.json')
+    this.pendingDeletions = new PendingDeletions(join(stateDirectory, 'pending-deletions.json'), this.source.pendingDeletion)
     this.commands = new RuntimeCommands(ctx, this.configuration, this.source, () => this.emit({ type: 'commands' }))
     ctx.on('llm/adapters-updated', () => this.catalogs.invalidate(), { global: true })
     ctx.on('permission-presets/catalog-changed', () => this.emit({ type: 'catalogs', catalogType: 'permission' }), { global: true })
