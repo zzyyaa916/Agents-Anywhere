@@ -22,6 +22,7 @@ import type {
   PublicLocalDesktopBinding,
 } from "./connector-types";
 import type { DesktopOAuthResult } from "./desktop-oauth";
+import type { DownloadProgress, DownloadResult } from "./streaming-download";
 import type { DesktopOnboardingEntry } from "./desktop-onboarding";
 import type { DesktopOAuthStartResult, DesktopServerConnection } from "./desktop-server";
 
@@ -164,6 +165,16 @@ contextBridge.exposeInMainWorld("desktopWorkbench", {
         return Promise.resolve(null);
       }
     },
+  },
+  downloads: {
+    chooseTarget: (name: string): Promise<{ canceled: true } | { canceled: false; id: string; fileName: string }> =>
+      ipcRenderer.invoke("workbench:download:chooseTarget", { name }),
+    start: (input: { id: string; url: string; authToken?: string | null; size?: number | null }): Promise<DownloadResult> =>
+      ipcRenderer.invoke("workbench:download:start", input),
+    cancel: (id: string): Promise<boolean> => ipcRenderer.invoke("workbench:download:cancel", id),
+    showInFolder: (id: string): Promise<boolean> => ipcRenderer.invoke("workbench:download:showInFolder", id),
+    onProgress: (callback: (progress: DownloadProgress) => void): (() => void) =>
+      subscribe("workbench:download:progress", callback),
   },
   windowMaterial: windowMaterial(),
   window: {

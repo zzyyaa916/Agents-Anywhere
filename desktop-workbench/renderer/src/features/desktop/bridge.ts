@@ -235,6 +235,7 @@ export type DesktopWorkbenchBridge = {
     getLocalBinding: () => Promise<DesktopLocalBinding | null>
     updateLocalBindingName: (input: { name: string }) => Promise<DesktopLocalBinding>
   }
+  downloads?: DesktopDownloadsBridge
   connector?: {
     getState: () => Promise<DesktopConnectorState>
     getConfig: () => Promise<DesktopConnectorConfig | null>
@@ -273,6 +274,18 @@ declare global {
   interface Window {
     desktopWorkbench?: DesktopWorkbenchBridge
   }
+}
+
+export type DesktopDownloadProgress = { id: string; received: number; total: number | null }
+export type DesktopDownloadResult =
+  | { ok: true; fileName: string; bytes: number }
+  | { ok: false; code: "expired" | "http" | "canceled" | "incomplete" | "failed" | "invalid"; message: string; status?: number }
+export type DesktopDownloadsBridge = {
+  chooseTarget: (name: string) => Promise<{ canceled: true } | { canceled: false; id: string; fileName: string }>
+  start: (input: { id: string; url: string; authToken?: string | null; size?: number | null }) => Promise<DesktopDownloadResult>
+  cancel: (id: string) => Promise<boolean>
+  showInFolder: (id: string) => Promise<boolean>
+  onProgress: (callback: (progress: DesktopDownloadProgress) => void) => () => void
 }
 
 export function getDesktopWorkbenchBridge(): DesktopWorkbenchBridge | null {

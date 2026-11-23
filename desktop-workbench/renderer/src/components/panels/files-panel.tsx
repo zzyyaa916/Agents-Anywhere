@@ -71,6 +71,7 @@ import { dashboardApi } from "@/features/dashboard/api"
 import type { FsEntry } from "@/features/dashboard/types"
 import { copyText } from "@/lib/clipboard"
 import { downloadBlob } from "@/lib/download"
+import { filesDownloadTexts, streamDownloadToDisk } from "@/lib/streaming-download"
 import { openNativeFilePreviewWindow } from "@/lib/file-preview-window"
 import { cn } from "@/lib/utils"
 import { useTranslations } from "next-intl"
@@ -473,10 +474,26 @@ export function FilesPanelBody({
 
   const downloadEntry = async () => {
     if (!token || !connectorId || !contextEntry || !contextIsFile) return
+    const entry = contextEntry
     try {
-      const response = await dashboardApi.connectorFsRead(token, connectorId, effectiveRoot, contextEntry.path)
+      // Desktop: the save dialog opens at once; Main streams the file to disk.
+      const outcome = await streamDownloadToDisk({
+        name: entry.name,
+        authToken: token,
+        prepare: async () => {
+          const response = await dashboardApi.connectorFsRead(token, connectorId, effectiveRoot, entry.path)
+          return { downloadUrl: response.result.downloadUrl, size: response.result.size }
+        },
+        texts: filesDownloadTexts(t),
+      })
+      if (outcome.status === "error") {
+        toast.error(outcome.message || t("downloadFailed"))
+        return
+      }
+      if (outcome.status !== "unsupported") return
+      const response = await dashboardApi.connectorFsRead(token, connectorId, effectiveRoot, entry.path)
       const blob = await dashboardApi.downloadBlob(token, response.result.downloadUrl)
-      downloadBlob(blob, response.result.name || contextEntry.name)
+      downloadBlob(blob, response.result.name || entry.name)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("downloadFailed"))
     }

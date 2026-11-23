@@ -44,6 +44,7 @@ import { windowMaterialOptions } from "./window-material";
 import { droppedFolderPath } from "./dropped-folder";
 import config from "../config.json";
 import { proxyDesktopApi } from "./api-proxy";
+import { safeDownloadName, StreamingDownloads } from "./streaming-download";
 import {
   checkDesktopServer,
   DesktopServerError,
@@ -99,6 +100,11 @@ let shutdownPromise: Promise<void> | null = null;
 let quitConfirmationPromise: Promise<boolean> | null = null;
 const activeNotifications = new Set<Notification>();
 let serverStore: DesktopServerStore | null = null;
+const streamingDownloads = new StreamingDownloads({
+  fetcher: (url, init) => net.fetch(url, init),
+  serverOrigin: () => apiOrigin(),
+  onProgress: (progress) => sendToRenderer("workbench:download:progress", progress),
+});
 let startingDesktopOAuth = false;
 let desktopOAuthAttempt = 0;
 let pendingDesktopOAuth: (DesktopOAuthPending & { server: DesktopServerConnection; attempt: number }) | null = null;
@@ -826,6 +832,36 @@ function registerIpcHandlers(): void {
       body: JSON.stringify({ filePath: result.filePath }),
     });
     return { canceled: false, filePath: result.filePath, count: exported.count };
+  });
+  // Save-as downloads: the dialog comes first and needs only the name; the transfer is
+  // prepared by the renderer afterwards and streamed to disk here. Tokens are never logged.
+  ipcMain.handle("workbench:download:chooseTarget", async (event, input: { name?: unknown }) => {
+    assertTrustedRenderer(event);
+    const options = { defaultPath: path.join(app.getPath("downloads"), safeDownloadName(input?.name)) };
+    const result = mainWindow
+      ? await dialog.showSaveDialog(mainWindow, options)
+      : await dialog.showSaveDialog(options);
+    if (result.canceled || !result.filePath) return { canceled: true as const };
+    return { canceled: false as const, id: streamingDownloads.register(result.filePath), fileName: path.basename(result.filePath) };
+  });
+  ipcMain.handle("workbench:download:start", (event, input: { id?: unknown; url?: unknown; authToken?: unknown; size?: unknown }) => {
+    assertTrustedRenderer(event);
+    return streamingDownloads.start(String(input?.id ?? ""), {
+      url: String(input?.url ?? ""),
+      authToken: typeof input?.authToken === "string" ? input.authToken : null,
+      size: typeof input?.size === "number" ? input.size : null,
+    });
+  });
+  ipcMain.handle("workbench:download:cancel", (event, id: unknown) => {
+    assertTrustedRenderer(event);
+    return streamingDownloads.cancel(String(id ?? ""));
+  });
+  ipcMain.handle("workbench:download:showInFolder", (event, id: unknown) => {
+    assertTrustedRenderer(event);
+    const filePath = streamingDownloads.completedPath(String(id ?? ""));
+    if (!filePath) return false;
+    shell.showItemInFolder(filePath);
+    return true;
   });
   ipcMain.handle("workbench:connector:factoryReset", async (event, input: DesktopFactoryResetInput) => {
     assertTrustedRenderer(event);
