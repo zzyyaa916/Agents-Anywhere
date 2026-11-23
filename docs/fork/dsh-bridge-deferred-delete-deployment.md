@@ -43,4 +43,15 @@
 
 ## 部署结果
 
-（部署完成后补记：时间、包校验值、备份目录、各验证项结果。）
+2026-11-23，ARM（tokyo-arm-01）。
+
+- 包：`dsh-bridge-next-2.7.3-f6f7eabff.tgz`，sha256 `7e0bcc366b367a0d669c794b5a721d1c71ab8dc68ab2367d72dae29443b5c57f`。
+- 备份：`/opt/agents-anywhere-fork-connector/backups/dsh-deferred-delete-20261123T024445Z/`（`package.json`、`pnpm-lock.yaml`、`cordis.patch.yml`、2.6.7 插件目录、旧定时重启脚本）。
+- `cordis.patch.yml` 仅在末尾追加 `agents-anywhere-bridge-next` 条目的 `bridgeDirectory` 一项。
+- 02:44:46 UTC 重启后验证通过：服务 active（MainPID 562834）；插件 2.7.3 且含 `bridgeDirectory` 配置代码；`activity.json` 写入状态目录，1 秒内、pid 与 MainPID 一致；DSH 进程持有一条对端为 Connector Router socket 的连接；断开链接目录未被写入。
+- 当场删除：冷会话删除立即完成；02:51 删除一个已加载且空闲的会话，面板立即消失、无报错，`pending-deletions.json` 写入状态目录（`ai-dsh`，0600）并记录该会话，原生目录按设计保留到下次 DSH 启动。
+
+### 曾出现的问题
+
+1. 首次部署（02:13）使用未打路径补丁的包，Bridge 找不到 `connector.json`，验证失败后自动回滚，与 Connector 断开约 90 秒。由此新增 `bridgeDirectory` 配置。
+2. 第二次部署预检用 `runuser -u ai-dsh -- test -r` 判断可读性，在该环境下与实际读取结果不符（ACL 授权正确、实际读取成功），预检中止且未做任何改动；改为以 `ai-dsh` 实际读取首字节后部署成功。
