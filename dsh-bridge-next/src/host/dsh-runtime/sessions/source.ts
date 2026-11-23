@@ -18,6 +18,8 @@ export const MAX_RETAINED_LOGS = 8
 /** The official query includes persisted sessions; absence from memory is not archival. */
 export class NativeSessionSource {
   archived: Set<string>
+  /** Deleted in AA while DSH still holds them; never shown or admitted again. */
+  readonly pendingDeletion = new Set<string>()
   private readonly withUserMessages = new Set<string>()
   /** Log identity of a read that found no user message; a changed log invalidates it. */
   private readonly emptyLogs = new Map<string, string>()
@@ -176,7 +178,7 @@ export class NativeSessionSource {
   async visible(id: string): Promise<boolean> {
     const live = this.ctx.sessions.get(id as SessionId)
     const header = live?.header ?? this.records.get(id)?.header
-    if (!header || header.origin === 'subagent' || this.archived.has(id)) return false
+    if (!header || header.origin === 'subagent' || this.archived.has(id) || this.pendingDeletion.has(id)) return false
     if (this.failedReads.has(id)) return false
     if (!this.withUserMessages.has(id)) {
       if (!live && this.records.get(id)?.persisted === false) return false

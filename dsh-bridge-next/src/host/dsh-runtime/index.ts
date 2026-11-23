@@ -71,6 +71,8 @@ export class DshRuntimeService extends Service {
   }
 
   async [Service.init](): Promise<void> {
+    // Deferred deletions are erased before AA can resume them; failures stay pending for the next start.
+    await this.native.purgePendingDeletions().catch(error => this.diagnostics.log('warn', 'session.deferred_deletion_failed', {}, error))
     await this.restart()
   }
 
