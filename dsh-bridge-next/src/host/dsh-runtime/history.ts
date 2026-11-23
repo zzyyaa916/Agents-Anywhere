@@ -1,7 +1,7 @@
 import { setImmediate as yieldLoop } from 'node:timers/promises'
 import { createHash } from 'node:crypto'
 import type { ContentBlock, StreamChunk } from '@deepseek-ai/dsh-llm'
-import { receiptKey, type AttachmentSnapshot, type AttachmentReceipt } from './attachments.js'
+import { isInlinedAttachmentText, receiptKey, type AttachmentSnapshot, type AttachmentReceipt } from './attachments.js'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { canonicalJson, clientMessageId, contentHash, itemId } from './identity.js'
 import { enrichToolResult, parentToolItem, resultContent, toolContent } from './tools.js'
@@ -163,7 +163,7 @@ export function createProjection(externalId: string, platformId: string, fingerp
       if (receipt?.platformId === platformId && receipt.attachments.length) {
         const item = put('message', `${message.id}:0`, event, 'message', 'done', role, {
           kind: 'markdown', format: 'markdown',
-          text: message.content.filter(value => value.type === 'text').map(value => value.text).join('\n'),
+          text: message.content.flatMap(value => value.type === 'text' && !isInlinedAttachmentText(value.text) ? [value.text] : []).join('\n'),
           attachments: receipt.attachments.map(attachment => ({ ...attachment })),
         })
         item.source = { ...item.source, messageSource: json(message.source), ...(clientId ? { clientMessageId: clientId } : {}) }
