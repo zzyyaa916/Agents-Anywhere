@@ -37,6 +37,7 @@ import { dashboardApi } from "@/features/dashboard/api"
 import { loadStoredSession } from "@/features/auth/session"
 import type { FsEntry, FsPreviewSessionResponse, FsReadTextResult } from "@/features/dashboard/types"
 import { cn } from "@/lib/utils"
+import { filesDownloadTexts, streamDownloadToDisk } from "@/lib/streaming-download"
 import { filePathBreadcrumbSegments } from "@/lib/file-path-breadcrumb"
 
 type PreviewState =
@@ -184,6 +185,7 @@ export function FilePreviewSurface({
 }: FilePreviewSurfaceProps) {
   const t = useTranslations("preview")
   const tCommon = useTranslations("common")
+  const tFiles = useTranslations("dashboard.panels.files")
   const tokenRef = React.useRef(token)
   tokenRef.current = token
   const translationRef = React.useRef(t)
@@ -427,6 +429,27 @@ export function FilePreviewSurface({
         return
       }
       if (state.kind === "binary") {
+        if (previewSession || token) {
+          // Desktop: the save dialog opens at once; a fresh transfer is streamed to disk by Main.
+          const session = previewSession
+          const userToken = token
+          const outcome = await streamDownloadToDisk({
+            name: state.file.name || name,
+            authToken: isScopedPreview ? null : userToken,
+            prepare: async () => {
+              const response = session
+                ? await dashboardApi.connectorFsPreviewRead(session.previewAccessToken)
+                : await dashboardApi.connectorFsRead(userToken!, connectorId, root, path)
+              return { downloadUrl: response.result.downloadUrl, size: response.result.size }
+            },
+            texts: filesDownloadTexts(tFiles),
+          })
+          if (outcome.status === "error") {
+            setDownloadError(outcome.message || tFiles("downloadFailed"))
+            return
+          }
+          if (outcome.status !== "unsupported") return
+        }
         const blob = state.objectUrl
           ? await fetch(state.objectUrl).then((response) => response.blob())
           : await dashboardApi.downloadBlob(isScopedPreview ? null : token, state.file.downloadUrl)
@@ -435,7 +458,7 @@ export function FilePreviewSurface({
     } catch (err) {
       setDownloadError(err instanceof Error ? err.message : String(err))
     }
-  }, [isScopedPreview, name, pendingFile, readOnlyPreview, sourceUrl, state, token])
+  }, [connectorId, isScopedPreview, name, path, pendingFile, previewSession, readOnlyPreview, root, sourceUrl, state, tFiles, token])
 
   const handleSave = React.useCallback(async () => {
     if (pendingFile || readOnlyPreview || !token || state.kind !== "text" || !editorRef.current || !editMode) return false
