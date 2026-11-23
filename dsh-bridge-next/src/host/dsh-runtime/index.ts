@@ -37,7 +37,7 @@ export class DshRuntimeService extends Service {
 
   constructor(ctx: Context, config: Config) {
     super(ctx, 'agentsAnywhereRuntime')
-    const bridge = bridgeDirectory()
+    const bridge = bridgeDirectory(config)
     const legacy = legacyBridgeDirectory(config)
     this.diagnostics = new RuntimeDiagnostics(this.logOutput)
     this.native = new NativeRuntime(ctx, join(bridge, 'create-intents'), this.diagnostics,
