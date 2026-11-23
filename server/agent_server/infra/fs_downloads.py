@@ -9,9 +9,15 @@ import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 
+from redis.exceptions import TimeoutError as RedisTimeoutError
+
 from agent_server.infra.redis_coordinator import RedisCoordinator
 
 DEFAULT_TRANSFER_TTL_SECONDS = 300.0
+# One BLPOP never waits longer than this; the stream keeps waiting until the TTL.
+STREAM_POLL_SECONDS = 5.0
+# Redis rounds a BLPOP timeout to milliseconds and treats 0 as "block forever".
+_MIN_POLL_SECONDS = 0.01
 TRANSFER_CHUNK_BYTES = 64 * 1024
 TRANSFER_QUEUE_CHUNKS = 8
 _END_MESSAGE = "end"
@@ -212,11 +218,19 @@ class FsDownloadRelayManager:
                 remaining = max(transfer.expires_at_monotonic - self._clock(), 0.0)
                 if remaining <= 0:
                     break
-                item = await self._coordinator.client.blpop(
-                    queue_key, timeout=remaining
-                )
+                try:
+                    item = await self._coordinator.client.blpop(
+                        queue_key,
+                        timeout=max(
+                            min(STREAM_POLL_SECONDS, remaining), _MIN_POLL_SECONDS
+                        ),
+                    )
+                except RedisTimeoutError:
+                    # The client's socket read can time out before BLPOP returns.
+                    # Either way no chunk has arrived yet; keep waiting until the TTL.
+                    continue
                 if item is None:
-                    break
+                    continue
                 message = item[1]
                 if isinstance(message, bytes):
                     message = message.decode("utf-8")
