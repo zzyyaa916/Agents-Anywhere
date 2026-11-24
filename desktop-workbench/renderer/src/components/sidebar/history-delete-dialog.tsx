@@ -25,6 +25,8 @@ export function HistoryDeleteDialog({ open, onOpenChange, id, name, project = fa
   const { deleteProject, deleteSession, projectDeletionCount, abandonHistoryCleanup } = useWorkspace()
   const [count, setCount] = React.useState<number | null>(null)
   const [confirmation, setConfirmation] = React.useState("")
+  // Display only: the confirmation below still compares against the full name.
+  const shownName = truncateMiddle(name, NAME_DISPLAY_LIMIT)
   const [pending, setPending] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [cleanupFailed, setCleanupFailed] = React.useState(false)
@@ -101,8 +103,8 @@ export function HistoryDeleteDialog({ open, onOpenChange, id, name, project = fa
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>{project ? t("projectTitle") : t("sessionTitle")}</AlertDialogTitle>
-          <AlertDialogDescription>
-            {project ? (count === null ? t("loading") : t("projectDescription", { name, count })) : t("sessionDescription", { name })}
+          <AlertDialogDescription className="[overflow-wrap:anywhere]" title={shownName === name ? undefined : name}>
+            {project ? (count === null ? t("loading") : t("projectDescription", { name: shownName, count })) : t("sessionDescription", { name: shownName })}
           </AlertDialogDescription>
         </AlertDialogHeader>
         {project && <Input
@@ -126,4 +128,14 @@ export function HistoryDeleteDialog({ open, onOpenChange, id, name, project = fa
       </AlertDialogContent>
     </AlertDialog>
   )
+}
+
+const NAME_DISPLAY_LIMIT = 60
+
+/** Shorten a long name for display, keeping its start and end; counts characters, not UTF-16 units. */
+export function truncateMiddle(value: string, limit: number): string {
+  const chars = Array.from(value)
+  if (chars.length <= limit) return value
+  const tail = Math.min(12, Math.floor(limit / 4))
+  return `${chars.slice(0, limit - tail - 1).join("")}…${chars.slice(-tail).join("")}`
 }

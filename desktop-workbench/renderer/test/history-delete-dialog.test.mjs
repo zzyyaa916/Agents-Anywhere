@@ -154,3 +154,50 @@ test('known cleanup failures show the server reason and preserve confirmation', 
   assert.equal(ui.closed(), 0)
   assert.match(document.querySelector('[role="alert"]').textContent, /工作目录重叠/)
 })
+
+const LONG_NAME = '在这个项目中，有一个DSH会话窗口，我想删除DSH这个会话窗口的时候，提示图片上的报错。'.repeat(6)
+  + 'https://github.com/zzyyaa916/Agents-Anywhere/' + 'x'.repeat(200)
+
+test('a very long session name keeps the dialog scrollable and its footer buttons reachable', async t => {
+  const calls = []
+  await render(t, { name: LONG_NAME }, { deleteSession: async (...args) => { calls.push(args) } })
+  const content = document.querySelector('[data-slot="alert-dialog-content"]')
+  assert.ok(content, 'dialog content rendered')
+  const classes = content.className.split(/\s+/)
+  assert.ok(classes.includes('max-h-[calc(100dvh-2rem)]'), 'content height is capped to the viewport')
+  assert.ok(classes.includes('overflow-y-auto'), 'content scrolls vertically')
+
+  const description = document.querySelector('[data-slot="alert-dialog-description"]')
+  assert.ok(!description.textContent.includes(LONG_NAME), 'the full name is not inlined')
+  assert.match(description.textContent, /…/)
+  assert.ok(description.textContent.length < 200, `description stays short (${description.textContent.length})`)
+  assert.equal(description.getAttribute('title'), LONG_NAME, 'the full name stays available as a tooltip')
+
+  for (const label of ['取消', '删除']) {
+    const target = button(label)
+    assert.ok(target, `${label} is rendered`)
+    assert.ok(content.contains(target), `${label} is inside the scrollable content`)
+    assert.equal(target.closest('[hidden],[aria-hidden="true"]'), null, `${label} is not hidden`)
+  }
+  await click('删除')
+  assert.deepEqual(calls, [['object']])
+})
+
+test('a short name is shown in full without a tooltip', async t => {
+  await render(t, {})
+  const description = document.querySelector('[data-slot="alert-dialog-description"]')
+  assert.match(description.textContent, /「My Project」/)
+  assert.equal(description.getAttribute('title'), null)
+})
+
+test('a long project name is shortened for display but must be typed in full', async t => {
+  const calls = []
+  await render(t, { project: true, name: LONG_NAME }, { deleteProject: async (...args) => { calls.push(args); return true } })
+  const description = document.querySelector('[data-slot="alert-dialog-description"]')
+  const shown = /「([^」]*)」/.exec(description.textContent)?.[1]
+  assert.ok(shown && shown !== LONG_NAME && shown.includes('…'))
+  assert.equal(button('删除').disabled, true)
+  await type(shown); assert.equal(button('删除').disabled, true, 'the shortened text does not confirm')
+  await type(LONG_NAME); await click('删除')
+  assert.deepEqual(calls, [['object', 3]])
+})
